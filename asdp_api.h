@@ -20,6 +20,7 @@
 #include <string>
 #include <chrono>
 #include <memory>
+#include <vector>
 
 namespace asdp {
 
@@ -48,7 +49,11 @@ enum Status {
   /// @brief Error: Internal failure: Exception inside the implementation.
   INTERNAL_EXCEPTION            = 1006,
   /// @brief Error: Socket error.
-  SOCKET_ERROR                  = 1007
+  SOCKET_ERROR                  = 1007,
+  /// @brief Error: Attempting to read past the memory available in an object.
+  READ_PAST_END                 = 1008,
+  /// @brief Error: Bad magic cookie in packet.
+  BAD_COOKIE                    = 1009
 };
 
 /// @brief Helper function to return a descriptive error message based on a status value.
@@ -162,6 +167,7 @@ public:
   /// @param [in] length Length of the packet to send.
   /// @return OKAY if successful, otherwise an error code.
   Status Send(const void* buffer, size_t length);
+
 protected:
   std::shared_ptr<Timer> m_timer; ///< Used to determine the current time when sending a packet.
 };
@@ -185,7 +191,194 @@ protected:
 };
 
 //---------------------------------------------------------------------------
+/// @brief Command packet, subclass constructed and sent by clients and received and parsed by server.
+///
+/// The command packet is a UDP packet sent by a client to a server.  It contains an operation code
+/// and optional parameters.  The server receives the packet, parses it, and executes the operation.
+/// These packets are sent using the SocketSender class and received using the SocketReceiver class.
+/// They are created on a client by constructing a subclass.  They are parsed on a server from a
+/// buffer by checking the operation code and then typecasting to the appropriate subclass.
+///
+/// Subclasses are listed below.
+
+class CommandPacket {
+public:
+
+  /// @todo Think about how to do reading into a buffer pool and passing them to the
+  /// packets for both command packets and stream packets. Do we use a specialized
+  /// shared_ptr that returns things to a free pool; taking ownership rather than
+  /// creating them?
+
+  /// @brief Return the status of the constructor.
+  Status GetConstructorStatus() const;
+
+  /// @brief Get the operation code for this command packet.
+  /// @param [out] opCode The operation code for this command packet.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetOpCode(OpCode& opCode) const;
+
+  /// @brief Virtual destructor.
+  virtual ~CommandPacket();
+
+  /// @brief Test function.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
+
+protected:
+  // Remove the default constructor and copy operators.
+  CommandPacket() = delete;
+  CommandPacket(const CommandPacket&) = delete;
+  CommandPacket& operator=(const CommandPacket&) = delete;
+  CommandPacket(CommandPacket&&) = delete;
+  CommandPacket& operator=(CommandPacket&&) = delete;
+
+  /// @brief Construct a command packet with its own buffer and fill its values in.
+  /// @param [in] parameterSize Size of the parameter portion of the packet.
+  /// @param [in] code Operation code for the packet.
+  CommandPacket(uint32_t parameterSize, OpCode code);
+
+  /// @brief Construct a command packet that shares a buffer with another packet.
+  ///
+  /// This us used when type-casting from an existing buffer to a subclass.
+  /// It is also used when constructing a new packet from an existing buffer
+  /// that was received from the network.
+  /// 
+  /// @param [in] existingBuffer Pointer to the buffer containing the packet information.
+  /// This adds a reference count to the buffer to ensure that it is not deleted out from
+  /// under us.
+  CommandPacket(std::shared_ptr<std::vector<uint8_t>> existingBuffer);
+
+  std::shared_ptr<std::vector<uint8_t>> m_buffer;  ///< Buffer containing the packet.
+  Status m_constructorStatus = OKAY;               ///< Status of the constructor.
+
+  friend class CommandPacketReset;
+  friend class CommandPacketCancelAllStreams;
+  /// @todo Finish the rest of the subclasses, here and below, once we've finished a full example.
+  friend class CommandPacketStreamSubregions;
+};
+
+/// @brief Command packet to reset the system
+class CommandPacketReset : public CommandPacket {
+public:
+  /// @brief Construct a brand-new command buffer with the Reset opcode.
+  CommandPacketReset();
+
+  /// @brief Type-cast a base CommandPacket into a Reset packet, re-using its buffer.
+  /// @param [in] basePacket The base packet to convert from.
+  CommandPacketReset(CommandPacket& basePacket);
+
+  /// @brief Test function.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
+};
+
+/// @brief Command packet to cancel all streams on a subnet.
+class CommandPacketCancelAllStreams : public CommandPacket {
+public:
+  /// @brief Construct a brand-new command buffer with the CancelAllStreams opcode.
+  /// @param [in] subnet Subnet to cancel all streams on.
+  CommandPacketCancelAllStreams(uint32_t subnet);
+
+  /// @brief Type-cast a base CommandPacket into a CancelAllStreams packet, re-using its buffer.
+  /// @param [in] basePacket The base packet to convert from.
+  CommandPacketCancelAllStreams(CommandPacket& basePacket);
+
+  /// @brief Get the subnet to cancel all streams on.
+  /// @param [out] subnet Subnet to cancel all streams on.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetSubnet(uint32_t& subnet) const;
+
+  /// @brief Test function.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
+};
+
+/// @brief Structure describing a subregion.
+struct SubregionDescription {
+  uint32_t cameraID;    ///< Camera ID the region is from
+  uint32_t skipFrames;  ///< Number of frames to skip between frames in the subregion
+  uint32_t left;        ///< Left side of the subregion
+  uint32_t top;         ///< Top side of the subregion
+  uint32_t right;       ///< Right side of the subregion
+  uint32_t bottom;      ///< Bottom side of the subregion
+
+  /// @brief Equality operator.
+  bool operator ==(const SubregionDescription& other) const {
+    return cameraID == other.cameraID &&
+      skipFrames == other.skipFrames &&
+      left == other.left &&
+      top == other.top &&
+      right == other.right &&
+      bottom == other.bottom;
+  };
+  /// @brief Inequality operator.
+  bool operator !=(const SubregionDescription& other) const {
+    return !(*this == other);
+  };
+};
+
+/// @brief Command packet to stream subregions.
+class CommandPacketStreamSubregions : public CommandPacket {
+public:
+  /// @brief Construct a brand-new command buffer with the StreamSubregions opcode.
+  /// @param [in] IP IP address of the system to stream to.
+  /// @param [in] port Port number of the system to stream to.
+  /// @param [in] regions Vector of subregions to stream.
+  CommandPacketStreamSubregions(uint32_t IP, uint16_t port, std::vector<SubregionDescription> const &regions);
+
+  /// @brief Type-cast a base CommandPacket into a StreamSubregions packet, re-using its buffer.
+  /// @param [in] basePacket The base packet to convert from.
+  CommandPacketStreamSubregions(CommandPacket& basePacket);
+
+  /// @brief Get the IP to stream to.
+  /// @param [out] IP IP to stream subregions on.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetIP(uint32_t& subnet) const;
+
+  /// @brief Get the port to stream to.
+  /// @param [out] port Port to stream.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetPort(uint16_t& regionID) const;
+
+  /// @brief Get the subregion ID to stream.
+  /// @param [out] subregionID Subregion ID to stream.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetRegionDescriptions(std::vector<SubregionDescription> & regions) const;
+
+  /// @brief Test function.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
+};
+
+//---------------------------------------------------------------------------
 /// @brief Core class, which is the derived class for both a client and server.
+
+class Core {
+public:
+  /// @brief Get the version of the Core API being used.
+  /// @return The version of the Core API.
+  static std::string GetVersion();
+
+  /// @brief Get the maximum size of the payload that can be sent in a UDP packet using this Core.
+  /// @param [out] value The maximum size of the payload that can be sent in a UDP packet using this Core.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetMaxPayloadSize(size_t& value) const;
+
+  /// @brief Set the maximum size of the payload that can be sent in a UDP packet using this Core.
+  /// @param [in] value The maximum size of the payload that can be sent in a UDP packet using this Core.
+  /// @return OKAY if successful, otherwise an error code.
+  Status SetMaxPayloadSize(size_t value);
+
+  /// @brief Virtual destructor.
+  virtual ~Core();
+
+protected:
+  Core();
+  Core(const Core&) = delete;
+  Core& operator=(const Core&) = delete;
+  Core(Core&&) = delete;
+  Core& operator=(Core&&) = delete;
+};
 
 //---------------------------------------------------------------------------
 /// @brief Test function that verifies that all classes and functions are working.
