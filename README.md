@@ -28,6 +28,6 @@ by running `make test` in the build directory.
 
 Compiling a C++ program consists of including the header files (which are installed
 in /usr/local/include on Linux) and linking against the asdl library (installed in /usr/local/lib).
-The C++ programs use C++-11.  An example compilation for the ASDL_Core_Test.cpp program follows:
+The C++ programs use C++-11.  An example compilation for the ASDP_Core_Test.cpp program follows:
 
-``c++ -std=c++11 ASDL_Core_Test.cpp -ASDP_Core -o ASDL_Core_Test``
+``c++ -std=c++11 ASDP_Core_Test.cpp -ASDP_Core -o ASDP_Core_Test``
