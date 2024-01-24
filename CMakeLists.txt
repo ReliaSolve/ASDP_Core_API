@@ -131,7 +131,7 @@ if(BUILD_TESTS)
   enable_testing()
 
   set (CPP_TESTS
-    ASDL_Core_Test
+    ASDP_Core_Test
   )
   foreach (BASE ${CPP_TESTS})
     set (APP ${BASE})
