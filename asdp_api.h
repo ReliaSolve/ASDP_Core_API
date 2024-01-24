@@ -152,45 +152,6 @@ protected:
 };
 
 //---------------------------------------------------------------------------
-/// @brief Class used to send UDP packets on a socket. Used internally by CoreClient and CoreServer.
-
-class SocketSender {
-public:
-  /// @brief Construct a SocketSender object.
-  /// @param [in] timer Pointer to a Timer object to be used to determine the current time
-  /// when sending a packet.
-  SocketSender(std::shared_ptr<Timer> timer);
-  virtual ~SocketSender();
-
-  /// @brief Send a UDP packet.
-  /// @param [in] buffer Pointer to the buffer containing the packet to send.
-  /// @param [in] length Length of the packet to send.
-  /// @return OKAY if successful, otherwise an error code.
-  Status Send(const void* buffer, size_t length);
-
-protected:
-  std::shared_ptr<Timer> m_timer; ///< Used to determine the current time when sending a packet.
-};
-
-//---------------------------------------------------------------------------
-/// @brief Class used to receive UDP packets on a socket.
-
-class SocketReceiver {
-public:
-  /// @brief Construct a SocketReceiver object.
-  /// @param [in] IP address to listen on.
-  /// @param [in] port Port number to listen on (default of 0 means any available port).
-  SocketReceiver(uint32_t IP, uint16_t port = 0);
-
-  /// @brief Get the port associated with this receiver.
-  /// @return The port associated with this receiver.
-  uint16_t GetPort() const;
-
-  virtual ~SocketReceiver();
-protected:
-};
-
-//---------------------------------------------------------------------------
 /// @brief Command packet, subclass constructed and sent by clients and received and parsed by server.
 ///
 /// The command packet is a UDP packet sent by a client to a server.  It contains an operation code
@@ -348,6 +309,49 @@ public:
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
   static std::string Test();
+};
+
+/// @todo Messages should each be tied to a StreamPacket, keeping a shared pointer to it
+/// to ensure that the buffer is not deleted out from under us.  It will also store an
+/// offset into the buffer to the start of the message, and a length of the message.
+
+//---------------------------------------------------------------------------
+/// @brief Class used to send UDP packets on a socket. Used internally by CoreClient and CoreServer.
+
+class SocketSender {
+public:
+  /// @brief Construct a SocketSender object.
+  /// @param [in] timer Pointer to a Timer object to be used to determine the current time
+  /// when sending a packet.
+  SocketSender(std::shared_ptr<Timer> timer);
+  virtual ~SocketSender();
+
+  /// @brief Send a UDP packet.
+  /// @param [in] buffer Pointer to the buffer containing the packet to send.
+  /// @param [in] length Length of the packet to send.
+  /// @return OKAY if successful, otherwise an error code.
+  Status Send(const void* buffer, size_t length);
+
+protected:
+  std::shared_ptr<Timer> m_timer; ///< Used to determine the current time when sending a packet.
+};
+
+//---------------------------------------------------------------------------
+/// @brief Class used to receive UDP packets on a socket.
+
+class SocketReceiver {
+public:
+  /// @brief Construct a SocketReceiver object.
+  /// @param [in] IP address to listen on.
+  /// @param [in] port Port number to listen on (default of 0 means any available port).
+  SocketReceiver(uint32_t IP, uint16_t port = 0);
+
+  /// @brief Get the port associated with this receiver.
+  /// @return The port associated with this receiver.
+  uint16_t GetPort() const;
+
+  virtual ~SocketReceiver();
+protected:
 };
 
 //---------------------------------------------------------------------------

@@ -441,7 +441,10 @@ std::string asdp::Test()
   if (ret.size() > 0) {
     return "Error testing CommandPacketStreamSubregions: " + ret;
   }
+  /// @todo
 
+  //-------------------------------------------------------------------
+  // Tests for Core and its derived classes.
   /// @todo
 
 
