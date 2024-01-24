@@ -49,32 +49,32 @@ std::string asdp::ErrorMessage(Status status)
 static const unsigned char MAGIC_COOKIE[4] = { 'A', 'S', 'D', 'P' };
 static const unsigned char VERSION[4] = { 1, 0, 0, 0 };
 
-static const uint32_t COMMAND_PACKET_BASE_SIZE = 4 * 5;
+static const uint32_t PACKET_BASIC_HEADER_SIZE = 4 * sizeof(uint32_t);
+static const uint32_t PACKET_HEADER_MAGIC_COOKIE_OFFSET = 0;
+static const uint32_t PACKET_HEADER_VERSION_OFFSET = 4;
+static const uint32_t PACKET_HEADER_TOTAL_SIZE_OFFSET = 8;
+static const uint32_t PACKET_HEADER_HEADER_SIZE_OFFSET = 12;
+static const uint32_t COMMAND_PACKET_BASE_SIZE = PACKET_BASIC_HEADER_SIZE + sizeof(uint32_t);
+static const uint32_t STREAM_PACKET_BASE_SIZE = PACKET_BASIC_HEADER_SIZE + 3 * sizeof(uint32_t);
 
-CommandPacket::CommandPacket(uint32_t parameterSize, OpCode code)
-  : m_buffer(std::make_shared<std::vector<uint8_t>>(COMMAND_PACKET_BASE_SIZE + parameterSize))
+BasicPacket::BasicPacket(uint32_t extraHeaderSize, uint32_t parameterSize)
+  : m_buffer(std::make_shared<std::vector<uint8_t>>(COMMAND_PACKET_BASE_SIZE + extraHeaderSize + parameterSize))
 {
   // Pack our header and operation code.
-  unsigned char *bufPtr = m_buffer->data();
+  unsigned char* bufPtr = m_buffer->data();
   memcpy(bufPtr, MAGIC_COOKIE, sizeof(MAGIC_COOKIE)); bufPtr += sizeof(MAGIC_COOKIE);
   memcpy(bufPtr, VERSION, sizeof(VERSION)); bufPtr += sizeof(VERSION);
-  uint32_t totalSize = COMMAND_PACKET_BASE_SIZE + parameterSize;
+  uint32_t totalSize = PACKET_BASIC_HEADER_SIZE + extraHeaderSize + parameterSize;
   memcpy(bufPtr, &totalSize, sizeof(totalSize)); bufPtr += sizeof(totalSize);
-  const uint32_t header_size = 4 * 4;
+  const uint32_t header_size = PACKET_BASIC_HEADER_SIZE + extraHeaderSize;
   memcpy(bufPtr, &header_size, sizeof(header_size)); bufPtr += sizeof(header_size);
-  memcpy(bufPtr, &code, sizeof(code)); bufPtr += sizeof(code);
 }
 
-Status CommandPacket::GetConstructorStatus() const
-{
-  return m_constructorStatus;
-}
-
-CommandPacket::CommandPacket(std::shared_ptr<std::vector<uint8_t>> existingBuffer)
+BasicPacket::BasicPacket(std::shared_ptr<std::vector<uint8_t>> existingBuffer)
   : m_buffer(existingBuffer)
 {
-  // Make sure the buffer is of the correct size.
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE) {
+  // Make sure the buffer is large enough.
+  if (m_buffer->size() < PACKET_BASIC_HEADER_SIZE) {
     m_constructorStatus = BAD_PARAMETER;
     return;
   }
@@ -83,6 +83,71 @@ CommandPacket::CommandPacket(std::shared_ptr<std::vector<uint8_t>> existingBuffe
     m_constructorStatus = BAD_COOKIE;
     return;
   }
+}
+
+Status BasicPacket::GetConstructorStatus() const
+{
+  return m_constructorStatus;
+}
+
+BasicPacket::~BasicPacket()
+{
+}
+
+std::string BasicPacket::Test()
+{
+  {
+    // Construct a basic packet.
+    BasicPacket packet(0, 0);
+    if (packet.GetConstructorStatus() != OKAY) {
+      return "Error constructing base packet: " + ErrorMessage(packet.GetConstructorStatus());
+    }
+
+    // Construct a new packet from the original packet's buffer.
+    BasicPacket packet2(packet.m_buffer);
+    if (packet2.GetConstructorStatus() != OKAY) {
+      return "Error constructing base packet from buffer: " + ErrorMessage(packet2.GetConstructorStatus());
+    }
+  }
+
+  {
+    // Try to construct a basic packet from a buffer that is too small and make
+    // sure that it fails.
+    std::shared_ptr<std::vector<uint8_t>> empty = std::make_shared<std::vector<uint8_t>>();
+    BasicPacket packet(empty);
+    Status status = packet.GetConstructorStatus();
+    if (status != BAD_PARAMETER) {
+      return "Unexpected return code from empty packet construction: " + ErrorMessage(status);
+    }
+  }
+
+  {
+    // Try to construct a basic packet from a buffer that has a bad cookie and make
+    // sure that it fails.
+    std::shared_ptr<std::vector<uint8_t>> noCookie = std::make_shared<std::vector<uint8_t>>(COMMAND_PACKET_BASE_SIZE);
+    BasicPacket packet(noCookie);
+    Status status = packet.GetConstructorStatus();
+    if (status != BAD_COOKIE) {
+      return "Unexpected return code from no-cookie packet construction: " + ErrorMessage(status);
+    }
+  }
+
+  // Everything worked.
+  return "";
+}
+
+CommandPacket::CommandPacket(uint32_t parameterSize, OpCode code)
+  : BasicPacket(0, sizeof(uint32_t) + parameterSize)
+{
+  // Pack our header and operation code.
+  unsigned char *bufPtr = m_buffer->data() + PACKET_BASIC_HEADER_SIZE;
+  uint32_t myOpCode = code;
+  memcpy(bufPtr, &myOpCode, sizeof(myOpCode)); bufPtr += sizeof(myOpCode);
+}
+
+CommandPacket::CommandPacket(std::shared_ptr<std::vector<uint8_t>> existingBuffer)
+  : BasicPacket(existingBuffer)
+{
 }
 
 Status CommandPacket::GetOpCode(OpCode& opCode) const
@@ -95,16 +160,12 @@ Status CommandPacket::GetOpCode(OpCode& opCode) const
   // Read the offset from the beginning of the buffer to the opcode from the header.
   // This is done to allow future versions to have more information in the header.
   uint32_t opCodeOffset;
-  memcpy(&opCodeOffset, m_buffer->data() + 4 * 3, sizeof(opCodeOffset));
+  memcpy(&opCodeOffset, m_buffer->data() + PACKET_HEADER_HEADER_SIZE_OFFSET, sizeof(opCodeOffset));
   if (opCodeOffset + sizeof(opCode) > m_buffer->size()) {
     return READ_PAST_END;
   }
   memcpy(&opCode, m_buffer->data() + opCodeOffset, sizeof(opCode));
   return OKAY;
-}
-
-CommandPacket::~CommandPacket()
-{
 }
 
 std::string CommandPacket::Test()
@@ -424,7 +485,11 @@ std::string asdp::Test()
   /// @todo
 
   //-------------------------------------------------------------------
-  // Tests for CommandPacket and its derived classes.
+  // Tests for BasicPacket and its derived classes.
+  ret = BasicPacket::Test();
+  if (ret.size() > 0) {
+    return "Error testing BasicPacket: " + ret;
+  }
   ret = CommandPacket::Test();
   if (ret.size() > 0) {
     return "Error testing CommandPacket: " + ret;
@@ -441,7 +506,6 @@ std::string asdp::Test()
   if (ret.size() > 0) {
     return "Error testing CommandPacketStreamSubregions: " + ret;
   }
-  /// @todo
 
   //-------------------------------------------------------------------
   // Tests for Core and its derived classes.

@@ -152,17 +152,12 @@ protected:
 };
 
 //---------------------------------------------------------------------------
-/// @brief Command packet, subclass constructed and sent by clients and received and parsed by server.
+/// @brief Base packet type, not used by client code, supports code common to CommandPacket and StreamPacket.
 ///
-/// The command packet is a UDP packet sent by a client to a server.  It contains an operation code
-/// and optional parameters.  The server receives the packet, parses it, and executes the operation.
-/// These packets are sent using the SocketSender class and received using the SocketReceiver class.
-/// They are created on a client by constructing a subclass.  They are parsed on a server from a
-/// buffer by checking the operation code and then typecasting to the appropriate subclass.
-///
-/// Subclasses are listed below.
+/// The GetConstructorStatus() function can be used to determine if the constructor was successful
+/// in this class and in derived classes.
 
-class CommandPacket {
+class BasicPacket {
 public:
 
   /// @todo Think about how to do reading into a buffer pool and passing them to the
@@ -173,13 +168,63 @@ public:
   /// @brief Return the status of the constructor.
   Status GetConstructorStatus() const;
 
+  /// @brief Virtual destructor so all derived class pointers will destroy properly.
+  virtual ~BasicPacket();
+
+  /// @brief Test function.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
+
+protected:
+  // Remove the default constructor and copy operators.
+  BasicPacket() = delete;
+  BasicPacket(const BasicPacket&) = delete;
+  BasicPacket& operator=(const BasicPacket&) = delete;
+  BasicPacket(BasicPacket&&) = delete;
+  BasicPacket& operator=(BasicPacket&&) = delete;
+
+  /// @brief Construct a basic packet with its own buffer and fill its values in.
+  /// @param [in] extraHeaderSize Size of the header portion of the packet beyond the basic header size.
+  /// @param [in] parameterSize Size of the parameter portion of the packet after the base size.
+  /// @param [in] code Operation code for the packet.
+  BasicPacket(uint32_t extraHeaderSize, uint32_t parameterSize);
+
+  /// @brief Construct a basic packet that shares a buffer with another packet.
+  ///
+  /// This us used when type-casting from an existing buffer to a subclass.
+  /// It is also used when constructing a new packet from an existing buffer
+  /// that was received from the network.
+  /// 
+  /// @param [in] existingBuffer Pointer to the buffer containing the packet information.
+  /// This adds a reference count to the buffer to ensure that it is not deleted out from
+  /// under us.
+  BasicPacket(std::shared_ptr<std::vector<uint8_t>> existingBuffer);
+
+  std::shared_ptr<std::vector<uint8_t>> m_buffer;  ///< Buffer containing the packet.
+  Status m_constructorStatus = OKAY;               ///< Status of the constructor.
+
+  friend class CommandPacket;
+  friend class StreamPacket;
+};
+
+//---------------------------------------------------------------------------
+/// @brief Command packet, subclass constructed and sent by clients and received and parsed by server.
+///
+/// The command packet is a UDP packet sent by a client to a server.  It contains an operation code
+/// and optional parameters.  The server receives the packet, parses it, and executes the operation.
+/// These packets are sent using the SocketSender class and received using the SocketReceiver class.
+/// They are created on a client by constructing a subclass.  They are parsed on a server from a
+/// buffer by checking the operation code and then typecasting to the appropriate subclass.
+///
+/// Subclasses are listed below.
+
+class CommandPacket : public BasicPacket {
+public:
+
   /// @brief Get the operation code for this command packet.
   /// @param [out] opCode The operation code for this command packet.
   /// @return OKAY if successful, otherwise an error code.
   Status GetOpCode(OpCode& opCode) const;
-
-  /// @brief Virtual destructor.
-  virtual ~CommandPacket();
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
@@ -209,9 +254,7 @@ protected:
   /// under us.
   CommandPacket(std::shared_ptr<std::vector<uint8_t>> existingBuffer);
 
-  std::shared_ptr<std::vector<uint8_t>> m_buffer;  ///< Buffer containing the packet.
-  Status m_constructorStatus = OKAY;               ///< Status of the constructor.
-
+  /// @todo See if we need this once we've refactored
   friend class CommandPacketReset;
   friend class CommandPacketCancelAllStreams;
   /// @todo Finish the rest of the subclasses, here and below, once we've finished a full example.
@@ -311,9 +354,15 @@ public:
   static std::string Test();
 };
 
-/// @todo Messages should each be tied to a StreamPacket, keeping a shared pointer to it
+/// @todo StreamPacket and CommandPacket should share a common Packet base class.
+/// The StreamPacket should allocate a maximum sized buffer and then resize as needed
+/// when adding messages.
+
+/// @todo Messages should each be tied to a StreamPacket, keeping a shared pointer to its buffer
 /// to ensure that the buffer is not deleted out from under us.  It will also store an
 /// offset into the buffer to the start of the message, and a length of the message.
+/// It should always be read-only after construction and it should only be constructable
+/// with a StreamPacket passed to it.
 
 //---------------------------------------------------------------------------
 /// @brief Class used to send UDP packets on a socket. Used internally by CoreClient and CoreServer.
