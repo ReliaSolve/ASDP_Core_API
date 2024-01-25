@@ -61,7 +61,7 @@ std::string asdp::ErrorMessage(Status status)
 }
 
 //----------------------------------------------------------------------------
-// API functions
+// Definitions of static constants used below.
 
 static const unsigned char MAGIC_COOKIE[4] = { 'A', 'S', 'D', 'P' };
 static const unsigned char VERSION[4] = { 1, 0, 0, 0 };
@@ -81,6 +81,138 @@ static const uint32_t MESSAGE_HEADER_MESSAGE_HEADER_SIZE_OFFSET = 8;
 static const uint32_t MESSAGE_HEADER_MESSAGE_TIME_SECONDS_OFFSET = 12;
 static const uint32_t MESSAGE_HEADER_MESSAGE_TIME_MICROSECONDS_SIZE_OFFSET = 16;
 static const uint32_t MESSAGE_HEADER_MESSAGE_TYPE_OFFSET = 20;
+
+//----------------------------------------------------------------------------
+// API functions
+
+Timer::Timer()
+  : m_coreOffset({0, 0})
+{
+}
+
+Status Timer::GetCoreTime(Time& core_time, const std::chrono::steady_clock::time_point local_time) const
+{
+  // Get the local time into a Time.
+  Time localTime = {
+    (uint32_t)std::chrono::duration_cast<std::chrono::seconds>(local_time.time_since_epoch()).count(),
+    (uint32_t)std::chrono::duration_cast<std::chrono::microseconds>(local_time.time_since_epoch()).count() % 1000000
+  };
+
+  // Verify that the local time is not before the core offset.
+  if (localTime < m_coreOffset) {
+    return BAD_PARAMETER;
+  }
+
+  // Subtract the core offset.
+  core_time = localTime - m_coreOffset;
+  return OKAY;
+}
+
+Status Timer::SetCoreOffset(Time offset)
+{
+  // Ensure that the offset is not too large.
+  std::chrono::steady_clock::time_point local_time = std::chrono::steady_clock::now();
+  Time localTime = {
+    (uint32_t)std::chrono::duration_cast<std::chrono::seconds>(local_time.time_since_epoch()).count(),
+    (uint32_t)std::chrono::duration_cast<std::chrono::microseconds>(local_time.time_since_epoch()).count() % 1000000
+  };
+  if (offset > localTime) {
+    return BAD_PARAMETER;
+  }
+
+  m_coreOffset = offset;
+  return OKAY;
+}
+
+Timer::~Timer()
+{
+}
+
+std::string Timer::Test()
+{
+  // Test the + and += operators on the Time class.
+  {
+    Time time1 = { 1, 2 };
+    Time time2 = { 3, 4 };
+    Time time3 = time1 + time2;
+    if (time3.seconds != 4 || time3.microseconds != 6) {
+      return "Error adding times: " + std::to_string(time3.seconds) + "." + std::to_string(time3.microseconds);
+    }
+    time1 += time2;
+    if (time1.seconds != 4 || time1.microseconds != 6) {
+      return "Error adding times: " + std::to_string(time1.seconds) + "." + std::to_string(time1.microseconds);
+    }
+  }
+
+  // Test the - and -= operators on the Time class, including cases where the microseconds must borrow.
+  {
+    Time time1 = { 1, 2 };
+    Time time2 = { 3, 4 };
+    Time time3 = time2 - time1;
+    if (time3.seconds != 2 || time3.microseconds != 2) {
+      return "Error subtracting times: " + std::to_string(time3.seconds) + "." + std::to_string(time3.microseconds);
+    }
+    time2 -= time1;
+    if (time2.seconds != 2 || time2.microseconds != 2) {
+      return "Error subtracting times: " + std::to_string(time2.seconds) + "." + std::to_string(time2.microseconds);
+    }
+    time1 = { 1, 2 };
+    time2 = { 0, 4 };
+    time3 = time1 - time2;
+    if (time3.seconds != 0 || time3.microseconds != 999998) {
+      return "Error subtracting times: " + std::to_string(time3.seconds) + "." + std::to_string(time3.microseconds);
+    }
+    time1 -= time2;
+    if (time1.seconds != 0 || time1.microseconds != 999998) {
+      return "Error subtracting times: " + std::to_string(time1.seconds) + "." + std::to_string(time1.microseconds);
+    }
+  }
+
+  // Test the Timer class methods for cases that should work and cases that should fail.
+{
+    Timer timer;
+    Time coreTime;
+    std::chrono::steady_clock::time_point localTime = std::chrono::steady_clock::now();
+    Time localTimeStruct = {
+      (uint32_t)std::chrono::duration_cast<std::chrono::seconds>(localTime.time_since_epoch()).count(),
+      (uint32_t)std::chrono::duration_cast<std::chrono::microseconds>(localTime.time_since_epoch()).count() % 1000000
+    };
+
+    // Test the GetCoreTime method.
+    Status status = timer.GetCoreTime(coreTime, localTime);
+    if (status != OKAY) {
+      return "Error getting core time: " + ErrorMessage(status);
+    }
+    if (coreTime != localTimeStruct) {
+      return "Error getting core time: " + std::to_string(coreTime.seconds) + "." + std::to_string(coreTime.microseconds);
+    }
+
+    // Test the SetCoreOffset method.
+    status = timer.SetCoreOffset(localTimeStruct);
+    if (status != OKAY) {
+      return "Error setting core offset: " + ErrorMessage(status);
+    }
+
+    // Test the GetCoreTime method again.
+    status = timer.GetCoreTime(coreTime, localTime);
+    if (status != OKAY) {
+      return "Error getting core time: " + ErrorMessage(status);
+    }
+    if (coreTime != Time({ 0, 0 })) {
+      return "Error getting core time: " + std::to_string(coreTime.seconds) + "." + std::to_string(coreTime.microseconds);
+    }
+
+    // Test the SetCoreOffset method with a bad parameter.
+    Time badTimeStruct = localTimeStruct;
+    badTimeStruct.seconds += 1;
+    status = timer.SetCoreOffset(badTimeStruct);
+    if (status != BAD_PARAMETER) {
+      return "Error: Permitted to set core offset when should not have been: " + ErrorMessage(status);
+    }
+  }
+
+  return "";
+}
 
 BasicPacket::BasicPacket(uint32_t extraHeaderSize, uint32_t parameterSize)
   : m_buffer(std::make_shared<std::vector<uint8_t>>(COMMAND_PACKET_BASE_SIZE + extraHeaderSize + parameterSize))
@@ -1440,8 +1572,11 @@ std::string asdp::Test()
   }
 
   //-------------------------------------------------------------------
-  // Tests for Timer and its derived classes.
-  /// @todo
+  // Tests for Timer.
+  ret = Timer::Test();
+  if (ret.size() > 0) {
+    return "Error testing Timer: " + ret;
+  }
 
   //-------------------------------------------------------------------
   // Tests for SocketSender and its derived classes.

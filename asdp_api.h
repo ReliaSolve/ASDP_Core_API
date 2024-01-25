@@ -129,14 +129,82 @@ public:
   bool operator ==(const Time& other) const {
     return seconds == other.seconds && microseconds == other.microseconds;
   };
+
   /// @brief Inequality operator.
   bool operator !=(const Time& other) const {
     return !(*this == other);
   };
+
+  /// @brief Less-than operator.
+  bool operator <(const Time& other) const {
+    return seconds < other.seconds || (seconds == other.seconds && microseconds < other.microseconds);
+  };
+
+  /// @brief Less-than-or-equal operator.
+  bool operator <=(const Time& other) const {
+    return seconds < other.seconds || (seconds == other.seconds && microseconds <= other.microseconds);
+  };
+
+  /// @brief Greater-than operator.
+  bool operator >(const Time& other) const {
+    return seconds > other.seconds || (seconds == other.seconds && microseconds > other.microseconds);
+  };
+
+  /// @brief Greater-than-or-equal operator.
+  bool operator >=(const Time& other) const {
+    return seconds > other.seconds || (seconds == other.seconds && microseconds >= other.microseconds);
+  };
+
+  /// @brief Add operator.
+  Time operator +(const Time& other) const {
+    Time result;
+    result.seconds = seconds + other.seconds;
+    result.microseconds = microseconds + other.microseconds;
+    if (result.microseconds >= 1000000) {
+      result.seconds++;
+      result.microseconds -= 1000000;
+    }
+    return result;
+  };
+
+  /// @brief Subtract operator.
+  Time operator -(const Time& other) const {
+    Time result;
+    result.seconds = seconds - other.seconds;
+    result.microseconds = microseconds;
+    if (result.microseconds < other.microseconds) {
+      result.seconds--;
+      result.microseconds += 1000000;
+    }
+    result.microseconds -= other.microseconds;
+    return result;
+  };
+
+  /// @brief Add-assign operator.
+  Time& operator +=(const Time& other) {
+    seconds += other.seconds;
+    microseconds += other.microseconds;
+    if (microseconds >= 1000000) {
+      seconds++;
+      microseconds -= 1000000;
+    }
+    return *this;
+  };
+
+  /// @brief Subtract-assign operator.
+  Time& operator -=(const Time& other) {
+    seconds -= other.seconds;
+    if (microseconds < other.microseconds) {
+      seconds--;
+      microseconds += 1000000;
+    }
+    microseconds -= other.microseconds;
+    return *this;
+  };
 };
 
 //---------------------------------------------------------------------------
-/// @brief Class to report the time on the Core based on local time.
+/// @brief Class to report the time on the Core based on local time.  Must be constructed by Core.
 
 class Timer {
 public:
@@ -144,12 +212,20 @@ public:
   /// @return None.
   virtual ~Timer();
 
-  /// @brief Get the Core time corresponding to the specified local time.
+  /// @brief Get the Core time corresponding to the specified local steady_clock time.
   /// @param [out] core_time The Core time corresponding to the specified local time.
   /// @param [in] local_time The local time to convert. Defaults to the current time.
+  /// Note that the steady_clock might bear no relationship to wall-clock time. It is
+  /// guaranteed to have uniform ticks, but the client is responsible for converting
+  /// to system_clock if that is desired (note that system_clock may vary in rate and
+  /// may have discontinuous jumps forwards and backwards).
   /// @return OKAY if successful, otherwise an error code.
   Status GetCoreTime(Time& core_time,
-    const std::chrono::system_clock::time_point local_time = std::chrono::system_clock::now()) const;
+    const std::chrono::steady_clock::time_point local_time = std::chrono::steady_clock::now()) const;
+
+  /// @brief Test function.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
 
 protected:
   Timer();
@@ -159,7 +235,12 @@ protected:
   Timer& operator=(Timer&&) = delete;
 
   /// @brief Set the offset between Core time and local time.
+  /// @param [in] offset Offset between Core time and local time.
+  /// @return OKAY if successful, otherwise an error code.
+  /// Returns BAD_PARAMETER if the offset is too large.
   Status SetCoreOffset(Time offset);
+
+  Time m_coreOffset;  ///< Offset between Core time and local time.
 
   friend class Core;
 };
@@ -687,6 +768,10 @@ public:
   /// @brief Virtual destructor so all derived class pointers will destroy properly.
   /// @return None.
   virtual ~Core();
+
+  /// @brief Test function.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
 
 protected:
   Core();
