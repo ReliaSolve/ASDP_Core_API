@@ -53,7 +53,9 @@ enum Status {
   /// @brief Error: Attempting to read past the memory available in an object.
   READ_PAST_END                 = 1008,
   /// @brief Error: Bad magic cookie in packet.
-  BAD_COOKIE                    = 1009
+  BAD_COOKIE                    = 1009,
+  /// @brief Error: Attempting to write past the memory available in an object.
+  WRITE_PAST_END                = 1010
 };
 
 /// @brief Helper function to return a descriptive error message based on a status value.
@@ -93,7 +95,7 @@ enum OpCode {
 
 //---------------------------------------------------------------------------
 /// @brief Message IDs for stream packets.
-enum Message {
+enum MessageID {
   DISCOVERY                     = 0,
   STATE                         = 1,
   EVENT                         = 10000,
@@ -108,7 +110,7 @@ enum Message {
 
 //---------------------------------------------------------------------------
 /// @brief Event IDs.
-enum Event {
+enum EventID {
   INVALID_OPERATION             = 256,
   CLOCK_SYNC                    = 768,
   START_OF_REPLAY               = 769,
@@ -118,10 +120,19 @@ enum Event {
 //---------------------------------------------------------------------------
 /// @brief Class to store seconds and microseconds since the epoch, matching Linux gettimeofday().
 
-class Time {
+struct Time {
 public:
   uint32_t seconds;         ///< Seconds portion of time since the start of the epoch.
   uint32_t microseconds;    ///< Microseconds portion of time since the start of the epoch.
+
+  /// @brief Equality operator.
+  bool operator ==(const Time& other) const {
+    return seconds == other.seconds && microseconds == other.microseconds;
+  };
+  /// @brief Inequality operator.
+  bool operator !=(const Time& other) const {
+    return !(*this == other);
+  };
 };
 
 //---------------------------------------------------------------------------
@@ -129,6 +140,8 @@ public:
 
 class Timer {
 public:
+  /// @brief Virtual destructor so all derived class pointers will destroy properly.
+  /// @return None.
   virtual ~Timer();
 
   /// @brief Get the Core time corresponding to the specified local time.
@@ -168,7 +181,11 @@ public:
   /// @brief Return the status of the constructor.
   Status GetConstructorStatus() const;
 
+  /// @brief Return the total length of the packet.
+  Status GetTotalLength(uint32_t &totalLength) const;
+
   /// @brief Virtual destructor so all derived class pointers will destroy properly.
+  /// @return None.
   virtual ~BasicPacket();
 
   /// @brief Test function.
@@ -186,12 +203,11 @@ protected:
   /// @brief Construct a basic packet with its own buffer and fill its values in.
   /// @param [in] extraHeaderSize Size of the header portion of the packet beyond the basic header size.
   /// @param [in] parameterSize Size of the parameter portion of the packet after the base size.
-  /// @param [in] code Operation code for the packet.
   BasicPacket(uint32_t extraHeaderSize, uint32_t parameterSize);
 
   /// @brief Construct a basic packet that shares a buffer with another packet.
   ///
-  /// This us used when type-casting from an existing buffer to a subclass.
+  /// This is used when type-casting from an existing buffer to a subclass.
   /// It is also used when constructing a new packet from an existing buffer
   /// that was received from the network.
   /// 
@@ -200,8 +216,13 @@ protected:
   /// under us.
   BasicPacket(std::shared_ptr<std::vector<uint8_t>> existingBuffer);
 
+  /// @brief Increase total length of the packet (used by Messages when inserting themselves).
+  /// @param [in] addedSize Additional size.
+  /// @return OKAY if successful, otherwise an error code.
+  Status IncreaseTotalLength(uint32_t addedSize);
+
   std::shared_ptr<std::vector<uint8_t>> m_buffer;  ///< Buffer containing the packet.
-  Status m_constructorStatus = OKAY;               ///< Status of the constructor.
+  Status m_constructorStatus;                      ///< Status of the constructor.
 
   friend class CommandPacket;
   friend class StreamPacket;
@@ -245,7 +266,7 @@ protected:
 
   /// @brief Construct a command packet that shares a buffer with another packet.
   ///
-  /// This us used when type-casting from an existing buffer to a subclass.
+  /// This is used when type-casting from an existing buffer to a subclass.
   /// It is also used when constructing a new packet from an existing buffer
   /// that was received from the network.
   /// 
@@ -254,7 +275,6 @@ protected:
   /// under us.
   CommandPacket(std::shared_ptr<std::vector<uint8_t>> existingBuffer);
 
-  /// @todo See if we need this once we've refactored
   friend class CommandPacketReset;
   friend class CommandPacketCancelAllStreams;
   /// @todo Finish the rest of the subclasses, here and below, once we've finished a full example.
@@ -337,15 +357,15 @@ public:
   /// @brief Get the IP to stream to.
   /// @param [out] IP IP to stream subregions on.
   /// @return OKAY if successful, otherwise an error code.
-  Status GetIP(uint32_t& subnet) const;
+  Status GetIP(uint32_t& IP) const;
 
   /// @brief Get the port to stream to.
   /// @param [out] port Port to stream.
   /// @return OKAY if successful, otherwise an error code.
-  Status GetPort(uint16_t& regionID) const;
+  Status GetPort(uint16_t& port) const;
 
-  /// @brief Get the subregion ID to stream.
-  /// @param [out] subregionID Subregion ID to stream.
+  /// @brief Get the subregion description.
+  /// @param [out] regions Regsion description.
   /// @return OKAY if successful, otherwise an error code.
   Status GetRegionDescriptions(std::vector<SubregionDescription> & regions) const;
 
@@ -354,15 +374,193 @@ public:
   static std::string Test();
 };
 
-/// @todo StreamPacket and CommandPacket should share a common Packet base class.
-/// The StreamPacket should allocate a maximum sized buffer and then resize as needed
-/// when adding messages.
+//---------------------------------------------------------------------------
+/// @brief Stream packet, subclass constructed and sent by servers and received and parsed by clients.
+///
+/// The stream packet is a UDP packet sent by a server to a client.  It contains zero or more
+/// Messages.  The client receives the packet, parses it, and handles the messages.
+/// These packets are sent using the SocketSender class and received using the SocketReceiver class.
+/// They are created on a server by constructing a subclass.  They are parsed on a client from a
+/// buffer by getting each message from the buffer.
+///
+/// Subclasses are listed below.
 
-/// @todo Messages should each be tied to a StreamPacket, keeping a shared pointer to its buffer
-/// to ensure that the buffer is not deleted out from under us.  It will also store an
-/// offset into the buffer to the start of the message, and a length of the message.
-/// It should always be read-only after construction and it should only be constructable
-/// with a StreamPacket passed to it.
+class StreamPacket : public BasicPacket {
+public:
+
+  /// @brief Get the sequence number.
+  /// @param [out] sequenceNumber The sequence number.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetSequenceNumber(uint32_t& sequenceNumber) const;
+
+  /// @brief Set the sequence number.
+  /// @param [in] sequenceNumber The sequence number.
+  /// @return OKAY if successful, otherwise an error code.
+  Status SetSequenceNumber(uint32_t sequenceNumber);
+
+  /// @brief Get the time code.
+  /// @param [out] timeCode The time code.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetTimeCode(Time& timeCode) const;
+
+  /// @brief Set the time code.
+  /// @param [in] timeCode The time code.
+  /// @return OKAY if successful, otherwise an error code.
+  Status SetTimeCode(Time timeCode);
+
+  /// @brief Test function.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
+
+protected:
+  // Remove the default constructor and copy operators.
+  StreamPacket(const StreamPacket&) = delete;
+  StreamPacket& operator=(const StreamPacket&) = delete;
+  StreamPacket(StreamPacket&&) = delete;
+  StreamPacket& operator=(StreamPacket&&) = delete;
+
+  /// @brief Construct a StreamPacket with no messages, reserving space for them.
+  /// @param [in] bufferMaxSize Maximum size of the buffer for the packet, based on
+  /// the payload size of the network, subtracting the header from the MTU size.
+  /// The default is the standard Ethernet MTU minus the standard IP header size.
+  /// For jumbo frames, this should be set to 9000 - 28 = 8972.
+  /// @param [in] sequenceNumber Sequence number for the packet.
+  /// @param [in] timeCode Time code for the packet.
+  StreamPacket(uint32_t bufferMaxSize = 1500 - 28, uint32_t sequenceNumber = 0, Time timeCode = { 0, 0 });
+
+  /// @brief Construct a StreamPacket that shares a buffer with another packet.
+  ///
+  /// This is used when type-casting from an existing buffer to a subclass.
+  /// It is also used when constructing a new packet from an existing buffer
+  /// that was received from the network.
+  /// 
+  /// @param [in] existingBuffer Pointer to the buffer containing the packet information.
+  /// This adds a reference count to the buffer to ensure that it is not deleted out from
+  /// under us.
+  StreamPacket(std::shared_ptr<std::vector<uint8_t>> existingBuffer);
+
+  friend class Message;
+  friend class MessageFrameData;
+  friend class MessageFrameEnd;
+  /// @todo Finish the rest of the subclasses, here and below, once we've finished a full example.
+};
+
+//---------------------------------------------------------------------------
+/// @brief Message base class. Construct using a derived class on the server
+/// and parse using a derived class on the client.
+
+class Message {
+public:
+
+  /// @brief Get the time of the message.
+  /// @param [out] time The time of the message.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetTime(Time &time) const;
+
+  /// @brief Get the message type (ID).
+  /// @param [out] messageID The message type (ID).
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetType(MessageID& messageID) const;
+
+  /// @brief Virtual destructor so all derived class pointers will destroy properly.
+  /// @return None.
+  virtual ~Message();
+
+  /// @brief Return the status of the constructor.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetConstructorStatus() const;
+
+  /// @brief Test function.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
+
+protected:
+  /// @brief Construct a message and store it into a buffer from a StreamPacket.
+  /// @param [in] packet Pointer to the StreamPacket containing the message.
+  /// @param [in] parameterSize Size of the parameters for the message.
+  /// @param [in] timeCode Time code for the message.
+  /// @param [in] type Type of the message.
+  Message(StreamPacket &packet, uint32_t parameterSize, Time timeCode, MessageID type);
+
+  /// @brief Construct a message that points at an existing buffer in a StreamPacket.
+  /// @param [in] existingBuffer Pointer to the buffer containing the message.
+  /// @param [in] offset Offset into the buffer to the start of the message.
+  Message(std::shared_ptr<std::vector<uint8_t>> existingBuffer, uint32_t offset);
+
+  Status m_constructorStatus;                       ///< Status of the constructor.
+
+  std::shared_ptr<std::vector<uint8_t>> m_buffer;   ///< Buffer containing the message.
+  uint32_t m_offset;                                ///< Offset into the buffer to the start of the message.
+
+  /// @todo Finish the rest of the subclasses, here and below, once we've finished a full example.
+};
+
+/// @brief Frame data message.
+class MessageFrameData : public Message {
+public:
+  /// @brief Construct a MessageFrameData and store it into a buffer from a StreamPacket.
+  /// @param [in] packet Pointer to the StreamPacket containing the message.
+  /// @param [in] timeCode Time code for the message.
+  /// @param [in] left Left side of the frame.
+  /// @param [in] top Top side of the frame.
+  /// @param [in] right Right side of the frame.
+  /// @param [in] bottom Bottom side of the frame.
+  /// @param [in] data Start of data for the frame. The number of bytes is two per pixel.
+  MessageFrameData(StreamPacket& packet, Time timeCode,
+    uint16_t left, uint16_t top, uint16_t right, uint16_t bottom,
+    uint8_t *data);
+
+  /// @brief Type-cast a base Message into a MessageFrameData packet, re-using its buffer.
+  /// @param [in] baseMessage The base Message to convert from.
+  MessageFrameData(Message& baseMessage);
+
+  /// @brief Get the index of the leftmost column of pixels.
+  /// @param [out] left Index of the leftmost column of pixels.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetLeft(uint16_t& left) const;
+
+  /// @brief Get the index of the rightmost column of pixels.
+  /// @param [out] right Index of the rightmost column of pixels.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetRight(uint16_t& right) const;
+
+  /// @brief Get the index of the topmost column of pixels.
+  /// @param [out] top Index of the topmost column of pixels.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetTop(uint16_t& top) const;
+
+  /// @brief Get the index of the bottommost column of pixels.
+  /// @param [out] bottom Index of the bottommost column of pixels.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetBottom(uint16_t& bottom) const;
+
+  /// @brief Get a pointer to the data for the frame.
+  /// @param [out] data Pointer to the data for the frame.
+  /// This pointer is valid only as long as the MessageFrameData is valid.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetDataPointer(uint8_t** data) const;
+
+  /// @brief Test function.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
+};
+
+/// @brief End of frame message.
+class MessageFrameEnd : public Message {
+public:
+  /// @brief Construct a MessageFrameEnd and store it into a buffer from a StreamPacket.
+  /// @param [in] packet Pointer to the StreamPacket containing the message.
+  /// @param [in] timeCode Time code for the message.
+  MessageFrameEnd(StreamPacket& packet, Time timeCode);
+
+  /// @brief Type-cast a base Message into a MessageFrameEnd packet, re-using its buffer.
+  /// @param [in] baseMessage The base Message to convert from.
+  MessageFrameEnd(Message& baseMessage);
+
+  /// @brief Test function.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
+};
 
 //---------------------------------------------------------------------------
 /// @brief Class used to send UDP packets on a socket. Used internally by CoreClient and CoreServer.
@@ -373,6 +571,9 @@ public:
   /// @param [in] timer Pointer to a Timer object to be used to determine the current time
   /// when sending a packet.
   SocketSender(std::shared_ptr<Timer> timer);
+
+  /// @brief Virtual destructor so all derived class pointers will destroy properly.
+  /// @return None.
   virtual ~SocketSender();
 
   /// @brief Send a UDP packet.
@@ -399,6 +600,8 @@ public:
   /// @return The port associated with this receiver.
   uint16_t GetPort() const;
 
+  /// @brief Virtual destructor so all derived class pointers will destroy properly.
+  /// @return None.
   virtual ~SocketReceiver();
 protected:
 };
@@ -422,7 +625,8 @@ public:
   /// @return OKAY if successful, otherwise an error code.
   Status SetMaxPayloadSize(size_t value);
 
-  /// @brief Virtual destructor.
+  /// @brief Virtual destructor so all derived class pointers will destroy properly.
+  /// @return None.
   virtual ~Core();
 
 protected:
