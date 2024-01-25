@@ -4,9 +4,103 @@
 
 #include "asdp_api.h"
 #include <string.h>   // For memcpy
-#include <iostream>   // For debugging
+#include <iostream>
 
 using namespace asdp;
+
+//----------------------------------------------------------------------------
+// Figure out whether we're using Windows sockets or not.
+
+// let's start with a clean slate
+#undef ASDP_USE_WINSOCK_SOCKETS
+
+// Does cygwin use winsock sockets or unix sockets?  Define this before
+// compiling the library if you want it to use WINSOCK sockets.
+//#define CYGWIN_USES_WINSOCK_SOCKETS
+
+#if defined(_WIN32) && (!defined(__CYGWIN__) || defined(CYGWIN_USES_WINSOCK_SOCKETS))
+#define ASDP_USE_WINSOCK_SOCKETS
+#endif
+
+//--------------------------------------
+// Architecture-dependent include files.
+
+#ifndef ASDP_USE_WINSOCK_SOCKETS
+#include <sys/time.h>   // for timeval, timezone, gettimeofday
+#include <sys/select.h> // for fd_set
+#include <netinet/in.h> // for htonl, htons
+#include <poll.h>       // for poll()
+#endif
+
+#ifdef ASDP_USE_WINSOCK_SOCKETS
+  // These are a pair of horrible hacks that instruct Windows include
+  // files to (1) not define min() and max() in a way that messes up
+  // standard-library calls to them, and (2) avoids pulling in a large
+  // number of Windows header files.  They are not used directly within
+  // the Sockets library, but rather within the Windows include files to
+  // change the way they behave.
+
+#ifndef NOMINMAX
+#define ASDP_CORESOCKET_REPLACE_NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define ASDP_CORESOCKET_REPLACE_WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h> // struct timeval is defined here
+#include "Ws2Tcpip.h"
+#pragma comment(lib,"WS2_32")
+#ifdef ASDP_CORESOCKET_REPLACE_NOMINMAX
+#undef NOMINMAX
+#endif
+#ifdef ASDP_CORESOCKET_REPLACE_WIN32_LEAN_AND_MEAN
+#undef WIN32_LEAN_AND_MEAN
+#endif
+
+#endif
+
+//----------------------------------------------------------------------------
+// Architecture-dependent definitions.
+
+#ifndef ASDP_USE_WINSOCK_SOCKETS
+
+  // On Winsock, we have to use SOCKET, so we're going to have to use it
+  // everywhere.
+  typedef int SOCKET;
+  // On Winsock, INVALID_SOCKET is #defined as ~0 (sockets are unsigned ints)
+  // We can't redefine it locally, so we have to switch to another name
+  static const int BAD_SOCKET = -1;
+#else // winsock sockets
+
+  // Bring the SOCKET type into our namespace, basing it on the root namespace one.
+  typedef SOCKET SOCKET;
+
+  // Make a namespaced INVALID_SOCKET definition, which cannot be just
+  // INVALID_SOCKET because Windows #defines it, so we pick another name.
+  static const SOCKET BAD_SOCKET = INVALID_SOCKET;
+#endif
+
+//--------------------------------------------------------------
+// Ensures that someone calls WSAStartup on Windows before using
+// any socket code.
+#if defined(ASDP_USE_WINSOCK_SOCKETS)
+  class WSAStart {
+  public:
+    WSAStart() {
+      WSADATA wsaData;
+      int winStatus;
+
+      winStatus = WSAStartup(MAKEWORD(1, 1), &wsaData);
+      if (winStatus) {
+        std::cerr << "ASDP_Core: Failed to set up sockets: WSAStartup failed with error code " << winStatus << std::endl;
+      }
+    }
+    // We do not call WSACleanup() because we don't know that we're the only
+    // user of the sockets library.
+  };
+  static WSAStart startUp;
+#endif
 
 //----------------------------------------------------------------------------
 // Helper functions.
@@ -1551,6 +1645,257 @@ std::string MessageFrameEnd::Test()
   return "";
 }
 
+class asdp::Socket {
+public:
+  SOCKET socket;    ///< The socket to use
+};
+
+SocketSenderUDP::SocketSenderUDP(std::string host, uint16_t port)
+  : m_socket(std::make_shared<Socket>())
+  , m_constructorStatus(OKAY)
+{
+  // Map the host name to an IP address and set the port.
+  struct addrinfo hints, * res;
+  memset(&hints, 0, sizeof(hints));
+  hints.ai_family = AF_INET;
+  hints.ai_socktype = SOCK_DGRAM;
+  hints.ai_flags |= AI_CANONNAME;
+  if (0 != getaddrinfo(host.c_str(), std::to_string(port).c_str(), &hints, &res)) {
+    m_constructorStatus = BAD_PARAMETER;
+    return;
+  }
+
+  // Open the socket to use for sending UDP packets.
+  m_socket->socket = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+  if (m_socket->socket == INVALID_SOCKET) {
+    m_constructorStatus = BAD_PARAMETER;
+    freeaddrinfo(res);
+    return;
+  }
+
+  // Connect the socket to the specified host and port.
+  if (0 != connect(m_socket->socket, res->ai_addr, res->ai_addrlen)) {
+    m_constructorStatus = SOCKET_FAILURE;
+    freeaddrinfo(res);
+    closesocket(m_socket->socket);
+    return;
+  }
+
+  // Free our resources
+  freeaddrinfo(res);
+}
+
+SocketSenderUDP::~SocketSenderUDP()
+{
+  if ((m_socket != nullptr) && (m_socket->socket != INVALID_SOCKET)) {
+    closesocket(m_socket->socket);
+  }
+}
+
+Status SocketSenderUDP::Send(const void* buffer, uint32_t length)
+{
+  // Check our parameters
+  if (buffer == nullptr) {
+    return BAD_PARAMETER;
+  }
+
+  // Make sure we have a valid socket.
+  if ((m_socket == nullptr) || (m_socket->socket == INVALID_SOCKET)) {
+    return m_constructorStatus;
+  }
+
+  // Send the data.
+  int result = send(m_socket->socket, (const char*)buffer, length, 0);
+  if (result == SOCKET_ERROR) {
+    return SOCKET_FAILURE;
+  }
+
+  // Everything worked.
+  return OKAY;
+}
+
+Status SocketSenderUDP::GetConstructorStatus() const
+{
+  return m_constructorStatus;
+}
+
+SocketReceiverUDP::SocketReceiverUDP(std::string host, uint16_t port, uint32_t maxLen)
+  : m_socket(std::make_shared<Socket>())
+  , m_constructorStatus(OKAY)
+  , m_port(port)
+  , m_maxLen(maxLen)
+{
+  // Map the host name to an IP address and set the port.
+  struct addrinfo hints, * res;
+  memset(&hints, 0, sizeof(hints));
+  hints.ai_family = AF_INET;
+  hints.ai_socktype = SOCK_DGRAM;
+  hints.ai_flags |= AI_CANONNAME;
+  const char *hostName = host.c_str();
+  if (host == "") {
+    hostName = nullptr;
+    hints.ai_flags |= AI_PASSIVE;         ///< Make the socket available for binding across multiple NICs.
+  }
+  std::string portString = std::to_string(m_port);
+  const char *portName = portString.c_str();
+  if (0 != getaddrinfo(hostName, portName, &hints, &res)) {
+    m_constructorStatus = BAD_PARAMETER;
+    return;
+  }
+
+  // Open the socket to use for sending UDP packets.
+  m_socket->socket = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+  if (m_socket->socket == INVALID_SOCKET) {
+    m_constructorStatus = BAD_PARAMETER;
+    freeaddrinfo(res);
+    return;
+  }
+
+  // Bind the socket to the specified NIC and port.
+  if (0 != bind(m_socket->socket, res->ai_addr, res->ai_addrlen)) {
+    m_constructorStatus = SOCKET_FAILURE;
+    freeaddrinfo(res);
+    closesocket(m_socket->socket);
+    return;
+  }
+
+  // If we didn't specify a port, get the port we were assigned by the bind.
+  if (m_port == 0) {
+    struct sockaddr_in sin;
+    socklen_t len = sizeof(sin);
+    if (getsockname(m_socket->socket, (struct sockaddr *)&sin, &len) == -1) {
+      m_constructorStatus = SOCKET_FAILURE;
+      freeaddrinfo(res);
+      closesocket(m_socket->socket);
+      return;
+    }
+    m_port = ntohs(sin.sin_port);
+  }
+
+  // Free our resources
+  freeaddrinfo(res);
+}
+
+SocketReceiverUDP::~SocketReceiverUDP()
+{
+  if ((m_socket != nullptr) && (m_socket->socket != INVALID_SOCKET)) {
+    closesocket(m_socket->socket);
+  }
+}
+
+Status SocketReceiverUDP::IsPacketAvailable(double timeout_seconds, bool& available)
+{
+  // Make sure we have a valid socket.
+  if ((m_socket == nullptr) || (m_socket->socket == INVALID_SOCKET)) {
+    return m_constructorStatus;
+  }
+
+  // Set up the timeout.
+  struct timeval timeout;
+  timeout.tv_sec = (long)timeout_seconds;
+  timeout.tv_usec = (long)((timeout_seconds - (long)timeout_seconds) * 1000000);
+
+  // Set up the file descriptor set.
+  fd_set fds;
+  FD_ZERO(&fds);
+  FD_SET(m_socket->socket, &fds);
+
+  // Wait for the socket to be ready.
+  int result = select(m_socket->socket + 1, &fds, nullptr, nullptr, &timeout);
+  if (result == SOCKET_ERROR) {
+    return SOCKET_FAILURE;
+  }
+
+  // Check if the socket is ready.
+  available = (result > 0);
+  return OKAY;
+}
+
+Status SocketReceiverUDP::ReceiveBuffer(std::vector<uint8_t>& buffer)
+{
+  // Make sure we have a valid socket.
+  if ((m_socket == nullptr) || (m_socket->socket == INVALID_SOCKET)) {
+    return m_constructorStatus;
+  }
+
+  // Receive the data.
+  int length = recv(m_socket->socket, reinterpret_cast<char*>(buffer.data()), buffer.size(), MSG_TRUNC);
+  if (length == SOCKET_ERROR) {
+    return SOCKET_FAILURE;
+  }
+  if (length > buffer.size()) {
+    return BUFFER_TOO_SMALL;
+  }
+
+  // Everything worked.
+  return OKAY;
+}
+
+Status SocketReceiverUDP::ReceiveCommandPacket(double timeout_seconds, std::shared_ptr<CommandPacket>& packet)
+{
+  // See if we have a packet available.
+  bool available;
+  Status status = IsPacketAvailable(timeout_seconds, available);
+  if (status != OKAY) {
+    return status;
+  }
+  if (!available) {
+    return TIMEOUT;
+  }
+
+  // Get the packet.
+  std::shared_ptr<std::vector<uint8_t>> buffer = std::make_shared<std::vector<uint8_t>>(m_maxLen);
+  status = ReceiveBuffer(*buffer);
+  if (status != OKAY) {
+    return status;
+  }
+
+  // Construct the packet using the buffer.
+  CommandPacket *commandPacketPtr = new CommandPacket(buffer);
+  packet.reset(commandPacketPtr);
+  if (packet->GetConstructorStatus() != OKAY) {
+    return packet->GetConstructorStatus();
+  }
+
+  // Everything worked.
+  return OKAY;
+}
+
+Status SocketReceiverUDP::ReceiveStreamPacket(double timeout_seconds, std::shared_ptr<StreamPacket>& packet)
+{
+  // See if we have a packet available.
+  bool available;
+  Status status = IsPacketAvailable(timeout_seconds, available);
+  if (status != OKAY) {
+    return status;
+  }
+  if (!available) {
+    return TIMEOUT;
+  }
+
+  // Get the packet.
+  std::shared_ptr<std::vector<uint8_t>> buffer = std::make_shared<std::vector<uint8_t>>(m_maxLen);
+  status = ReceiveBuffer(*buffer);
+  if (status != OKAY) {
+    return status;
+  }
+
+  // Construct the packet using the buffer.
+  StreamPacket *streamPacketPtr = new StreamPacket(buffer);
+  packet.reset(streamPacketPtr);
+  if (packet->GetConstructorStatus() != OKAY) {
+    return packet->GetConstructorStatus();
+  }
+
+  // Everything worked.
+  return OKAY;
+}
+
+Status SocketReceiverUDP::GetConstructorStatus() const
+{
+  return m_constructorStatus;
+}
+
 std::string asdp::Test()
 {
   std::string ret;
@@ -1579,12 +1924,37 @@ std::string asdp::Test()
   }
 
   //-------------------------------------------------------------------
-  // Tests for SocketSender and its derived classes.
+  // Tests for SocketSenderUDP and SocketReceiverUDP.
+  {
+    Status status;
+
+    // Create a sender and receiver.
+    SocketReceiverUDP receiver;
+    if (receiver.GetConstructorStatus() != OKAY) {
+      return "Error constructing SocketReceiverUDP: " + ErrorMessage(receiver.GetConstructorStatus());
+    }
+    uint16_t port;
+    port = receiver.GetPort();
+    SocketSenderUDP sender("localhost", port);
+    if (sender.GetConstructorStatus() != OKAY) {
+      return "Error constructing SocketSenderUDP: " + ErrorMessage(sender.GetConstructorStatus());
+    }
+
+    // Send a packet.
+    std::vector<uint8_t> sendBuffer(1000, 0);
+    status = sender.Send(sendBuffer.data(), sendBuffer.size());
+    if (status != OKAY) {
+      return "Error sending packet: " + ErrorMessage(status);
+    }
+
+    // Receive the packet.
+    /// @todo
+  }
+
+  /// @todo Test reading with all three methods and with timeouts.
+  /// @todo Test reading too-large packets to ensure we get told when they are too large.
   /// @todo
 
-  //-------------------------------------------------------------------
-  // Tests for SocketReceiver and its derived classes.
-  /// @todo
 
   //-------------------------------------------------------------------
   // Tests for BasicPacket and its derived classes.

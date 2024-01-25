@@ -49,13 +49,15 @@ enum Status {
   /// @brief Error: Internal failure: Exception inside the implementation.
   INTERNAL_EXCEPTION            = 1006,
   /// @brief Error: Socket error.
-  SOCKET_ERROR                  = 1007,
+  SOCKET_FAILURE                = 1007,
   /// @brief Error: Attempting to read past the memory available in an object.
   READ_PAST_END                 = 1008,
   /// @brief Error: Bad magic cookie in packet.
   BAD_COOKIE                    = 1009,
   /// @brief Error: Attempting to write past the memory available in an object.
-  WRITE_PAST_END                = 1010
+  WRITE_PAST_END                = 1010,
+  /// @brief Error: Buffer too small to receive packet.
+  BUFFER_TOO_SMALL              = 1011
 };
 
 /// @brief Helper function to return a descriptive error message based on a status value.
@@ -209,7 +211,6 @@ public:
 class Timer {
 public:
   /// @brief Virtual destructor so all derived class pointers will destroy properly.
-  /// @return None.
   virtual ~Timer();
 
   /// @brief Get the Core time corresponding to the specified local steady_clock time.
@@ -266,7 +267,6 @@ public:
   Status GetTotalLength(uint32_t &totalLength) const;
 
   /// @brief Virtual destructor so all derived class pointers will destroy properly.
-  /// @return None.
   virtual ~BasicPacket();
 
   /// @brief Test function.
@@ -355,6 +355,8 @@ protected:
   /// This adds a reference count to the buffer to ensure that it is not deleted out from
   /// under us.
   CommandPacket(std::shared_ptr<std::vector<uint8_t>> existingBuffer);
+
+  friend class SocketReceiverUDP;
 
   friend class CommandPacketReset;
   friend class CommandPacketCancelAllStreams;
@@ -520,6 +522,8 @@ protected:
   /// under us.
   StreamPacket(std::shared_ptr<std::vector<uint8_t>> existingBuffer);
 
+  friend class SocketReceiverUDP;
+
   friend class Message;
   friend class MessageFrameBegin;
   friend class MessageFrameData;
@@ -545,7 +549,6 @@ public:
   Status GetType(MessageID& messageID) const;
 
   /// @brief Virtual destructor so all derived class pointers will destroy properly.
-  /// @return None.
   virtual ~Message();
 
   /// @brief Return the status of the constructor.
@@ -703,47 +706,94 @@ public:
 };
 
 //---------------------------------------------------------------------------
+/// @brief Base Socket class, with implementation hidden.
+class Socket;
+
+//---------------------------------------------------------------------------
 /// @brief Class used to send UDP packets on a socket. Used internally by CoreClient and CoreServer.
 
-class SocketSender {
+class SocketSenderUDP {
 public:
-  /// @brief Construct a SocketSender object.
-  /// @param [in] timer Pointer to a Timer object to be used to determine the current time
-  /// when sending a packet.
-  SocketSender(std::shared_ptr<Timer> timer);
+  /// @brief Construct a SocketSender object that will send to a specific endpoint.
+  /// @param [in] host Name of the host to send to.
+  /// @param [in] port Port number to send to.
+  SocketSenderUDP(std::string host, uint16_t port);
 
   /// @brief Virtual destructor so all derived class pointers will destroy properly.
-  /// @return None.
-  virtual ~SocketSender();
+  virtual ~SocketSenderUDP();
 
   /// @brief Send a UDP packet.
   /// @param [in] buffer Pointer to the buffer containing the packet to send.
   /// @param [in] length Length of the packet to send.
   /// @return OKAY if successful, otherwise an error code.
-  Status Send(const void* buffer, size_t length);
+  Status Send(const void* buffer, uint32_t length);
+
+  /// @brief Return the status of the constructor.
+  Status GetConstructorStatus() const;
 
 protected:
-  std::shared_ptr<Timer> m_timer; ///< Used to determine the current time when sending a packet.
+  Status m_constructorStatus;       ///< Reports any errors during construction
+  std::shared_ptr<Socket> m_socket; ///< Pointer to the socket object to use to do our work.
 };
 
 //---------------------------------------------------------------------------
 /// @brief Class used to receive UDP packets on a socket.
 
-class SocketReceiver {
+class SocketReceiverUDP {
 public:
   /// @brief Construct a SocketReceiver object.
-  /// @param [in] IP address to listen on.
+  /// @param [in] interfaceName Name of the interface to listen on.
   /// @param [in] port Port number to listen on (default of 0 means any available port).
-  SocketReceiver(uint32_t IP, uint16_t port = 0);
+  /// @param [in] maxLen Maximum length of a packet to receive (default of 1472 is the maximum for Ethernet).
+  SocketReceiverUDP(std::string interfaceName = "localhost", uint16_t port = 0, uint32_t maxLen = 1500 - 28);
 
   /// @brief Get the port associated with this receiver.
-  /// @return The port associated with this receiver.
-  uint16_t GetPort() const;
+  /// @return The port associated with this receiver, or 0 for failure.
+  uint16_t GetPort() const { return m_port; }
+
+  /// @brief See if a packet is available to receive.
+  /// 
+  /// This is not usually called by client code, which will call one of the ReceivePacket() functions
+  /// for CommandPacket or StreamPacket instead.
+  /// @param [in] timeout_seconds Timeout in seconds to wait for a packet.
+  /// @param [out] available True if a packet is available, false if not.
+  /// @return OKAY if successful, otherwise an error code.
+  Status IsPacketAvailable(double timeout_seconds, bool& available);
+
+  /// @brief Receive a packet, hanging until one is available.
+  /// 
+  /// This is not usually called by client code, which will call one of the ReceivePacket() functions
+  /// for CommandPacket or StreamPacket instead.
+  /// Use IsPacketAvailable() to see if a packet is available before calling this function.
+  /// @param [inout] buffer A buffer to fill in with the incoming packet.  It must be large enough
+  /// to receive the entire packet.  If it is too small, the packet will be truncated and BUFFER_TOO_SMALL
+  /// will be returned.
+  /// @return OKAY if successful, otherwise an error code.
+  Status ReceiveBuffer(std::vector<uint8_t>& buffer);
+
+  /// @brief Allocates a new CommandPacket and fills it in with the received data.
+  /// @param [in] timeout_seconds Timeout in seconds to wait for a packet.
+  /// @param [out] packet The received CommandPacket, nullptr if timeout or error.
+  /// @return OKAY if successful, TIMEOUT on timeout, otherwise an error code.
+  Status ReceiveCommandPacket(double timeout_seconds, std::shared_ptr<CommandPacket>& packet);
+
+  /// @brief Allocates a new StreamPacket and fills it in with the received data.
+  /// @param [in] timeout_seconds Timeout in seconds to wait for a packet.
+  /// @param [out] packet The received StreamPacket, nullptr if timeout or error.
+  /// @return OKAY if successful, TIMEOUT on timeout, otherwise an error code.
+  Status ReceiveStreamPacket(double timeout_seconds, std::shared_ptr<StreamPacket>& packet);
 
   /// @brief Virtual destructor so all derived class pointers will destroy properly.
-  /// @return None.
-  virtual ~SocketReceiver();
+  virtual ~SocketReceiverUDP();
+
+  /// @brief Return the status of the constructor.
+  Status GetConstructorStatus() const;
+
 protected:
+  Status m_constructorStatus;       ///< Reports any errors during construction
+  std::shared_ptr<Socket> m_socket; ///< Pointer to the socket object to use to do our work.
+  uint16_t m_port;                  ///< Port number we are listening on.
+  uint32_t m_maxLen;                ///< Maximum length of a packet we can receive.
 };
 
 //---------------------------------------------------------------------------
@@ -766,7 +816,6 @@ public:
   Status SetMaxPayloadSize(size_t value);
 
   /// @brief Virtual destructor so all derived class pointers will destroy properly.
-  /// @return None.
   virtual ~Core();
 
   /// @brief Test function.
