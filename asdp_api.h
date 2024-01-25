@@ -440,6 +440,7 @@ protected:
   StreamPacket(std::shared_ptr<std::vector<uint8_t>> existingBuffer);
 
   friend class Message;
+  friend class MessageFrameBegin;
   friend class MessageFrameData;
   friend class MessageFrameEnd;
   /// @todo Finish the rest of the subclasses, here and below, once we've finished a full example.
@@ -495,6 +496,64 @@ protected:
   /// @todo Finish the rest of the subclasses, here and below, once we've finished a full example.
 };
 
+/// @brief Frame begin message.
+class MessageFrameBegin : public Message {
+public:
+  /// @brief Construct a MessageFrameBegin and store it into a buffer from a StreamPacket.
+  /// @param [in] packet Pointer to the StreamPacket containing the message.
+  /// @param [in] timeCode Time code for the message.
+  /// @param [in] cameraID Camera ID for the frame.
+  /// @param [in] cameraType Camera type that can be used to determine the lens and sensor by
+  /// looking up the information in a table.  This also indicates whether the camera is an IR
+  /// camera or a visible-light camera.
+  /// @param [in] sensorWidth the total number of pixels in a full frame.
+  /// @param [in] sensorHeight the total number of pixels in a full frame.
+  /// @param [in] exposure Exposure in seconds for the frame (0 for none reported).
+  /// @param [in] gain Gain for the frame (0 for none reported).
+  MessageFrameBegin(StreamPacket& packet, Time timeCode,
+    uint32_t cameraID, uint32_t cameraType, uint16_t sensorWidth, uint16_t sensorHeight,
+    float exposure = 0, float gain = 0);
+
+  /// @brief Type-cast a base Message into a MessageFrameBegin packet, re-using its buffer.
+  /// @param [in] baseMessage The base Message to convert from.
+  MessageFrameBegin(Message& baseMessage);
+
+
+  /// @brief Get the camera ID for the frame.
+  /// @param [out] cameraID Camera ID for the frame.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetCameraID(uint32_t& cameraID) const;
+
+  /// @brief Get the camera type for the frame.
+  /// @param [out] cameraType Camera type for the frame.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetCameraType(uint32_t& cameraType) const;
+
+  /// @brief Get the sensor width for the frame.
+  /// @param [out] sensorWidth Sensor width for the frame.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetSensorWidth(uint16_t& sensorWidth) const;
+
+  /// @brief Get the sensor height for the frame.
+  /// @param [out] sensorHeight Sensor height for the frame.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetSensorHeight(uint16_t& sensorHeight) const;
+
+  /// @brief Get the exposure for the frame.
+  /// @param [out] exposure Exposure for the frame.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetExposure(float& exposure) const;
+
+  /// @brief Get the gain for the frame.
+  /// @param [out] gain Gain for the frame.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetGain(float& gain) const;
+
+  /// @brief Test function.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
+};
+
 /// @brief Frame data message.
 class MessageFrameData : public Message {
 public:
@@ -545,7 +604,7 @@ public:
   static std::string Test();
 };
 
-/// @brief End of frame message.
+/// @brief Frame End message.
 class MessageFrameEnd : public Message {
 public:
   /// @brief Construct a MessageFrameEnd and store it into a buffer from a StreamPacket.
