@@ -56,8 +56,8 @@ enum Status {
   BAD_COOKIE                    = 1009,
   /// @brief Error: Attempting to write past the memory available in an object.
   WRITE_PAST_END                = 1010,
-  /// @brief Error: Buffer too small to receive packet.
-  BUFFER_TOO_SMALL              = 1011
+  /// @brief Error: Buffer too small to receive packet or other issue.
+  SOCKET_READ_FAILURE           = 1011
 };
 
 /// @brief Helper function to return a descriptive error message based on a status value.
@@ -356,8 +356,8 @@ protected:
   /// under us.
   CommandPacket(std::shared_ptr<std::vector<uint8_t>> existingBuffer);
 
-  friend class SocketSenderUDP;
-  friend class SocketReceiverUDP;
+  friend class SenderUDP;
+  friend class ReceiverUDP;
 
   friend class CommandPacketReset;
   friend class CommandPacketCancelAllStreams;
@@ -532,8 +532,8 @@ protected:
   /// under us.
   StreamPacket(std::shared_ptr<std::vector<uint8_t>> existingBuffer);
 
-  friend class SocketSenderUDP;
-  friend class SocketReceiverUDP;
+  friend class SenderUDP;
+  friend class ReceiverUDP;
 
   friend class Message;
   friend class MessageFrameBegin;
@@ -725,15 +725,15 @@ class Socket;
 //---------------------------------------------------------------------------
 /// @brief Class used to send UDP packets on a socket. Used internally by CoreClient and CoreServer.
 
-class SocketSenderUDP {
+class SenderUDP {
 public:
   /// @brief Construct a SocketSender object that will send to a specific endpoint.
   /// @param [in] host Name of the host to send to.
   /// @param [in] port Port number to send to.
-  SocketSenderUDP(std::string host, uint16_t port);
+  SenderUDP(std::string host, uint16_t port);
 
   /// @brief Virtual destructor so all derived class pointers will destroy properly.
-  virtual ~SocketSenderUDP();
+  virtual ~SenderUDP();
 
   /// @brief Send a UDP packet.
   /// @param [in] buffer Pointer to the buffer containing the packet to send.
@@ -762,13 +762,13 @@ protected:
 //---------------------------------------------------------------------------
 /// @brief Class used to receive UDP packets on a socket.
 
-class SocketReceiverUDP {
+class ReceiverUDP {
 public:
   /// @brief Construct a SocketReceiver object.
   /// @param [in] interfaceName Name of the interface to listen on.
   /// @param [in] port Port number to listen on (default of 0 means any available port).
   /// @param [in] maxLen Maximum length of a packet to receive (default of 1472 is the maximum for Ethernet).
-  SocketReceiverUDP(std::string interfaceName = "localhost", uint16_t port = 0, uint32_t maxLen = 1500 - 28);
+  ReceiverUDP(std::string interfaceName = "localhost", uint16_t port = 0, uint32_t maxLen = 1500 - 28);
 
   /// @brief Get the port associated with this receiver.
   /// @return The port associated with this receiver, or 0 for failure.
@@ -807,12 +807,12 @@ public:
   Status ReceiveStreamPacket(double timeout_seconds, std::shared_ptr<StreamPacket>& packet);
 
   /// @brief Virtual destructor so all derived class pointers will destroy properly.
-  virtual ~SocketReceiverUDP();
+  virtual ~ReceiverUDP();
 
   /// @brief Return the status of the constructor.
   Status GetConstructorStatus() const;
 
-  /// @brief Test function for both this class and the SocketSenderUDP class.
+  /// @brief Test function for both this class and the SenderUDP class.
   /// @return Empty string if successful, otherwise descriptive error message.
   static std::string Test();
 

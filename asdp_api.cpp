@@ -40,8 +40,8 @@ std::string asdp::ErrorMessage(Status status)
     return "Bad magic cookie in packet";
   case WRITE_PAST_END:
     return "Attempt to write past end of buffer";
-  case BUFFER_TOO_SMALL:
-    return "Buffer too small";
+  case SOCKET_READ_FAILURE:
+    return "Read error on socket; perhaps client buffer too small";
 
   default:
     return "Unrecognized error code: " + std::to_string(status);
@@ -1756,7 +1756,7 @@ public:
   SOCKET socket;    ///< The socket to use
 };
 
-SocketSenderUDP::SocketSenderUDP(std::string host, uint16_t port)
+SenderUDP::SenderUDP(std::string host, uint16_t port)
   : m_socket(std::make_shared<Socket>())
   , m_constructorStatus(OKAY)
 {
@@ -1791,14 +1791,14 @@ SocketSenderUDP::SocketSenderUDP(std::string host, uint16_t port)
   freeaddrinfo(res);
 }
 
-SocketSenderUDP::~SocketSenderUDP()
+SenderUDP::~SenderUDP()
 {
   if ((m_socket != nullptr) && (m_socket->socket != BAD_SOCKET)) {
     closesocket(m_socket->socket);
   }
 }
 
-Status SocketSenderUDP::Send(const void* buffer, uint32_t length)
+Status SenderUDP::Send(const void* buffer, uint32_t length)
 {
   // Check our parameters
   if (buffer == nullptr) {
@@ -1820,7 +1820,7 @@ Status SocketSenderUDP::Send(const void* buffer, uint32_t length)
   return OKAY;
 }
 
-Status SocketSenderUDP::SendCommandPacket(const CommandPacket& packet)
+Status SenderUDP::SendCommandPacket(const CommandPacket& packet)
 {
   // Make sure we have a valid socket.
   if ((m_socket == nullptr) || (m_socket->socket == BAD_SOCKET)) {
@@ -1837,7 +1837,7 @@ Status SocketSenderUDP::SendCommandPacket(const CommandPacket& packet)
   return OKAY;
 }
 
-Status SocketSenderUDP::SendStreamPacket(const StreamPacket& packet)
+Status SenderUDP::SendStreamPacket(const StreamPacket& packet)
 {
   // Make sure we have a valid socket.
   if ((m_socket == nullptr) || (m_socket->socket == BAD_SOCKET)) {
@@ -1861,12 +1861,12 @@ Status SocketSenderUDP::SendStreamPacket(const StreamPacket& packet)
   return OKAY;
 }
 
-Status SocketSenderUDP::GetConstructorStatus() const
+Status SenderUDP::GetConstructorStatus() const
 {
   return m_constructorStatus;
 }
 
-SocketReceiverUDP::SocketReceiverUDP(std::string host, uint16_t port, uint32_t maxLen)
+ReceiverUDP::ReceiverUDP(std::string host, uint16_t port, uint32_t maxLen)
   : m_socket(std::make_shared<Socket>())
   , m_constructorStatus(OKAY)
   , m_port(port)
@@ -1923,14 +1923,14 @@ SocketReceiverUDP::SocketReceiverUDP(std::string host, uint16_t port, uint32_t m
   freeaddrinfo(res);
 }
 
-SocketReceiverUDP::~SocketReceiverUDP()
+ReceiverUDP::~ReceiverUDP()
 {
   if ((m_socket != nullptr) && (m_socket->socket != BAD_SOCKET)) {
     closesocket(m_socket->socket);
   }
 }
 
-Status SocketReceiverUDP::IsPacketAvailable(double timeout_seconds, bool& available)
+Status ReceiverUDP::IsPacketAvailable(double timeout_seconds, bool& available)
 {
   // Make sure we have a valid socket.
   if ((m_socket == nullptr) || (m_socket->socket == BAD_SOCKET)) {
@@ -1958,7 +1958,7 @@ Status SocketReceiverUDP::IsPacketAvailable(double timeout_seconds, bool& availa
   return OKAY;
 }
 
-Status SocketReceiverUDP::ReceiveBuffer(std::vector<uint8_t>& buffer)
+Status ReceiverUDP::ReceiveBuffer(std::vector<uint8_t>& buffer)
 {
   // Make sure we have a valid socket.
   if ((m_socket == nullptr) || (m_socket->socket == BAD_SOCKET)) {
@@ -1976,10 +1976,11 @@ Status SocketReceiverUDP::ReceiveBuffer(std::vector<uint8_t>& buffer)
   if (length == SOCKET_ERROR) {
     // Windows will fall through to here if the buffer is too small.
     // There is no way to tell on Windows whether the buffer was too small or if there was some other error.
-    return SOCKET_FAILURE;
+    return SOCKET_READ_FAILURE;
   }
   if (length > buffer.size()) {
-    return BUFFER_TOO_SMALL;
+    // Return the same error on Windows and Linux when the buffer is too small.
+    return SOCKET_READ_FAILURE;
   }
 
   // Record how many bytes we received by resizing the buffer to this size.
@@ -1989,7 +1990,7 @@ Status SocketReceiverUDP::ReceiveBuffer(std::vector<uint8_t>& buffer)
   return OKAY;
 }
 
-Status SocketReceiverUDP::ReceiveCommandPacket(double timeout_seconds, std::shared_ptr<CommandPacket>& packet)
+Status ReceiverUDP::ReceiveCommandPacket(double timeout_seconds, std::shared_ptr<CommandPacket>& packet)
 {
   // See if we have a packet available.
   bool available;
@@ -2019,7 +2020,7 @@ Status SocketReceiverUDP::ReceiveCommandPacket(double timeout_seconds, std::shar
   return OKAY;
 }
 
-Status SocketReceiverUDP::ReceiveStreamPacket(double timeout_seconds, std::shared_ptr<StreamPacket>& packet)
+Status ReceiverUDP::ReceiveStreamPacket(double timeout_seconds, std::shared_ptr<StreamPacket>& packet)
 {
   // See if we have a packet available.
   bool available;
@@ -2049,25 +2050,25 @@ Status SocketReceiverUDP::ReceiveStreamPacket(double timeout_seconds, std::share
   return OKAY;
 }
 
-Status SocketReceiverUDP::GetConstructorStatus() const
+Status ReceiverUDP::GetConstructorStatus() const
 {
   return m_constructorStatus;
 }
 
-std::string SocketReceiverUDP::Test()
+std::string ReceiverUDP::Test()
 {
   Status status;
 
   // Create a sender and receiver.
-  SocketReceiverUDP receiver;
+  ReceiverUDP receiver;
   if (receiver.GetConstructorStatus() != OKAY) {
-    return "Error constructing SocketReceiverUDP: " + ErrorMessage(receiver.GetConstructorStatus());
+    return "Error constructing ReceiverUDP: " + ErrorMessage(receiver.GetConstructorStatus());
   }
   uint16_t port;
   port = receiver.GetPort();
-  SocketSenderUDP sender("localhost", port);
+  SenderUDP sender("localhost", port);
   if (sender.GetConstructorStatus() != OKAY) {
-    return "Error constructing SocketSenderUDP: " + ErrorMessage(sender.GetConstructorStatus());
+    return "Error constructing SenderUDP: " + ErrorMessage(sender.GetConstructorStatus());
   }
 
   // Send a packet.
@@ -2109,8 +2110,8 @@ std::string SocketReceiverUDP::Test()
   }
   receiveBuffer.resize(100, 0);
   status = receiver.ReceiveBuffer(receiveBuffer);
-  if (status == OKAY) {
-    return "Unexpected success when receiving into a too-small buffer";
+  if (status != SOCKET_READ_FAILURE) {
+    return "Unexpected return value when receiving into a too-small buffer";
   }
 
   // Try sending and receiving a CommandPacket.
@@ -2192,8 +2193,8 @@ std::string asdp::Test()
   }
 
   //-------------------------------------------------------------------
-  // Tests for SocketSenderUDP and SocketReceiverUDP.
-  ret = SocketReceiverUDP::Test();
+  // Tests for SenderUDP and ReceiverUDP.
+  ret = ReceiverUDP::Test();
   if (ret.size() > 0) {
     return "Error testing Socket send/receive: " + ret;
   }
