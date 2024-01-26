@@ -662,9 +662,14 @@ public:
   /// @param [in] right Right side of the frame.
   /// @param [in] bottom Bottom side of the frame.
   /// @param [in] data Start of data for the frame. The number of bytes is two per pixel.
+  /// @param [in] stride Stride of the image that the data is being read from.  This is
+  /// required so that the message knows how many pixels to skip between rows in the image
+  /// it is reading from.  This is the number of pixels to skip in memory from one row to
+  /// the next, which must be >= the number of pixels in a row.  It can be larger because
+  /// the image may be padded to a larger size.
   MessageFrameData(StreamPacket& packet, Time timeCode,
     uint16_t left, uint16_t top, uint16_t right, uint16_t bottom,
-    uint8_t *data);
+    uint8_t *data, uint16_t stride);
 
   /// @brief Type-cast a base Message into a MessageFrameData packet, re-using its buffer.
   /// @param [in] baseMessage The base Message to convert from.

@@ -1425,7 +1425,7 @@ std::string MessageFrameBegin::Test()
 
 MessageFrameData::MessageFrameData(StreamPacket& packet, Time timeCode,
   uint16_t left, uint16_t top, uint16_t right, uint16_t bottom,
-  uint8_t* data)
+  uint8_t* data, uint16_t stride)
   : Message(packet,
     // The size of the message is the size of the parameters plus the size of the data.
     // We pad the size of the data to a multiple of 4 bytes.
@@ -1439,7 +1439,7 @@ MessageFrameData::MessageFrameData(StreamPacket& packet, Time timeCode,
   }
 
   // Check our parameters.
-  if (data == nullptr) {
+  if ((data == nullptr) || (right < left) || (bottom < top) || (stride < (right-left+1))) {
     m_constructorStatus = BAD_PARAMETER;
     return;
   }
@@ -1450,9 +1450,14 @@ MessageFrameData::MessageFrameData(StreamPacket& packet, Time timeCode,
   memcpy(bufPtr, &top, sizeof(top)); bufPtr += sizeof(top);
   memcpy(bufPtr, &right, sizeof(right)); bufPtr += sizeof(right);
   memcpy(bufPtr, &bottom, sizeof(bottom)); bufPtr += sizeof(bottom);
-  // We only copy the actual data.  We skip the size including padding.
-  size_t dataSize = 2 * (right - left + 1) * (bottom - top + 1);
-  memcpy(bufPtr, data, dataSize); bufPtr += PaddedSize(dataSize);
+
+  // Copy the data a row at a time.
+  size_t rowStride = stride * sizeof(uint16_t);
+  size_t rowSize = sizeof(uint16_t) * (right - left + 1);
+  for (uint16_t row = top; row <= bottom; row++) {
+    memcpy(bufPtr, data + row * rowStride + left * sizeof(uint16_t), rowSize);
+    bufPtr += rowSize;
+  }
 }
 
 MessageFrameData::MessageFrameData(Message& baseMessage)
@@ -1530,15 +1535,15 @@ std::string MessageFrameData::Test()
     // Try to add a message that is too long for the packet. It should fail.
     Time timeCode = { 1234, 5678 };
     uint16_t left = 0, top = 0, right = 99, bottom = 99;
-    std::vector<uint8_t> data(2 * (right - left + 1) * (bottom - top + 1), 0);
-    MessageFrameData badMessage(packet, timeCode, left, top, right, bottom, data.data());
+    std::vector<uint8_t> data(sizeof(uint16_t) * (right - left + 1) * (bottom - top + 1), 0);
+    MessageFrameData badMessage(packet, timeCode, left, top, right, bottom, data.data(), 100);
     if (badMessage.GetConstructorStatus() != WRITE_PAST_END) {
       return "Unexpected success constructing too-large MessageFrameData";
     }
 
     // Now add a reasonable-sized message
     bottom = 0;
-    MessageFrameData message(packet, timeCode, left, top, right, bottom, data.data());
+    MessageFrameData message(packet, timeCode, left, top, right, bottom, data.data(), 100);
     if (message.GetConstructorStatus() != OKAY) {
       return "Error constructing MessageFrameData: " + ErrorMessage(message.GetConstructorStatus());
     }
@@ -1550,7 +1555,7 @@ std::string MessageFrameData::Test()
       return "Error checking message size for MessageFrameData test: " + ErrorMessage(status);
     }
     uint32_t expectedLength = STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE + 4 * sizeof(uint16_t) +
-      PaddedSize(2 * (right - left + 1) * (bottom - top + 1));
+      PaddedSize(sizeof(uint16_t) * (right - left + 1) * (bottom - top + 1));
     if (totalLength != expectedLength) {
       return "Error constructing message from buffer for MessageFrameData test: packet length is not " +
         std::to_string(expectedLength) + " but " + std::to_string(totalLength);
