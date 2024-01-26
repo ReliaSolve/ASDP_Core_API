@@ -9,118 +9,6 @@
 using namespace asdp;
 
 //----------------------------------------------------------------------------
-// Figure out whether we're using Windows sockets or not.
-
-// let's start with a clean slate
-#undef ASDP_USE_WINSOCK_SOCKETS
-
-// Does cygwin use winsock sockets or unix sockets?  Define this before
-// compiling the library if you want it to use WINSOCK sockets.
-//#define CYGWIN_USES_WINSOCK_SOCKETS
-
-#if defined(_WIN32) && (!defined(__CYGWIN__) || defined(CYGWIN_USES_WINSOCK_SOCKETS))
-#define ASDP_USE_WINSOCK_SOCKETS
-#endif
-
-//--------------------------------------
-// Architecture-dependent include files.
-
-#ifndef ASDP_USE_WINSOCK_SOCKETS
-#include <sys/time.h>   // for timeval, timezone, gettimeofday
-#include <sys/select.h> // for fd_set
-#include <netinet/in.h> // for htonl, htons
-#include <poll.h>       // for poll()
-#include <netdb.h>      // for addrinfo and related functions
-#include <unistd.h>     // for close()
-#endif
-
-#ifdef ASDP_USE_WINSOCK_SOCKETS
-  // These are a pair of horrible hacks that instruct Windows include
-  // files to (1) not define min() and max() in a way that messes up
-  // standard-library calls to them, and (2) avoids pulling in a large
-  // number of Windows header files.  They are not used directly within
-  // the Sockets library, but rather within the Windows include files to
-  // change the way they behave.
-
-#ifndef NOMINMAX
-#define ASDP_CORESOCKET_REPLACE_NOMINMAX
-#define NOMINMAX
-#endif
-#ifndef WIN32_LEAN_AND_MEAN
-#define ASDP_CORESOCKET_REPLACE_WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include <winsock2.h> // struct timeval is defined here
-#include "Ws2Tcpip.h"
-#pragma comment(lib,"WS2_32")
-#ifdef ASDP_CORESOCKET_REPLACE_NOMINMAX
-#undef NOMINMAX
-#endif
-#ifdef ASDP_CORESOCKET_REPLACE_WIN32_LEAN_AND_MEAN
-#undef WIN32_LEAN_AND_MEAN
-#endif
-
-#endif
-
-//----------------------------------------------------------------------------
-// Architecture-dependent definitions.
-
-#ifndef ASDP_USE_WINSOCK_SOCKETS
-
-  // On Winsock, we have to use SOCKET, so we're going to have to use it
-  // everywhere.
-  typedef int SOCKET;
-  // On Winsock, INVALID_SOCKET is #defined as ~0 (sockets are unsigned ints)
-  // We can't redefine it locally, so we have to switch to another name
-  static const int BAD_SOCKET = -1;
-  static const int SOCKET_ERROR = -1;
-  #define closesocket close
-#else // winsock sockets
-
-  // Bring the SOCKET type into our namespace, basing it on the root namespace one.
-  typedef SOCKET SOCKET;
-
-  // Make a namespaced INVALID_SOCKET definition, which cannot be just
-  // INVALID_SOCKET because Windows #defines it, so we pick another name.
-  static const SOCKET BAD_SOCKET = INVALID_SOCKET;
-#endif
-
-//--------------------------------------------------------------
-// Ensures that someone calls WSAStartup on Windows before using
-// any socket code.
-#if defined(ASDP_USE_WINSOCK_SOCKETS)
-  class WSAStart {
-  public:
-    WSAStart() {
-      WSADATA wsaData;
-      int winStatus;
-
-      winStatus = WSAStartup(MAKEWORD(1, 1), &wsaData);
-      if (winStatus) {
-        std::cerr << "ASDP_Core: Failed to set up sockets: WSAStartup failed with error code " << winStatus << std::endl;
-      }
-    }
-    // We do not call WSACleanup() because we don't know that we're the only
-    // user of the sockets library.
-  };
-  static WSAStart startUp;
-#endif
-
-//----------------------------------------------------------------------------
-// Helper functions.
-
-/// @brief Helper function to determine the size of the buffer needed to hold a message,
-/// which can include padding to align the message on a 4-byte boundary.
-static size_t PaddedSize(size_t size)
-{
-  size_t padding = 4 - (size % 4);
-  if (padding == 4) {
-    padding = 0;
-  }
-  return size + padding;
-}
-
-//----------------------------------------------------------------------------
 /// Error handling.
 
 std::string asdp::ErrorMessage(Status status)
@@ -181,6 +69,118 @@ static const uint32_t MESSAGE_HEADER_MESSAGE_HEADER_SIZE_OFFSET = 8;
 static const uint32_t MESSAGE_HEADER_MESSAGE_TIME_SECONDS_OFFSET = 12;
 static const uint32_t MESSAGE_HEADER_MESSAGE_TIME_MICROSECONDS_SIZE_OFFSET = 16;
 static const uint32_t MESSAGE_HEADER_MESSAGE_TYPE_OFFSET = 20;
+
+//----------------------------------------------------------------------------
+// Figure out whether we're using Windows sockets or not.
+
+// let's start with a clean slate
+#undef ASDP_USE_WINSOCK_SOCKETS
+
+// Does cygwin use winsock sockets or unix sockets?  Define this before
+// compiling the library if you want it to use WINSOCK sockets.
+//#define CYGWIN_USES_WINSOCK_SOCKETS
+
+#if defined(_WIN32) && (!defined(__CYGWIN__) || defined(CYGWIN_USES_WINSOCK_SOCKETS))
+#define ASDP_USE_WINSOCK_SOCKETS
+#endif
+
+//--------------------------------------
+// Architecture-dependent include files.
+
+#ifndef ASDP_USE_WINSOCK_SOCKETS
+#include <sys/time.h>   // for timeval, timezone, gettimeofday
+#include <sys/select.h> // for fd_set
+#include <netinet/in.h> // for htonl, htons
+#include <poll.h>       // for poll()
+#include <netdb.h>      // for addrinfo and related functions
+#include <unistd.h>     // for close()
+#endif
+
+#ifdef ASDP_USE_WINSOCK_SOCKETS
+  // These are a pair of horrible hacks that instruct Windows include
+  // files to (1) not define min() and max() in a way that messes up
+  // standard-library calls to them, and (2) avoids pulling in a large
+  // number of Windows header files.  They are not used directly within
+  // the Sockets library, but rather within the Windows include files to
+  // change the way they behave.
+
+#ifndef NOMINMAX
+#define ASDP_CORESOCKET_REPLACE_NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define ASDP_CORESOCKET_REPLACE_WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h> // struct timeval is defined here
+#include "Ws2Tcpip.h"
+#pragma comment(lib,"WS2_32")
+#ifdef ASDP_CORESOCKET_REPLACE_NOMINMAX
+#undef NOMINMAX
+#endif
+#ifdef ASDP_CORESOCKET_REPLACE_WIN32_LEAN_AND_MEAN
+#undef WIN32_LEAN_AND_MEAN
+#endif
+
+#endif
+
+//----------------------------------------------------------------------------
+// Architecture-dependent definitions.
+
+#ifndef ASDP_USE_WINSOCK_SOCKETS
+
+  // On Winsock, we have to use SOCKET, so we're going to have to use it
+  // everywhere.
+typedef int SOCKET;
+// On Winsock, INVALID_SOCKET is #defined as ~0 (sockets are unsigned ints)
+// We can't redefine it locally, so we have to switch to another name
+static const int BAD_SOCKET = -1;
+static const int SOCKET_ERROR = -1;
+#define closesocket close
+#else // winsock sockets
+
+  // Bring the SOCKET type into our namespace, basing it on the root namespace one.
+typedef SOCKET SOCKET;
+
+// Make a namespaced INVALID_SOCKET definition, which cannot be just
+// INVALID_SOCKET because Windows #defines it, so we pick another name.
+static const SOCKET BAD_SOCKET = INVALID_SOCKET;
+#endif
+
+//--------------------------------------------------------------
+// Ensures that someone calls WSAStartup on Windows before using
+// any socket code.
+#if defined(ASDP_USE_WINSOCK_SOCKETS)
+class WSAStart {
+public:
+  WSAStart() {
+    WSADATA wsaData;
+    int winStatus;
+
+    winStatus = WSAStartup(MAKEWORD(1, 1), &wsaData);
+    if (winStatus) {
+      std::cerr << "ASDP_Core: Failed to set up sockets: WSAStartup failed with error code " << winStatus << std::endl;
+    }
+  }
+  // We do not call WSACleanup() because we don't know that we're the only
+  // user of the sockets library.
+};
+static WSAStart startUp;
+#endif
+
+//----------------------------------------------------------------------------
+// Helper functions.
+
+/// @brief Helper function to determine the size of the buffer needed to hold a message,
+/// which can include padding to align the message on a 4-byte boundary.
+static size_t PaddedSize(size_t size)
+{
+  size_t padding = 4 - (size % 4);
+  if (padding == 4) {
+    padding = 0;
+  }
+  return size + padding;
+}
 
 //----------------------------------------------------------------------------
 // API functions
@@ -757,7 +757,7 @@ std::string CommandPacketStreamSubregions::Test()
 }
 
 StreamPacket::StreamPacket(uint32_t bufferMaxSize, uint32_t sequenceNumber, Time timeCode)
-  : BasicPacket(3 * sizeof(uint32_t), bufferMaxSize - 3 * sizeof(uint32_t))
+  : BasicPacket(3 * sizeof(uint32_t), bufferMaxSize - COMMAND_PACKET_BASE_SIZE - 3 * sizeof(uint32_t))
 {
   // Overwrite the stored total size with the actually filled-in size, leaving room in the buffer.
   uint32_t usedSize = STREAM_PACKET_BASE_SIZE;
@@ -854,6 +854,72 @@ Status StreamPacket::SetTimeCode(Time timeCode)
   }
   memcpy(m_buffer->data() + timeCodeOffset, &timeCode.seconds, sizeof(timeCode.seconds));
   memcpy(m_buffer->data() + timeCodeOffset + sizeof(timeCode.seconds), &timeCode.microseconds, sizeof(timeCode.microseconds));
+  return OKAY;
+}
+
+Status StreamPacket::GetNextMessage(std::shared_ptr<Message>& message) const
+{
+  // Make sure we have enough data to hold the header. Then get the total length
+  // of the packet.
+  if (m_buffer->size() < STREAM_PACKET_BASE_SIZE) {
+    message.reset();
+    return READ_PAST_END;
+  }
+  uint32_t totalLength;
+  memcpy(&totalLength, m_buffer->data() + PACKET_HEADER_TOTAL_SIZE_OFFSET, sizeof(totalLength));
+
+  // If the message is a nullptr, then find the offset to the first message
+  // in the buffer.  Otherwise, use the offset from the message
+  uint32_t offset;
+  if (message == nullptr) {
+    // Read the offset from the beginning of the buffer to the first message from the header.
+    // This is done to allow future versions to have more information in the header.
+    memcpy(&offset, m_buffer->data() + PACKET_HEADER_HEADER_SIZE_OFFSET, sizeof(offset));
+  } else {
+    // Make sure we're using the same buffer.
+    if (message->m_buffer != m_buffer) {
+      message.reset();
+      return BAD_PARAMETER;
+    }
+
+    // Make sure we're not trying to read past the end of the buffer.
+    offset = message->m_offset;
+    if (offset + MESSAGE_HEADER_MESSAGE_TOTAL_SIZE_OFFSET + sizeof(uint32_t) > totalLength) {
+      message.reset();
+      return READ_PAST_END;
+    }
+
+    // Add the length of the message to the offset to find the offset of the next message.
+    uint32_t msgSize;
+    memcpy(&msgSize, m_buffer->data() + offset + MESSAGE_HEADER_MESSAGE_TOTAL_SIZE_OFFSET, sizeof(msgSize));
+    offset += msgSize;
+  }
+
+  // If our offset is past the end of the packet, we're done and return a nullptr.
+  if (offset >= totalLength) {
+    message.reset();
+    return OKAY;
+  }
+
+  // Read the size of the first message and make sure it fits entirely within the buffer.
+  uint32_t messageSize;
+  if (totalLength < offset + MESSAGE_HEADER_MESSAGE_TOTAL_SIZE_OFFSET + sizeof(messageSize)) {
+    message.reset();
+    return READ_PAST_END;
+  }
+  memcpy(&messageSize, m_buffer->data() + offset + MESSAGE_HEADER_MESSAGE_TOTAL_SIZE_OFFSET, sizeof(messageSize));
+  if (offset + messageSize > totalLength) {
+    message.reset();
+    return READ_PAST_END;
+  }
+
+  // Construct a message from the buffer.
+  Message *messagePtr = new Message(m_buffer, offset);
+  message.reset(messagePtr);
+  if (message->GetConstructorStatus() != OKAY) {
+    message.reset();
+    return message->GetConstructorStatus();
+  }
   return OKAY;
 }
 
@@ -1026,69 +1092,103 @@ Message::~Message()
 
 std::string Message::Test()
 {
-  {
-    // Construct a message with no parameters and check its length, time and type.
-    StreamPacket packet;
-    if (packet.GetConstructorStatus() != OKAY) {
-      return "Error constructing stream packet for message test: " + ErrorMessage(packet.GetConstructorStatus());
-    }
-    Time timeCode = { 1234, 5678 };
-    Message message(packet, 0, timeCode, FRAME_END);
-    if (message.GetConstructorStatus() != OKAY) {
-      return "Error constructing message: " + ErrorMessage(message.GetConstructorStatus());
-    }
+  // Construct a message with no parameters and check its length, size, time and type.
+  StreamPacket packet;
+  if (packet.GetConstructorStatus() != OKAY) {
+    return "Error constructing stream packet for message test: " + ErrorMessage(packet.GetConstructorStatus());
+  }
+  Time timeCode = { 1234, 5678 };
+  Message message(packet, 0, timeCode, FRAME_END);
+  if (message.GetConstructorStatus() != OKAY) {
+    return "Error constructing message: " + ErrorMessage(message.GetConstructorStatus());
+  }
 
-    // Check the length of the packet including the message to make sure it matches expectation.
-    uint32_t totalLength;
-    Status status = packet.GetTotalLength(totalLength);
-    if (status != OKAY) {
-      return "Error checking message size for message test: " + ErrorMessage(status);
-    }
-    if (totalLength != STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE) {
-      return "Error constructing message from buffer for message test: packet length is not " +
-        std::to_string(STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE) + " but " + std::to_string(totalLength);
-    }
+  // Check the length of the packet including the message to make sure it matches expectation.
+  uint32_t totalLength;
+  Status status = packet.GetTotalLength(totalLength);
+  if (status != OKAY) {
+    return "Error checking message size for message test: " + ErrorMessage(status);
+  }
+  if (totalLength != STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE) {
+    return "Error constructing message from buffer for message test: packet length is not " +
+      std::to_string(STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE) + " but " + std::to_string(totalLength);
+  }
+  if (packet.m_buffer->size() != 1500 - 28) {
+    return "Error constructing message from buffer for message test: packet size is not " +
+      std::to_string(1500 - 28) + " but " + std::to_string(packet.m_buffer->size());
+  }
 
-    // Check the time and type of the message.
-    Time rTimeCode;
-    status = message.GetTime(rTimeCode);
-    if (status != OKAY) {
-      return "Error getting time code from message for message test: " + ErrorMessage(status);
-    }
-    if (rTimeCode != timeCode) {
-      return "Error getting time code from message for message test: time code is not " +
-        std::to_string(timeCode.seconds) + "." + std::to_string(timeCode.microseconds);
-    }
-    MessageID type;
-    status = message.GetType(type);
-    if (status != OKAY) {
-      return "Error getting type from message for message test: " + ErrorMessage(status);
-    }
-    if (type != FRAME_END) {
-      return "Error getting type from message for message test: type is not FRAME_END";
-    }
+  // Check the time and type of the message.
+  Time rTimeCode;
+  status = message.GetTime(rTimeCode);
+  if (status != OKAY) {
+    return "Error getting time code from message for message test: " + ErrorMessage(status);
+  }
+  if (rTimeCode != timeCode) {
+    return "Error getting time code from message for message test: time code is not " +
+      std::to_string(timeCode.seconds) + "." + std::to_string(timeCode.microseconds);
+  }
+  MessageID type;
+  status = message.GetType(type);
+  if (status != OKAY) {
+    return "Error getting type from message for message test: " + ErrorMessage(status);
+  }
+  if (type != FRAME_END) {
+    return "Error getting type from message for message test: type is not FRAME_END";
+  }
 
-    // Construct a Message based on the existing one in the StreamPacket and make sure we
-    // can read data from it as well.
-    Message message2(packet.m_buffer, STREAM_PACKET_BASE_SIZE);
-    if (message2.GetConstructorStatus() != OKAY) {
-      return "Error constructing second message: " + ErrorMessage(message2.GetConstructorStatus());
-    }
-    status = message2.GetTime(rTimeCode);
-    if (status != OKAY) {
-      return "Error getting time code from second message for message test: " + ErrorMessage(status);
-    }
-    if (rTimeCode != timeCode) {
-      return "Error getting time code from second message for message test: time code is not " +
-        std::to_string(timeCode.seconds) + "." + std::to_string(timeCode.microseconds);
-    }
-    status = message2.GetType(type);
-    if (status != OKAY) {
-      return "Error getting type from second message for message test: " + ErrorMessage(status);
-    }
-    if (type != FRAME_END) {
-      return "Error getting type from second message for message test: type is not FRAME_END";
-    }
+  // Construct a Message based on the existing one in the StreamPacket and make sure we
+  // can read data from it as well.
+  Message message2(packet.m_buffer, STREAM_PACKET_BASE_SIZE);
+  if (message2.GetConstructorStatus() != OKAY) {
+    return "Error constructing second message: " + ErrorMessage(message2.GetConstructorStatus());
+  }
+  status = message2.GetTime(rTimeCode);
+  if (status != OKAY) {
+    return "Error getting time code from second message for message test: " + ErrorMessage(status);
+  }
+  if (rTimeCode != timeCode) {
+    return "Error getting time code from second message for message test: time code is not " +
+      std::to_string(timeCode.seconds) + "." + std::to_string(timeCode.microseconds);
+  }
+  status = message2.GetType(type);
+  if (status != OKAY) {
+    return "Error getting type from second message for message test: " + ErrorMessage(status);
+  }
+  if (type != FRAME_END) {
+    return "Error getting type from second message for message test: type is not FRAME_END";
+  }
+
+  // Find the messages in the packet and make sure we can read them.
+  std::shared_ptr<Message> message3;
+  status = packet.GetNextMessage(message3);
+  if (status != OKAY) {
+    return "Error getting first message from packet for message test: " + ErrorMessage(status);
+  }
+  if (message3 == nullptr) {
+    return "Error getting first message from packet for message test: message is null";
+  }
+  status = message3->GetTime(rTimeCode);
+  if (status != OKAY) {
+    return "Error getting time code from packet for message test: " + ErrorMessage(status);
+  }
+  if (rTimeCode != timeCode) {
+    return "Error getting time code from packet for message test: time code is not " +
+      std::to_string(timeCode.seconds) + "." + std::to_string(timeCode.microseconds);
+  }
+  status = message3->GetType(type);
+  if (status != OKAY) {
+    return "Error getting type from packet for message test: " + ErrorMessage(status);
+  }
+  if (type != FRAME_END) {
+    return "Error getting type from packet for message test: type is not FRAME_END";
+  }
+  status = packet.GetNextMessage(message3);
+  if (status != OKAY) {
+    return "Error getting second message from packet for message test: " + ErrorMessage(status);
+  }
+  if (message3 != nullptr) {
+    return "Error getting second message from packet for message test: message is not null";
   }
 
   return "";
@@ -1720,6 +1820,47 @@ Status SocketSenderUDP::Send(const void* buffer, uint32_t length)
   return OKAY;
 }
 
+Status SocketSenderUDP::SendCommandPacket(const CommandPacket& packet)
+{
+  // Make sure we have a valid socket.
+  if ((m_socket == nullptr) || (m_socket->socket == BAD_SOCKET)) {
+    return m_constructorStatus;
+  }
+
+  // Send the data.
+  int result = send(m_socket->socket, (const char*)packet.m_buffer->data(), packet.m_buffer->size(), 0);
+  if (result == SOCKET_ERROR) {
+    return SOCKET_FAILURE;
+  }
+
+  // Everything worked.
+  return OKAY;
+}
+
+Status SocketSenderUDP::SendStreamPacket(const StreamPacket& packet)
+{
+  // Make sure we have a valid socket.
+  if ((m_socket == nullptr) || (m_socket->socket == BAD_SOCKET)) {
+    return m_constructorStatus;
+  }
+
+  // Find out how large the data in the packet is.
+  uint32_t length;
+  Status status = packet.GetTotalLength(length);
+  if (status != OKAY) {
+    return status;
+  }
+
+  // Send the data.
+  int result = send(m_socket->socket, (const char*)packet.m_buffer->data(), length, 0);
+  if (result == SOCKET_ERROR) {
+    return SOCKET_FAILURE;
+  }
+
+  // Everything worked.
+  return OKAY;
+}
+
 Status SocketSenderUDP::GetConstructorStatus() const
 {
   return m_constructorStatus;
@@ -1913,7 +2054,7 @@ Status SocketReceiverUDP::GetConstructorStatus() const
   return m_constructorStatus;
 }
 
-static std::string TestSockets()
+std::string SocketReceiverUDP::Test()
 {
   Status status;
 
@@ -1972,6 +2113,52 @@ static std::string TestSockets()
     return "Unexpected success when receiving into a too-small buffer";
   }
 
+  // Try sending and receiving a CommandPacket.
+  CommandPacketReset sendCommandPacket;
+  status = sendCommandPacket.GetConstructorStatus();
+  if (status != OKAY) {
+    return "Error constructing CommandPacketReset: " + ErrorMessage(status);
+  }
+  status = sender.SendCommandPacket(sendCommandPacket);
+  if (status != OKAY) {
+    return "Error sending CommandPacketReset: " + ErrorMessage(status);
+  }
+  std::shared_ptr<CommandPacket> receiveCommandPacket;
+  status = receiver.ReceiveCommandPacket(0.5, receiveCommandPacket);
+  if (status != OKAY) {
+    return "Error receiving CommandPacketReset: " + ErrorMessage(status);
+  }
+  if (receiveCommandPacket == nullptr) {
+    return "Empty CommandPacketReset packet";
+  }
+  OpCode opCode;
+  status = receiveCommandPacket->GetOpCode(opCode);
+  if (status != OKAY) {
+    return "Error checking CommandPacketReset opcode: " + ErrorMessage(status);
+  }
+  if (opCode != RESET) {
+    return "Error receiving CommandPacketReset: wrong type";
+  }
+
+  // Try sending and receiving a StreamPacket.
+  StreamPacket sendStreamPacket;
+  status = sendStreamPacket.GetConstructorStatus();
+  if (status != OKAY) {
+    return "Error constructing StreamPacket: " + ErrorMessage(status);
+  }
+  status = sender.SendStreamPacket(sendStreamPacket);
+  if (status != OKAY) {
+    return "Error sending StreamPacket: " + ErrorMessage(status);
+  }
+  std::shared_ptr<StreamPacket> receiveStreamPacket;
+  status = receiver.ReceiveStreamPacket(0.5, receiveStreamPacket);
+  if (status != OKAY) {
+    return "Error receiving StreamPacket: " + ErrorMessage(status);
+  }
+  if (receiveStreamPacket == nullptr) {
+    return "Empty StreamPacket packet";
+  }
+
   /// @todo
 
   return "";
@@ -2006,7 +2193,7 @@ std::string asdp::Test()
 
   //-------------------------------------------------------------------
   // Tests for SocketSenderUDP and SocketReceiverUDP.
-  ret = TestSockets();
+  ret = SocketReceiverUDP::Test();
   if (ret.size() > 0) {
     return "Error testing Socket send/receive: " + ret;
   }

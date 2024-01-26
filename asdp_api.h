@@ -356,6 +356,7 @@ protected:
   /// under us.
   CommandPacket(std::shared_ptr<std::vector<uint8_t>> existingBuffer);
 
+  friend class SocketSenderUDP;
   friend class SocketReceiverUDP;
 
   friend class CommandPacketReset;
@@ -468,6 +469,7 @@ public:
 ///
 /// Subclasses are listed below.
 
+class Message;   // Foreward declaration
 class StreamPacket : public BasicPacket {
 public:
 
@@ -490,6 +492,14 @@ public:
   /// @param [in] timeCode The time code.
   /// @return OKAY if successful, otherwise an error code.
   Status SetTimeCode(Time timeCode);
+
+  /// @brief Get the next message from the buffer
+  /// @param [inout] message Pointer to the next message in the buffer. Client
+  /// initially sets this to nullptr, which asks for the first message in
+  /// the buffer. It then passes the previous message each time to get the
+  /// next. A nullptr is returned after the last message.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetNextMessage(std::shared_ptr<Message>& message) const;
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
@@ -522,6 +532,7 @@ protected:
   /// under us.
   StreamPacket(std::shared_ptr<std::vector<uint8_t>> existingBuffer);
 
+  friend class SocketSenderUDP;
   friend class SocketReceiverUDP;
 
   friend class Message;
@@ -576,6 +587,8 @@ protected:
 
   std::shared_ptr<std::vector<uint8_t>> m_buffer;   ///< Buffer containing the message.
   uint32_t m_offset;                                ///< Offset into the buffer to the start of the message.
+
+  friend class StreamPacket;
 
   /// @todo Finish the rest of the subclasses, here and below, once we've finished a full example.
 };
@@ -728,6 +741,16 @@ public:
   /// @return OKAY if successful, otherwise an error code.
   Status Send(const void* buffer, uint32_t length);
 
+  /// @brief Send a CommandPacket.
+  /// @param [in] packet CommandPacket to send.
+  /// @return OKAY if successful, otherwise an error code.
+  Status SendCommandPacket(const CommandPacket& packet);
+
+  /// @brief Send a StreamPacket.
+  /// @param [in] packet StreamPacket to send.
+  /// @return OKAY if successful, otherwise an error code.
+  Status SendStreamPacket(const StreamPacket& packet);
+
   /// @brief Return the status of the constructor.
   Status GetConstructorStatus() const;
 
@@ -788,6 +811,10 @@ public:
 
   /// @brief Return the status of the constructor.
   Status GetConstructorStatus() const;
+
+  /// @brief Test function for both this class and the SocketSenderUDP class.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
 
 protected:
   Status m_constructorStatus;       ///< Reports any errors during construction
