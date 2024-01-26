@@ -31,6 +31,8 @@ using namespace asdp;
 #include <sys/select.h> // for fd_set
 #include <netinet/in.h> // for htonl, htons
 #include <poll.h>       // for poll()
+#include <netdb.h>      // for addrinfo and related functions
+#include <unistd.h>     // for close()
 #endif
 
 #ifdef ASDP_USE_WINSOCK_SOCKETS
@@ -72,6 +74,8 @@ using namespace asdp;
   // On Winsock, INVALID_SOCKET is #defined as ~0 (sockets are unsigned ints)
   // We can't redefine it locally, so we have to switch to another name
   static const int BAD_SOCKET = -1;
+  static const int SOCKET_ERROR = -1;
+  #define closesocket close
 #else // winsock sockets
 
   // Bring the SOCKET type into our namespace, basing it on the root namespace one.
@@ -1670,7 +1674,7 @@ SocketSenderUDP::SocketSenderUDP(std::string host, uint16_t port)
 
   // Open the socket to use for sending UDP packets.
   m_socket->socket = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-  if (m_socket->socket == INVALID_SOCKET) {
+  if (m_socket->socket == BAD_SOCKET) {
     m_constructorStatus = BAD_PARAMETER;
     freeaddrinfo(res);
     return;
@@ -1690,7 +1694,7 @@ SocketSenderUDP::SocketSenderUDP(std::string host, uint16_t port)
 
 SocketSenderUDP::~SocketSenderUDP()
 {
-  if ((m_socket != nullptr) && (m_socket->socket != INVALID_SOCKET)) {
+  if ((m_socket != nullptr) && (m_socket->socket != BAD_SOCKET)) {
     closesocket(m_socket->socket);
   }
 }
@@ -1703,7 +1707,7 @@ Status SocketSenderUDP::Send(const void* buffer, uint32_t length)
   }
 
   // Make sure we have a valid socket.
-  if ((m_socket == nullptr) || (m_socket->socket == INVALID_SOCKET)) {
+  if ((m_socket == nullptr) || (m_socket->socket == BAD_SOCKET)) {
     return m_constructorStatus;
   }
 
@@ -1748,7 +1752,7 @@ SocketReceiverUDP::SocketReceiverUDP(std::string host, uint16_t port, uint32_t m
 
   // Open the socket to use for sending UDP packets.
   m_socket->socket = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-  if (m_socket->socket == INVALID_SOCKET) {
+  if (m_socket->socket == BAD_SOCKET) {
     m_constructorStatus = BAD_PARAMETER;
     freeaddrinfo(res);
     return;
@@ -1781,7 +1785,7 @@ SocketReceiverUDP::SocketReceiverUDP(std::string host, uint16_t port, uint32_t m
 
 SocketReceiverUDP::~SocketReceiverUDP()
 {
-  if ((m_socket != nullptr) && (m_socket->socket != INVALID_SOCKET)) {
+  if ((m_socket != nullptr) && (m_socket->socket != BAD_SOCKET)) {
     closesocket(m_socket->socket);
   }
 }
@@ -1789,7 +1793,7 @@ SocketReceiverUDP::~SocketReceiverUDP()
 Status SocketReceiverUDP::IsPacketAvailable(double timeout_seconds, bool& available)
 {
   // Make sure we have a valid socket.
-  if ((m_socket == nullptr) || (m_socket->socket == INVALID_SOCKET)) {
+  if ((m_socket == nullptr) || (m_socket->socket == BAD_SOCKET)) {
     return m_constructorStatus;
   }
 
@@ -1817,12 +1821,17 @@ Status SocketReceiverUDP::IsPacketAvailable(double timeout_seconds, bool& availa
 Status SocketReceiverUDP::ReceiveBuffer(std::vector<uint8_t>& buffer)
 {
   // Make sure we have a valid socket.
-  if ((m_socket == nullptr) || (m_socket->socket == INVALID_SOCKET)) {
+  if ((m_socket == nullptr) || (m_socket->socket == BAD_SOCKET)) {
     return m_constructorStatus;
   }
 
   // Receive the data.
-  int length = recv(m_socket->socket, reinterpret_cast<char*>(buffer.data()), buffer.size(), 0);
+#ifdef ASDP_USE_WINSOCK_SOCKETS
+  #define FLAGS 0
+#else
+  #define FLAGS MSG_TRUNC
+#endif
+  int length = recv(m_socket->socket, reinterpret_cast<char*>(buffer.data()), buffer.size(), FLAGS);
   if (length == SOCKET_ERROR) {
     return SOCKET_FAILURE;
   }
