@@ -5,6 +5,7 @@
 #include "asdp_api.h"
 #include <string.h>   // For memcpy
 #include <iostream>
+#include <thread>
 
 using namespace asdp;
 
@@ -140,7 +141,7 @@ std::string asdp::ErrorMessage(Status status)
     return "Object method called with NULL object pointer";
   case INTERNAL_EXCEPTION:
     return "Exception thrown inside implementation";
-  case SOCKET_ERROR:
+  case SOCKET_FAILURE:
     return "Socket error";
   case READ_PAST_END:
     return "Attempt to read past end of buffer";
@@ -148,9 +149,11 @@ std::string asdp::ErrorMessage(Status status)
     return "Bad magic cookie in packet";
   case WRITE_PAST_END:
     return "Attempt to write past end of buffer";
+  case BUFFER_TOO_SMALL:
+    return "Buffer too small";
 
   default:
-    return "Unrecognized error code";
+    return "Unrecognized error code: " + std::to_string(status);
   }
 }
 
@@ -1819,13 +1822,16 @@ Status SocketReceiverUDP::ReceiveBuffer(std::vector<uint8_t>& buffer)
   }
 
   // Receive the data.
-  int length = recv(m_socket->socket, reinterpret_cast<char*>(buffer.data()), buffer.size(), MSG_TRUNC);
+  int length = recv(m_socket->socket, reinterpret_cast<char*>(buffer.data()), buffer.size(), 0);
   if (length == SOCKET_ERROR) {
     return SOCKET_FAILURE;
   }
   if (length > buffer.size()) {
     return BUFFER_TOO_SMALL;
   }
+
+  // Record how many bytes we received by resizing the buffer to this size.
+  buffer.resize(length);
 
   // Everything worked.
   return OKAY;
@@ -1896,6 +1902,52 @@ Status SocketReceiverUDP::GetConstructorStatus() const
   return m_constructorStatus;
 }
 
+static std::string TestSockets()
+{
+  Status status;
+
+  // Create a sender and receiver.
+  SocketReceiverUDP receiver;
+  if (receiver.GetConstructorStatus() != OKAY) {
+    return "Error constructing SocketReceiverUDP: " + ErrorMessage(receiver.GetConstructorStatus());
+  }
+  uint16_t port;
+  port = receiver.GetPort();
+  SocketSenderUDP sender("localhost", port);
+  if (sender.GetConstructorStatus() != OKAY) {
+    return "Error constructing SocketSenderUDP: " + ErrorMessage(sender.GetConstructorStatus());
+  }
+
+  // Send a packet.
+  std::vector<uint8_t> sendBuffer(1000, 0);
+  status = sender.Send(sendBuffer.data(), sendBuffer.size());
+  if (status != OKAY) {
+    return "Error sending packet: " + ErrorMessage(status);
+  }
+
+  // Receive the packet.
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  bool available;
+  status = receiver.IsPacketAvailable(0.1, available);
+  if (status != OKAY) {
+    return "Error checking for packet: " + ErrorMessage(status);
+  }
+  if (!available) {
+    return "Error checking for packet: no packet available";
+  }
+  std::vector<uint8_t> receiveBuffer(2000, 0);
+  status = receiver.ReceiveBuffer(receiveBuffer);
+  if (status != OKAY) {
+    return "Error receiving packet: " + ErrorMessage(status);
+  }
+  if (receiveBuffer.size() != sendBuffer.size()) {
+    return "Error receiving packet: buffer was not resized";
+  }
+  /// @todo
+
+  return "";
+}
+
 std::string asdp::Test()
 {
   std::string ret;
@@ -1912,7 +1964,7 @@ std::string asdp::Test()
   if (ErrorMessage(BAD_PARAMETER) != "Bad parameter") {
     return "Error message for BAD_PARAMETER is incorrect: " + ErrorMessage(BAD_PARAMETER);
   }
-  if (ErrorMessage(HIGHEST_WARNING) != "Unrecognized error code") {
+  if (ErrorMessage(HIGHEST_WARNING) != "Unrecognized error code: 1000") {
     return "Error message for HIGHEST_WARNING is incorrect: " + ErrorMessage(HIGHEST_WARNING);
   }
 
@@ -1925,30 +1977,9 @@ std::string asdp::Test()
 
   //-------------------------------------------------------------------
   // Tests for SocketSenderUDP and SocketReceiverUDP.
-  {
-    Status status;
-
-    // Create a sender and receiver.
-    SocketReceiverUDP receiver;
-    if (receiver.GetConstructorStatus() != OKAY) {
-      return "Error constructing SocketReceiverUDP: " + ErrorMessage(receiver.GetConstructorStatus());
-    }
-    uint16_t port;
-    port = receiver.GetPort();
-    SocketSenderUDP sender("localhost", port);
-    if (sender.GetConstructorStatus() != OKAY) {
-      return "Error constructing SocketSenderUDP: " + ErrorMessage(sender.GetConstructorStatus());
-    }
-
-    // Send a packet.
-    std::vector<uint8_t> sendBuffer(1000, 0);
-    status = sender.Send(sendBuffer.data(), sendBuffer.size());
-    if (status != OKAY) {
-      return "Error sending packet: " + ErrorMessage(status);
-    }
-
-    // Receive the packet.
-    /// @todo
+  ret = TestSockets();
+  if (ret.size() > 0) {
+    return "Error testing Socket send/receive: " + ret;
   }
 
   /// @todo Test reading with all three methods and with timeouts.
