@@ -5,7 +5,6 @@
 #include "asdp_api.h"
 #include <string.h>   // For memcpy
 #include <iostream>
-#include <thread>
 
 using namespace asdp;
 
@@ -1825,7 +1824,8 @@ Status SocketReceiverUDP::ReceiveBuffer(std::vector<uint8_t>& buffer)
     return m_constructorStatus;
   }
 
-  // Receive the data.
+  // Receive the data. On Linux, we need to ask it to inform us if the buffer is too small.
+  // On Windows, it returns an error if the buffer is too small.
 #ifdef ASDP_USE_WINSOCK_SOCKETS
   #define FLAGS 0
 #else
@@ -1833,6 +1833,8 @@ Status SocketReceiverUDP::ReceiveBuffer(std::vector<uint8_t>& buffer)
 #endif
   int length = recv(m_socket->socket, reinterpret_cast<char*>(buffer.data()), buffer.size(), FLAGS);
   if (length == SOCKET_ERROR) {
+    // Windows will fall through to here if the buffer is too small.
+    // There is no way to tell on Windows whether the buffer was too small or if there was some other error.
     return SOCKET_FAILURE;
   }
   if (length > buffer.size()) {
@@ -1934,10 +1936,9 @@ static std::string TestSockets()
     return "Error sending packet: " + ErrorMessage(status);
   }
 
-  // Receive the packet.
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  // Receive the packet into a buffer that it larger than the packet.
   bool available;
-  status = receiver.IsPacketAvailable(0.1, available);
+  status = receiver.IsPacketAvailable(0.5, available);
   if (status != OKAY) {
     return "Error checking for packet: " + ErrorMessage(status);
   }
@@ -1952,6 +1953,25 @@ static std::string TestSockets()
   if (receiveBuffer.size() != sendBuffer.size()) {
     return "Error receiving packet: buffer was not resized";
   }
+
+  // Try sending and receiving into a buffer that is too small, which should fail.
+  status = sender.Send(sendBuffer.data(), sendBuffer.size());
+  if (status != OKAY) {
+    return "Error sending second packet: " + ErrorMessage(status);
+  }
+  status = receiver.IsPacketAvailable(0.5, available);
+  if (status != OKAY) {
+    return "Error checking for second packet: " + ErrorMessage(status);
+  }
+  if (!available) {
+    return "Error checking for second packet: no packet available";
+  }
+  receiveBuffer.resize(100, 0);
+  status = receiver.ReceiveBuffer(receiveBuffer);
+  if (status == OKAY) {
+    return "Unexpected success when receiving into a too-small buffer";
+  }
+
   /// @todo
 
   return "";
