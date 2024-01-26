@@ -728,51 +728,129 @@ public:
 class Socket;
 
 //---------------------------------------------------------------------------
+/// @brief Base interfaces class for both UDP and file-based packet stream sending.
+
+class Sender {
+public:
+  /// @brief Construct a Sender object.
+  Sender() : m_constructorStatus(OKAY) {};
+
+  /// @brief Virtual destructor so all derived class pointers will destroy properly.
+  virtual ~Sender() {};
+
+  /// @brief Send a packet from a buffer in memory.
+  /// @param [in] buffer Pointer to the buffer containing the packet to send.
+  /// @param [in] length Length of the packet to send.
+  /// @return OKAY if successful, otherwise an error code.
+  virtual Status Send(const void* buffer, uint32_t length) = 0;
+
+  /// @brief Send a CommandPacket.
+  /// @param [in] packet CommandPacket to send.
+  /// @return OKAY if successful, otherwise an error code.
+  virtual Status SendCommandPacket(const CommandPacket& packet) = 0;
+
+  /// @brief Send a StreamPacket.
+  /// @param [in] packet StreamPacket to send.
+  /// @return OKAY if successful, otherwise an error code.
+  virtual Status SendStreamPacket(const StreamPacket& packet) = 0;
+
+  /// @brief Return the status of the constructor.
+  virtual Status GetConstructorStatus() const { return m_constructorStatus; }
+
+protected:
+  Status m_constructorStatus;       ///< Reports any errors during construction
+};
+
+//---------------------------------------------------------------------------
+/// @brief Base interfaces class for both UDP and file-based packet stream receipt.
+
+class Receiver {
+public:
+  /// @brief Construct a Receiver object.
+  /// @param [in] maxLen Maximum length of a packet to receive (default of 1472 is the maximum for Ethernet).
+  Receiver(uint32_t maxLen = 1500 - 28) : m_constructorStatus(OKAY), m_maxLen(maxLen) {};
+
+  /// @brief See if a packet is available to receive.
+  /// 
+  /// This is not usually called by client code, which will call one of the ReceivePacket() functions
+  /// for CommandPacket or StreamPacket instead.
+  /// @param [in] timeout_seconds Timeout in seconds to wait for a packet.
+  /// @param [out] available True if a packet is available, false if not.
+  /// @return OKAY if successful, otherwise an error code.
+  virtual Status IsPacketAvailable(double timeout_seconds, bool& available) = 0;
+
+  /// @brief Receive a packet, hanging until one is available.
+  /// 
+  /// This is not usually called by client code, which will call one of the ReceivePacket() functions
+  /// for CommandPacket or StreamPacket instead.
+  /// Use IsPacketAvailable() to see if a packet is available before calling this function.
+  /// @param [inout] buffer A buffer to fill in with the incoming packet.  It must be large enough
+  /// to receive the entire packet.  If it is too small, the packet will be truncated and BUFFER_TOO_SMALL
+  /// will be returned.
+  /// @return OKAY if successful, otherwise an error code.
+  virtual Status ReceiveBuffer(std::vector<uint8_t>& buffer) = 0;
+
+  /// @brief Allocates a new CommandPacket and fills it in with the received data.
+  /// @param [in] timeout_seconds Timeout in seconds to wait for a packet.
+  /// @param [out] packet The received CommandPacket, nullptr if timeout or error.
+  /// @return OKAY if successful, TIMEOUT on timeout, otherwise an error code.
+  virtual Status ReceiveCommandPacket(double timeout_seconds, std::shared_ptr<CommandPacket>& packet) = 0;
+
+  /// @brief Allocates a new StreamPacket and fills it in with the received data.
+  /// @param [in] timeout_seconds Timeout in seconds to wait for a packet.
+  /// @param [out] packet The received StreamPacket, nullptr if timeout or error.
+  /// @return OKAY if successful, TIMEOUT on timeout, otherwise an error code.
+  virtual Status ReceiveStreamPacket(double timeout_seconds, std::shared_ptr<StreamPacket>& packet) = 0;
+
+  /// @brief Return the status of the constructor.
+  virtual Status GetConstructorStatus() const { return m_constructorStatus; }
+
+protected:
+  Status m_constructorStatus;       ///< Reports any errors during construction
+  uint32_t m_maxLen;                ///< Maximum length of a packet we can receive.
+};
+
+//---------------------------------------------------------------------------
 /// @brief Class used to send UDP packets on a socket. Used internally by CoreClient and CoreServer.
 
-class SenderUDP {
+class SenderUDP : public Sender {
 public:
   /// @brief Construct a SocketSender object that will send to a specific endpoint.
   /// @param [in] host Name of the host to send to.
   /// @param [in] port Port number to send to.
   SenderUDP(std::string host, uint16_t port);
 
-  /// @brief Virtual destructor so all derived class pointers will destroy properly.
+  /// @brief Destructor.
   virtual ~SenderUDP();
 
   /// @brief Send a UDP packet.
   /// @param [in] buffer Pointer to the buffer containing the packet to send.
   /// @param [in] length Length of the packet to send.
   /// @return OKAY if successful, otherwise an error code.
-  Status Send(const void* buffer, uint32_t length);
+  Status Send(const void* buffer, uint32_t length) override;
 
   /// @brief Send a CommandPacket.
   /// @param [in] packet CommandPacket to send.
   /// @return OKAY if successful, otherwise an error code.
-  Status SendCommandPacket(const CommandPacket& packet);
+  Status SendCommandPacket(const CommandPacket& packet) override;
 
   /// @brief Send a StreamPacket.
   /// @param [in] packet StreamPacket to send.
   /// @return OKAY if successful, otherwise an error code.
-  Status SendStreamPacket(const StreamPacket& packet);
-
-  /// @brief Return the status of the constructor.
-  Status GetConstructorStatus() const;
+  Status SendStreamPacket(const StreamPacket& packet) override;
 
 protected:
-  Status m_constructorStatus;       ///< Reports any errors during construction
   std::shared_ptr<Socket> m_socket; ///< Pointer to the socket object to use to do our work.
 };
 
 //---------------------------------------------------------------------------
 /// @brief Class used to receive UDP packets on a socket.
 
-class ReceiverUDP {
+class ReceiverUDP : public Receiver {
 public:
   /// @brief Construct a SocketReceiver object.
   /// @param [in] interfaceName Name of the interface to listen on.
   /// @param [in] port Port number to listen on (default of 0 means any available port).
-  /// @param [in] maxLen Maximum length of a packet to receive (default of 1472 is the maximum for Ethernet).
   ReceiverUDP(std::string interfaceName = "localhost", uint16_t port = 0, uint32_t maxLen = 1500 - 28);
 
   /// @brief Get the port associated with this receiver.
@@ -786,7 +864,7 @@ public:
   /// @param [in] timeout_seconds Timeout in seconds to wait for a packet.
   /// @param [out] available True if a packet is available, false if not.
   /// @return OKAY if successful, otherwise an error code.
-  Status IsPacketAvailable(double timeout_seconds, bool& available);
+  Status IsPacketAvailable(double timeout_seconds, bool& available) override;
 
   /// @brief Receive a packet, hanging until one is available.
   /// 
@@ -797,25 +875,22 @@ public:
   /// to receive the entire packet.  If it is too small, the packet will be truncated and BUFFER_TOO_SMALL
   /// will be returned.
   /// @return OKAY if successful, otherwise an error code.
-  Status ReceiveBuffer(std::vector<uint8_t>& buffer);
+  Status ReceiveBuffer(std::vector<uint8_t>& buffer) override;
 
   /// @brief Allocates a new CommandPacket and fills it in with the received data.
   /// @param [in] timeout_seconds Timeout in seconds to wait for a packet.
   /// @param [out] packet The received CommandPacket, nullptr if timeout or error.
   /// @return OKAY if successful, TIMEOUT on timeout, otherwise an error code.
-  Status ReceiveCommandPacket(double timeout_seconds, std::shared_ptr<CommandPacket>& packet);
+  Status ReceiveCommandPacket(double timeout_seconds, std::shared_ptr<CommandPacket>& packet) override;
 
   /// @brief Allocates a new StreamPacket and fills it in with the received data.
   /// @param [in] timeout_seconds Timeout in seconds to wait for a packet.
   /// @param [out] packet The received StreamPacket, nullptr if timeout or error.
   /// @return OKAY if successful, TIMEOUT on timeout, otherwise an error code.
-  Status ReceiveStreamPacket(double timeout_seconds, std::shared_ptr<StreamPacket>& packet);
+  Status ReceiveStreamPacket(double timeout_seconds, std::shared_ptr<StreamPacket>& packet) override;
 
-  /// @brief Virtual destructor so all derived class pointers will destroy properly.
+  /// @brief Destructor.
   virtual ~ReceiverUDP();
-
-  /// @brief Return the status of the constructor.
-  Status GetConstructorStatus() const;
 
   /// @brief Test function for both this class and the SenderUDP class.
   /// @return Empty string if successful, otherwise descriptive error message.
@@ -825,7 +900,6 @@ protected:
   Status m_constructorStatus;       ///< Reports any errors during construction
   std::shared_ptr<Socket> m_socket; ///< Pointer to the socket object to use to do our work.
   uint16_t m_port;                  ///< Port number we are listening on.
-  uint32_t m_maxLen;                ///< Maximum length of a packet we can receive.
 };
 
 //---------------------------------------------------------------------------

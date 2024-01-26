@@ -1763,7 +1763,6 @@ public:
 
 SenderUDP::SenderUDP(std::string host, uint16_t port)
   : m_socket(std::make_shared<Socket>())
-  , m_constructorStatus(OKAY)
 {
   // Map the host name to an IP address and set the port.
   struct addrinfo hints, * res;
@@ -1866,16 +1865,10 @@ Status SenderUDP::SendStreamPacket(const StreamPacket& packet)
   return OKAY;
 }
 
-Status SenderUDP::GetConstructorStatus() const
-{
-  return m_constructorStatus;
-}
-
 ReceiverUDP::ReceiverUDP(std::string host, uint16_t port, uint32_t maxLen)
-  : m_socket(std::make_shared<Socket>())
-  , m_constructorStatus(OKAY)
+  : Receiver(maxLen)
+  , m_socket(std::make_shared<Socket>())
   , m_port(port)
-  , m_maxLen(maxLen)
 {
   // Map the host name to an IP address and set the port.
   struct addrinfo hints, * res;
@@ -2053,11 +2046,6 @@ Status ReceiverUDP::ReceiveStreamPacket(double timeout_seconds, std::shared_ptr<
 
   // Everything worked.
   return OKAY;
-}
-
-Status ReceiverUDP::GetConstructorStatus() const
-{
-  return m_constructorStatus;
 }
 
 std::string ReceiverUDP::Test()
