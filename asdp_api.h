@@ -21,6 +21,7 @@
 #include <chrono>
 #include <memory>
 #include <vector>
+#include <fstream>
 
 namespace asdp {
 
@@ -57,7 +58,9 @@ enum Status {
   /// @brief Error: Attempting to write past the memory available in an object.
   WRITE_PAST_END                = 1010,
   /// @brief Error: Buffer too small to receive packet or other issue.
-  SOCKET_READ_FAILURE           = 1011
+  SOCKET_READ_FAILURE           = 1011,
+  /// @brief File error
+  FILE_FAILURE                  = 1012
 };
 
 /// @brief Helper function to return a descriptive error message based on a status value.
@@ -357,7 +360,9 @@ protected:
   CommandPacket(std::shared_ptr<std::vector<uint8_t>> existingBuffer);
 
   friend class SenderUDP;
+  friend class SenderFile;
   friend class ReceiverUDP;
+  friend class ReceiverFile;
 
   friend class CommandPacketReset;
   friend class CommandPacketCancelAllStreams;
@@ -533,7 +538,9 @@ protected:
   StreamPacket(std::shared_ptr<std::vector<uint8_t>> existingBuffer);
 
   friend class SenderUDP;
+  friend class SenderFile;
   friend class ReceiverUDP;
+  friend class ReceiverFile;
 
   friend class Message;
   friend class MessageFrameBegin;
@@ -844,6 +851,38 @@ protected:
 };
 
 //---------------------------------------------------------------------------
+/// @brief Class used to send packets to a file. Used internally by CoreClient and CoreServer.
+
+class SenderFile : public Sender {
+public:
+  /// @brief Construct a SocketSender object that will send to a specific endpoint.
+  /// @param [in] fileName Name of the file to write to.
+  SenderFile(std::string fileName);
+
+  /// @brief Destructor.
+  virtual ~SenderFile();
+
+  /// @brief Send a UDP packet.
+  /// @param [in] buffer Pointer to the buffer containing the packet to send.
+  /// @param [in] length Length of the packet to send.
+  /// @return OKAY if successful, otherwise an error code.
+  Status Send(const void* buffer, uint32_t length) override;
+
+  /// @brief Send a CommandPacket.
+  /// @param [in] packet CommandPacket to send.
+  /// @return OKAY if successful, otherwise an error code.
+  Status SendCommandPacket(const CommandPacket& packet) override;
+
+  /// @brief Send a StreamPacket.
+  /// @param [in] packet StreamPacket to send.
+  /// @return OKAY if successful, otherwise an error code.
+  Status SendStreamPacket(const StreamPacket& packet) override;
+
+protected:
+  std::shared_ptr<std::ofstream> m_file;    ///< Pointer to the file object to write to.
+};
+
+//---------------------------------------------------------------------------
 /// @brief Class used to receive UDP packets on a socket.
 
 class ReceiverUDP : public Receiver {
@@ -851,6 +890,7 @@ public:
   /// @brief Construct a SocketReceiver object.
   /// @param [in] interfaceName Name of the interface to listen on.
   /// @param [in] port Port number to listen on (default of 0 means any available port).
+  /// @param [in] maxLen Maximum length of a packet to receive (default of 1472 is the maximum for Ethernet).
   ReceiverUDP(std::string interfaceName = "localhost", uint16_t port = 0, uint32_t maxLen = 1500 - 28);
 
   /// @brief Get the port associated with this receiver.
@@ -897,9 +937,61 @@ public:
   static std::string Test();
 
 protected:
-  Status m_constructorStatus;       ///< Reports any errors during construction
   std::shared_ptr<Socket> m_socket; ///< Pointer to the socket object to use to do our work.
   uint16_t m_port;                  ///< Port number we are listening on.
+};
+
+//---------------------------------------------------------------------------
+/// @brief Class used to read packets from a file that have been streamed there.
+
+class ReceiverFile : public Receiver {
+public:
+  /// @brief Construct a SocketReceiver object.
+  /// @param [in] fileName Name of the file to write to.
+  /// @param [in] maxLen Maximum length of a packet to receive (default of 1472 is the maximum for Ethernet).
+  ReceiverFile(std::string fileName, uint32_t maxLen = 1500 - 28);
+
+  /// @brief See if a packet is available to receive.
+  /// 
+  /// This is not usually called by client code, which will call one of the ReceivePacket() functions
+  /// for CommandPacket or StreamPacket instead.
+  /// @param [in] timeout_seconds Timeout in seconds to wait for a packet.
+  /// @param [out] available True if a packet is available, false if not.
+  /// @return OKAY if successful, otherwise an error code.
+  Status IsPacketAvailable(double timeout_seconds, bool& available) override;
+
+  /// @brief Receive a packet, hanging until one is available.
+  /// 
+  /// This is not usually called by client code, which will call one of the ReceivePacket() functions
+  /// for CommandPacket or StreamPacket instead.
+  /// Use IsPacketAvailable() to see if a packet is available before calling this function.
+  /// @param [inout] buffer A buffer to fill in with the incoming packet.  It must be large enough
+  /// to receive the entire packet.  If it is too small, the packet will be truncated and BUFFER_TOO_SMALL
+  /// will be returned.
+  /// @return OKAY if successful, otherwise an error code.
+  Status ReceiveBuffer(std::vector<uint8_t>& buffer) override;
+
+  /// @brief Allocates a new CommandPacket and fills it in with the received data.
+  /// @param [in] timeout_seconds Timeout in seconds to wait for a packet.
+  /// @param [out] packet The received CommandPacket, nullptr if timeout or error.
+  /// @return OKAY if successful, TIMEOUT on timeout, otherwise an error code.
+  Status ReceiveCommandPacket(double timeout_seconds, std::shared_ptr<CommandPacket>& packet) override;
+
+  /// @brief Allocates a new StreamPacket and fills it in with the received data.
+  /// @param [in] timeout_seconds Timeout in seconds to wait for a packet.
+  /// @param [out] packet The received StreamPacket, nullptr if timeout or error.
+  /// @return OKAY if successful, TIMEOUT on timeout, otherwise an error code.
+  Status ReceiveStreamPacket(double timeout_seconds, std::shared_ptr<StreamPacket>& packet) override;
+
+  /// @brief Destructor.
+  virtual ~ReceiverFile();
+
+  /// @brief Test function for both this class and the SenderFile class.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
+
+protected:
+  std::shared_ptr<std::ifstream> m_file;    ///< Pointer to the file object to read from.
 };
 
 //---------------------------------------------------------------------------

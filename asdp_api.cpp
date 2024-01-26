@@ -42,6 +42,8 @@ std::string asdp::ErrorMessage(Status status)
     return "Attempt to write past end of buffer";
   case SOCKET_READ_FAILURE:
     return "Read error on socket; perhaps client buffer too small";
+  case FILE_FAILURE:
+    return "File error";
 
   default:
     return "Unrecognized error code: " + std::to_string(status);
@@ -1865,6 +1867,96 @@ Status SenderUDP::SendStreamPacket(const StreamPacket& packet)
   return OKAY;
 }
 
+SenderFile::SenderFile(std::string fileName)
+{
+  // Open the file.
+  m_file = std::make_shared<std::ofstream>(fileName.c_str(), std::ios::binary);
+  if (m_file == nullptr) {
+    m_constructorStatus = BAD_PARAMETER;
+    return;
+  }
+}
+
+SenderFile::~SenderFile()
+{
+  if (m_file != nullptr) {
+    m_file->close();
+  }
+}
+
+Status SenderFile::Send(const void* buffer, uint32_t length)
+{
+  // Check our parameters
+  if (buffer == nullptr) {
+    return BAD_PARAMETER;
+  }
+
+  // Make sure we have a valid file.
+  if (m_file == nullptr) {
+    return m_constructorStatus;
+  }
+  if (!(*m_file)) {
+    return FILE_FAILURE;
+  }
+
+  // Send the data.
+  m_file->write(reinterpret_cast<const char*>(buffer), length);
+  if (!(*m_file)) {
+    return FILE_FAILURE;
+  }
+
+  // Everything worked.
+  return OKAY;
+}
+
+Status SenderFile::SendCommandPacket(const CommandPacket& packet)
+{
+  // Make sure we have a valid file.
+  if (m_file == nullptr) {
+    return m_constructorStatus;
+  }
+  if (!(*m_file)) {
+    return FILE_FAILURE;
+  }
+
+  // Send the data.
+  m_file->write(reinterpret_cast<const char*>(packet.m_buffer->data()), packet.m_buffer->size());
+  if (!(*m_file)) {
+    return FILE_FAILURE;
+  }
+
+  // Everything worked.
+  return OKAY;
+}
+
+Status SenderFile::SendStreamPacket(const StreamPacket& packet)
+{
+  // Make sure we have a valid file.
+  if (m_file == nullptr) {
+    return m_constructorStatus;
+  }
+  if (!(*m_file)) {
+    return FILE_FAILURE;
+  }
+
+  // Find out how large the data in the packet is.
+  uint32_t length;
+  Status status = packet.GetTotalLength(length);
+  if (status != OKAY) {
+    return status;
+  }
+
+  // Send the data.
+  // Send the data.
+  m_file->write(reinterpret_cast<const char*>(packet.m_buffer->data()), length);
+  if (!(*m_file)) {
+    return FILE_FAILURE;
+  }
+
+  // Everything worked.
+  return OKAY;
+}
+
 ReceiverUDP::ReceiverUDP(std::string host, uint16_t port, uint32_t maxLen)
   : Receiver(maxLen)
   , m_socket(std::make_shared<Socket>())
@@ -1888,7 +1980,7 @@ ReceiverUDP::ReceiverUDP(std::string host, uint16_t port, uint32_t maxLen)
     return;
   }
 
-  // Open the socket to use for sending UDP packets.
+  // Open the socket to use for receiving UDP packets.
   m_socket->socket = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
   if (m_socket->socket == BAD_SOCKET) {
     m_constructorStatus = BAD_PARAMETER;
@@ -2153,7 +2245,284 @@ std::string ReceiverUDP::Test()
     return "Empty StreamPacket packet";
   }
 
-  /// @todo
+  return "";
+}
+
+ReceiverFile::ReceiverFile(std::string fileName, uint32_t maxLen)
+  : Receiver(maxLen)
+{
+  // Open the file.
+  m_file = std::make_shared<std::ifstream>(fileName.c_str(), std::ios::binary);
+  if (m_file == nullptr) {
+    m_constructorStatus = BAD_PARAMETER;
+    return;
+  }
+}
+
+ReceiverFile::~ReceiverFile()
+{
+  if (m_file != nullptr) {
+    m_file->close();
+  }
+}
+
+Status ReceiverFile::IsPacketAvailable(double timeout_seconds, bool& available)
+{
+  // Make sure we have a valid file.
+  if (m_file == nullptr) {
+    return m_constructorStatus;
+  }
+  if (!(*m_file)) {
+    return FILE_FAILURE;
+  }
+
+  /// @todo Implement timeout.
+
+  // Check if there is more data available in the file.
+  available = !m_file->eof();
+  return OKAY;
+}
+
+Status ReceiverFile::ReceiveBuffer(std::vector<uint8_t>& buffer)
+{
+  // Make sure we have a valid file.
+  if (m_file == nullptr) {
+    return m_constructorStatus;
+  }
+  if (!(*m_file)) {
+    return FILE_FAILURE;
+  }
+
+  // Read the data.  If there is not enough data to fill the buffer,
+  // the buffer will be resized to the amount of data read.
+  m_file->read(reinterpret_cast<char*>(buffer.data()), buffer.size());
+  std::streamsize bytesActuallyRead = m_file->gcount();
+  if (bytesActuallyRead < buffer.size()) {
+    buffer.resize(bytesActuallyRead);
+  }
+  if (bytesActuallyRead == 0) {
+    return FILE_FAILURE;
+  }
+
+  // Everything worked.
+  return OKAY;
+}
+
+Status ReceiverFile::ReceiveCommandPacket(double timeout_seconds, std::shared_ptr<CommandPacket>& packet)
+{
+  // See if we have a packet available.
+  bool available;
+  Status status = IsPacketAvailable(timeout_seconds, available);
+  if (status != OKAY) {
+    return status;
+  }
+  if (!available) {
+    return TIMEOUT;
+  }
+
+  // Get the packet header up through the field that records the length.
+  if (m_maxLen < 3 * sizeof(uint32_t)) {
+    return WRITE_PAST_END;
+  }
+  std::shared_ptr<std::vector<uint8_t>> buffer = std::make_shared<std::vector<uint8_t>>(m_maxLen);
+  m_file->read(reinterpret_cast<char*>(buffer->data()), PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t));
+  if (!(*m_file)) {
+    return FILE_FAILURE;
+  }
+
+  // Find the length of the packet.
+  uint32_t length;
+  memcpy(&length, buffer->data() + PACKET_HEADER_TOTAL_SIZE_OFFSET, sizeof(length));
+  if (length > m_maxLen) {
+    return WRITE_PAST_END;
+  }
+
+  // Read the rest of the packet.
+  m_file->read(reinterpret_cast<char*>(buffer->data()) + PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t),
+    length - PACKET_HEADER_TOTAL_SIZE_OFFSET - sizeof(uint32_t));
+  if (!(*m_file)) {
+    return FILE_FAILURE;
+  }
+
+  // Construct the packet using the buffer.
+  CommandPacket* commandPacketPtr = new CommandPacket(buffer);
+  packet.reset(commandPacketPtr);
+  if (packet->GetConstructorStatus() != OKAY) {
+    return packet->GetConstructorStatus();
+  }
+
+  // Everything worked.
+  return OKAY;
+}
+
+Status ReceiverFile::ReceiveStreamPacket(double timeout_seconds, std::shared_ptr<StreamPacket>& packet)
+{
+  // See if we have a packet available.
+  bool available;
+  Status status = IsPacketAvailable(timeout_seconds, available);
+  if (status != OKAY) {
+    return status;
+  }
+  if (!available) {
+    return TIMEOUT;
+  }
+
+  // Get the packet header up through the field that records the length.
+  if (m_maxLen < 3 * sizeof(uint32_t)) {
+    return WRITE_PAST_END;
+  }
+  std::shared_ptr<std::vector<uint8_t>> buffer = std::make_shared<std::vector<uint8_t>>(m_maxLen);
+  m_file->read(reinterpret_cast<char*>(buffer->data()), PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t));
+  if (!(*m_file)) {
+    return FILE_FAILURE;
+  }
+
+  // Find the length of the packet.
+  uint32_t length;
+  memcpy(&length, buffer->data() + PACKET_HEADER_TOTAL_SIZE_OFFSET, sizeof(length));
+  if (length > m_maxLen) {
+    return WRITE_PAST_END;
+  }
+
+  // Read the rest of the packet.
+  m_file->read(reinterpret_cast<char*>(buffer->data()) + PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t),
+    length - PACKET_HEADER_TOTAL_SIZE_OFFSET - sizeof(uint32_t));
+  if (!(*m_file)) {
+    return FILE_FAILURE;
+  }
+
+  // Construct the packet using the buffer.
+  StreamPacket* streamPacketPtr = new StreamPacket(buffer);
+  packet.reset(streamPacketPtr);
+  if (packet->GetConstructorStatus() != OKAY) {
+    return packet->GetConstructorStatus();
+  }
+
+  // Everything worked.
+  return OKAY;
+}
+
+std::string ReceiverFile::Test()
+{
+  Status status;
+
+  // Send a packet.
+  std::vector<uint8_t> sendBuffer(1000, 0);
+  {
+    SenderFile sender("deleteme.bin");
+    if (sender.GetConstructorStatus() != OKAY) {
+      return "Error constructing SenderFile: " + ErrorMessage(sender.GetConstructorStatus());
+    }
+    status = sender.Send(sendBuffer.data(), sendBuffer.size());
+    if (status != OKAY) {
+      return "Error sending packet: " + ErrorMessage(status);
+    }
+  }
+
+  // Receive the packet into a buffer that it larger than the packet.
+  {
+    ReceiverFile receiver("deleteme.bin");
+    if (receiver.GetConstructorStatus() != OKAY) {
+      return "Error constructing ReceiverFile: " + ErrorMessage(receiver.GetConstructorStatus());
+    }
+    bool available;
+    status = receiver.IsPacketAvailable(0.5, available);
+    if (status != OKAY) {
+      return "Error checking for packet: " + ErrorMessage(status);
+    }
+    if (!available) {
+      return "Error checking for packet: no packet available";
+    }
+    std::vector<uint8_t> receiveBuffer(2000, 0);
+    status = receiver.ReceiveBuffer(receiveBuffer);
+    if (status != OKAY) {
+      return "Error receiving packet: " + ErrorMessage(status);
+    }
+    if (receiveBuffer.size() != sendBuffer.size()) {
+      return "Error receiving packet: buffer was not resized";
+    }
+  }
+
+  // Delete the file.
+  remove("deleteme.bin");
+
+  // Try sending and receiving a CommandPacket.
+  {
+    SenderFile sender("deleteme.bin");
+    if (sender.GetConstructorStatus() != OKAY) {
+      return "Error constructing SenderFile for CommandPacket: " + ErrorMessage(sender.GetConstructorStatus());
+    }
+
+    CommandPacketReset sendCommandPacket;
+    status = sendCommandPacket.GetConstructorStatus();
+    if (status != OKAY) {
+      return "Error constructing CommandPacketReset: " + ErrorMessage(status);
+    }
+    status = sender.SendCommandPacket(sendCommandPacket);
+    if (status != OKAY) {
+      return "Error sending CommandPacketReset: " + ErrorMessage(status);
+    }
+  }
+
+  {
+    ReceiverFile receiver("deleteme.bin");
+    if (receiver.GetConstructorStatus() != OKAY) {
+      return "Error constructing ReceiverFile: " + ErrorMessage(receiver.GetConstructorStatus());
+    }
+    std::shared_ptr<CommandPacket> receiveCommandPacket;
+
+    status = receiver.ReceiveCommandPacket(0.5, receiveCommandPacket);
+    if (status != OKAY) {
+      return "Error receiving CommandPacketReset: " + ErrorMessage(status);
+    }
+    if (receiveCommandPacket == nullptr) {
+      return "Empty CommandPacketReset packet";
+    }
+    OpCode opCode;
+    status = receiveCommandPacket->GetOpCode(opCode);
+    if (status != OKAY) {
+      return "Error checking CommandPacketReset opcode: " + ErrorMessage(status);
+    }
+    if (opCode != RESET) {
+      return "Error receiving CommandPacketReset: wrong type";
+    }
+  }
+  remove("deleteme.bin");
+
+  // Try sending and receiving a StreamPacket.
+  {
+    SenderFile sender("deleteme.bin");
+    if (sender.GetConstructorStatus() != OKAY) {
+      return "Error constructing SenderFile: " + ErrorMessage(sender.GetConstructorStatus());
+    }
+
+    StreamPacket sendStreamPacket;
+    status = sendStreamPacket.GetConstructorStatus();
+    if (status != OKAY) {
+      return "Error constructing StreamPacket: " + ErrorMessage(status);
+    }
+    status = sender.SendStreamPacket(sendStreamPacket);
+    if (status != OKAY) {
+      return "Error sending StreamPacket: " + ErrorMessage(status);
+    }
+  }
+
+  {
+    ReceiverFile receiver("deleteme.bin");
+    if (receiver.GetConstructorStatus() != OKAY) {
+      return "Error constructing ReceiverFile: " + ErrorMessage(receiver.GetConstructorStatus());
+    }
+
+    std::shared_ptr<StreamPacket> receiveStreamPacket;
+    status = receiver.ReceiveStreamPacket(0.5, receiveStreamPacket);
+    if (status != OKAY) {
+      return "Error receiving StreamPacket: " + ErrorMessage(status);
+    }
+    if (receiveStreamPacket == nullptr) {
+      return "Empty StreamPacket packet";
+    }
+  }
+  remove("deleteme.bin");
 
   return "";
 }
@@ -2186,16 +2555,15 @@ std::string asdp::Test()
   }
 
   //-------------------------------------------------------------------
-  // Tests for SenderUDP and ReceiverUDP.
+  // Tests for Sender and Receiver subclasses.
   ret = ReceiverUDP::Test();
   if (ret.size() > 0) {
     return "Error testing Socket send/receive: " + ret;
   }
-
-  /// @todo Test reading with all three methods and with timeouts.
-  /// @todo Test reading too-large packets to ensure we get told when they are too large.
-  /// @todo
-
+  ret = ReceiverFile::Test();
+  if (ret.size() > 0) {
+    return "Error testing File send/receive: " + ret;
+  }
 
   //-------------------------------------------------------------------
   // Tests for BasicPacket and its derived classes.
