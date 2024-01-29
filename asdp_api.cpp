@@ -1782,7 +1782,6 @@ std::string MessageFrameEnd::Test()
         std::to_string(cameraID);
     }
 
-
     // Construct a Message based on the existing one and make sure we
     // can read data from it as well.
     MessageFrameEnd message2(message);
