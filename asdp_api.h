@@ -410,6 +410,7 @@ public:
 struct SubregionDescription {
   uint32_t cameraID;    ///< Camera ID the region is from
   uint32_t skipFrames;  ///< Number of frames to skip between frames in the subregion
+  uint32_t skipModulo;  ///< Which frame to send when skipping (0 = first, 1 = second, etc.)
   uint32_t left;        ///< Left side of the subregion
   uint32_t top;         ///< Top side of the subregion
   uint32_t right;       ///< Right side of the subregion
@@ -419,6 +420,7 @@ struct SubregionDescription {
   bool operator ==(const SubregionDescription& other) const {
     return cameraID == other.cameraID &&
       skipFrames == other.skipFrames &&
+      skipModulo == other.skipModulo &&
       left == other.left &&
       top == other.top &&
       right == other.right &&
@@ -622,7 +624,6 @@ public:
   /// @param [in] baseMessage The base Message to convert from.
   MessageFrameBegin(Message& baseMessage);
 
-
   /// @brief Get the camera ID for the frame.
   /// @param [out] cameraID Camera ID for the frame.
   /// @return OKAY if successful, otherwise an error code.
@@ -664,6 +665,7 @@ public:
   /// @brief Construct a MessageFrameData and store it into a buffer from a StreamPacket.
   /// @param [in] packet Pointer to the StreamPacket containing the message.
   /// @param [in] timeCode Time code for the message.
+  /// @param [in] cameraID Camera ID for the frame.
   /// @param [in] left Left side of the frame.
   /// @param [in] top Top side of the frame.
   /// @param [in] right Right side of the frame.
@@ -675,12 +677,17 @@ public:
   /// the next, which must be >= the number of pixels in a row.  It can be larger because
   /// the image may be padded to a larger size.
   MessageFrameData(StreamPacket& packet, Time timeCode,
-    uint16_t left, uint16_t top, uint16_t right, uint16_t bottom,
+    uint32_t cameraID, uint16_t left, uint16_t top, uint16_t right, uint16_t bottom,
     uint8_t *data, uint16_t stride);
 
   /// @brief Type-cast a base Message into a MessageFrameData packet, re-using its buffer.
   /// @param [in] baseMessage The base Message to convert from.
   MessageFrameData(Message& baseMessage);
+
+  /// @brief Get the camera ID for the frame.
+  /// @param [out] cameraID Camera ID for the frame.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetCameraID(uint32_t& cameraID) const;
 
   /// @brief Get the index of the leftmost column of pixels.
   /// @param [out] left Index of the leftmost column of pixels.
@@ -719,11 +726,17 @@ public:
   /// @brief Construct a MessageFrameEnd and store it into a buffer from a StreamPacket.
   /// @param [in] packet Pointer to the StreamPacket containing the message.
   /// @param [in] timeCode Time code for the message.
-  MessageFrameEnd(StreamPacket& packet, Time timeCode);
+  /// @param [in] cameraID Camera ID for the frame.
+  MessageFrameEnd(StreamPacket& packet, Time timeCode, uint32_t cameraID);
 
   /// @brief Type-cast a base Message into a MessageFrameEnd packet, re-using its buffer.
   /// @param [in] baseMessage The base Message to convert from.
   MessageFrameEnd(Message& baseMessage);
+
+  /// @brief Get the camera ID for the frame.
+  /// @param [out] cameraID Camera ID for the frame.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetCameraID(uint32_t& cameraID) const;
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.

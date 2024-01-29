@@ -642,6 +642,7 @@ CommandPacketStreamSubregions::CommandPacketStreamSubregions(uint32_t IP, uint16
   for (size_t i = 0; i < regions.size(); ++i) {
     memcpy(bufPtr, &regions[i].cameraID, sizeof(uint32_t)); bufPtr += sizeof(uint32_t);
     memcpy(bufPtr, &regions[i].skipFrames, sizeof(uint32_t)); bufPtr += sizeof(uint32_t);
+    memcpy(bufPtr, &regions[i].skipModulo, sizeof(uint32_t)); bufPtr += sizeof(uint32_t);
     memcpy(bufPtr, &regions[i].left, sizeof(uint32_t)); bufPtr += sizeof(uint32_t);
     memcpy(bufPtr, &regions[i].top, sizeof(uint32_t)); bufPtr += sizeof(uint32_t);
     memcpy(bufPtr, &regions[i].right, sizeof(uint32_t)); bufPtr += sizeof(uint32_t);
@@ -694,6 +695,7 @@ Status CommandPacketStreamSubregions::GetRegionDescriptions(std::vector<Subregio
   for (size_t i = 0; i < numRegions; ++i) {
     memcpy(&regions[i].cameraID, bufPtr, sizeof(uint32_t)); bufPtr += sizeof(uint32_t);
     memcpy(&regions[i].skipFrames, bufPtr, sizeof(uint32_t)); bufPtr += sizeof(uint32_t);
+    memcpy(&regions[i].skipModulo, bufPtr, sizeof(uint32_t)); bufPtr += sizeof(uint32_t);
     memcpy(&regions[i].left, bufPtr, sizeof(uint32_t)); bufPtr += sizeof(uint32_t);
     memcpy(&regions[i].top, bufPtr, sizeof(uint32_t)); bufPtr += sizeof(uint32_t);
     memcpy(&regions[i].right, bufPtr, sizeof(uint32_t)); bufPtr += sizeof(uint32_t);
@@ -708,8 +710,8 @@ std::string CommandPacketStreamSubregions::Test()
     // Construct a CommandPacketStreamSubregions command packet and verify that we can read its opcode.
     uint32_t IP = 0x01020304;
     uint16_t port = 1234;
-    SubregionDescription region1 = { 1, 2, 3, 4, 5, 6 };
-    SubregionDescription region2 = { 7, 8, 9,10,11,12 };
+    SubregionDescription region1 = { 1, 2, 3, 4, 5, 6, 7 };
+    SubregionDescription region2 = { 8, 9,10,11,12,13, 14 };
     std::vector<SubregionDescription> regions = { region1, region2 };
     CommandPacketStreamSubregions packet(IP, port, regions);
     if (packet.GetConstructorStatus() != OKAY) {
@@ -1426,12 +1428,12 @@ std::string MessageFrameBegin::Test()
 }
 
 MessageFrameData::MessageFrameData(StreamPacket& packet, Time timeCode,
-  uint16_t left, uint16_t top, uint16_t right, uint16_t bottom,
+  uint32_t cameraID, uint16_t left, uint16_t top, uint16_t right, uint16_t bottom,
   uint8_t* data, uint16_t stride)
   : Message(packet,
     // The size of the message is the size of the parameters plus the size of the data.
     // We pad the size of the data to a multiple of 4 bytes.
-    sizeof(left) + sizeof(top) + sizeof(right) + sizeof(bottom) +
+    sizeof(cameraID) + sizeof(left) + sizeof(top) + sizeof(right) + sizeof(bottom) +
     PaddedSize(2 * (right - left + 1) * (bottom - top + 1)),
     timeCode, FRAME_DATA)
 {
@@ -1448,6 +1450,7 @@ MessageFrameData::MessageFrameData(StreamPacket& packet, Time timeCode,
 
   // Pack our parameters.
   unsigned char* bufPtr = m_buffer->data() + m_offset + MESSAGE_BASE_SIZE;
+  memcpy(bufPtr, &cameraID, sizeof(cameraID)); bufPtr += sizeof(cameraID);
   memcpy(bufPtr, &left, sizeof(left)); bufPtr += sizeof(left);
   memcpy(bufPtr, &top, sizeof(top)); bufPtr += sizeof(top);
   memcpy(bufPtr, &right, sizeof(right)); bufPtr += sizeof(right);
@@ -1472,9 +1475,19 @@ MessageFrameData::MessageFrameData(Message& baseMessage)
   }
 }
 
-Status MessageFrameData::GetLeft(uint16_t& left) const
+Status MessageFrameData::GetCameraID(uint32_t& cameraID) const
 {
   uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE;
+  if (m_buffer->size() < myOffset + sizeof(cameraID)) {
+    return READ_PAST_END;
+  }
+  memcpy(&cameraID, m_buffer->data() + myOffset, sizeof(cameraID));
+  return OKAY;
+}
+
+Status MessageFrameData::GetLeft(uint16_t& left) const
+{
+  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + sizeof(uint32_t);
   if (m_buffer->size() < myOffset + sizeof(left)) {
     return READ_PAST_END;
   }
@@ -1484,7 +1497,7 @@ Status MessageFrameData::GetLeft(uint16_t& left) const
 
 Status MessageFrameData::GetTop(uint16_t& top) const
 {
-  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + sizeof(uint16_t);
+  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + sizeof(uint32_t) + sizeof(uint16_t);
   if (m_buffer->size() < myOffset + sizeof(top)) {
     return READ_PAST_END;
   }
@@ -1494,7 +1507,7 @@ Status MessageFrameData::GetTop(uint16_t& top) const
 
 Status MessageFrameData::GetRight(uint16_t& right) const
 {
-  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 2 * sizeof(uint16_t);
+  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + sizeof(uint32_t) + 2 * sizeof(uint16_t);
   if (m_buffer->size() < myOffset + sizeof(right)) {
     return READ_PAST_END;
   }
@@ -1504,7 +1517,7 @@ Status MessageFrameData::GetRight(uint16_t& right) const
 
 Status MessageFrameData::GetBottom(uint16_t& bottom) const
 {
-  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 3 * sizeof(uint16_t);
+  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + sizeof(uint32_t) + 3 * sizeof(uint16_t);
   if (m_buffer->size() < myOffset + sizeof(bottom)) {
     return READ_PAST_END;
   }
@@ -1517,7 +1530,7 @@ Status MessageFrameData::GetDataPointer(uint8_t** data) const
   if (data == nullptr) {
     return BAD_PARAMETER;
   }
-  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 4 * sizeof(uint16_t);
+  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + sizeof(uint32_t) + 4 * sizeof(uint16_t);
   if (m_buffer->size() < myOffset) {
     return READ_PAST_END;
   }
@@ -1536,16 +1549,17 @@ std::string MessageFrameData::Test()
 
     // Try to add a message that is too long for the packet. It should fail.
     Time timeCode = { 1234, 5678 };
+    uint32_t cameraID = 0;
     uint16_t left = 0, top = 0, right = 99, bottom = 99;
     std::vector<uint8_t> data(sizeof(uint16_t) * (right - left + 1) * (bottom - top + 1), 0);
-    MessageFrameData badMessage(packet, timeCode, left, top, right, bottom, data.data(), 100);
+    MessageFrameData badMessage(packet, timeCode, cameraID, left, top, right, bottom, data.data(), 100);
     if (badMessage.GetConstructorStatus() != WRITE_PAST_END) {
       return "Unexpected success constructing too-large MessageFrameData";
     }
 
     // Now add a reasonable-sized message
     bottom = 0;
-    MessageFrameData message(packet, timeCode, left, top, right, bottom, data.data(), 100);
+    MessageFrameData message(packet, timeCode, cameraID, left, top, right, bottom, data.data(), 100);
     if (message.GetConstructorStatus() != OKAY) {
       return "Error constructing MessageFrameData: " + ErrorMessage(message.GetConstructorStatus());
     }
@@ -1556,8 +1570,8 @@ std::string MessageFrameData::Test()
     if (status != OKAY) {
       return "Error checking message size for MessageFrameData test: " + ErrorMessage(status);
     }
-    uint32_t expectedLength = STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE + 4 * sizeof(uint16_t) +
-      PaddedSize(sizeof(uint16_t) * (right - left + 1) * (bottom - top + 1));
+    uint32_t expectedLength = STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE + sizeof(uint32_t)
+      + 4 * sizeof(uint16_t) + PaddedSize(sizeof(uint16_t) * (right - left + 1) * (bottom - top + 1));
     if (totalLength != expectedLength) {
       return "Error constructing message from buffer for MessageFrameData test: packet length is not " +
         std::to_string(expectedLength) + " but " + std::to_string(totalLength);
@@ -1583,7 +1597,16 @@ std::string MessageFrameData::Test()
     }
 
     // Check the other messaege parameters.
+    uint32_t rCameraID;
     uint16_t rLeft, rTop, rRight, rBottom;
+    status = message.GetCameraID(rCameraID);
+    if (status != OKAY) {
+      return "Error getting camera ID from message for MessageFrameData test: " + ErrorMessage(status);
+    }
+    if (rCameraID != cameraID) {
+      return "Error getting camera ID from message for MessageFrameData test: Camera ID is not " +
+        std::to_string(cameraID);
+    }
     status = message.GetLeft(rLeft);
     if (status != OKAY) {
       return "Error getting left from message for MessageFrameData test: " + ErrorMessage(status);
@@ -1621,7 +1644,8 @@ std::string MessageFrameData::Test()
     if (status != OKAY) {
       return "Error getting data pointer from message for MessageFrameData test: " + ErrorMessage(status);
     }
-    uint32_t expectedOffset = STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE + 4 * sizeof(uint16_t);
+    uint32_t expectedOffset = STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE + sizeof(uint32_t) +
+      4 * sizeof(uint16_t);
     if (rData != packet.m_buffer->data() + expectedOffset) {
       return "Error getting data pointer from message for MessageFrameData test: unexpected data pointer.";
     }
@@ -1669,13 +1693,17 @@ std::string MessageFrameData::Test()
   return "";
 }
 
-MessageFrameEnd::MessageFrameEnd(StreamPacket& packet, Time timeCode)
-  : Message(packet, 0, timeCode, FRAME_END)
+MessageFrameEnd::MessageFrameEnd(StreamPacket& packet, Time timeCode, uint32_t cameraID)
+  : Message(packet, sizeof(cameraID), timeCode, FRAME_END)
 {
   // See if our subobject failed. If so, we're done.
   if (m_constructorStatus != OKAY) {
     return;
   }
+
+  // Pack our parameters.
+  unsigned char* bufPtr = m_buffer->data() + m_offset + MESSAGE_BASE_SIZE;
+  memcpy(bufPtr, &cameraID, sizeof(cameraID)); bufPtr += sizeof(cameraID);
 }
 
 MessageFrameEnd::MessageFrameEnd(Message& baseMessage)
@@ -1688,6 +1716,16 @@ MessageFrameEnd::MessageFrameEnd(Message& baseMessage)
   }
 }
 
+Status MessageFrameEnd::GetCameraID(uint32_t& cameraID) const
+{
+  if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE + sizeof(uint32_t)) {
+    return READ_PAST_END;
+  }
+  memcpy(&cameraID, m_buffer->data() + m_offset + MESSAGE_BASE_SIZE, sizeof(cameraID));
+  return OKAY;
+}
+
+
 std::string MessageFrameEnd::Test()
 {
   {
@@ -1696,8 +1734,9 @@ std::string MessageFrameEnd::Test()
     if (packet.GetConstructorStatus() != OKAY) {
       return "Error constructing stream packet for MessageFrameEnd test: " + ErrorMessage(packet.GetConstructorStatus());
     }
+    uint32_t cameraID = 100;
     Time timeCode = { 1234, 5678 };
-    MessageFrameEnd message(packet, timeCode);
+    MessageFrameEnd message(packet, timeCode, cameraID);
     if (message.GetConstructorStatus() != OKAY) {
       return "Error constructing MessageFrameEnd: " + ErrorMessage(message.GetConstructorStatus());
     }
@@ -1708,7 +1747,7 @@ std::string MessageFrameEnd::Test()
     if (status != OKAY) {
       return "Error checking message size for MessageFrameEnd test: " + ErrorMessage(status);
     }
-    if (totalLength != STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE) {
+    if (totalLength != STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE + sizeof(uint32_t)) {
       return "Error constructing message from buffer for MessageFrameEnd test: packet length is not " +
         std::to_string(STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE) + " but " + std::to_string(totalLength);
     }
@@ -1731,6 +1770,18 @@ std::string MessageFrameEnd::Test()
     if (type != FRAME_END) {
       return "Error getting type from message for MessageFrameEnd test: type is not FRAME_END";
     }
+
+    // Check the other messaege parameters.
+    uint32_t rCameraID;
+    status = message.GetCameraID(rCameraID);
+    if (status != OKAY) {
+      return "Error getting camera ID from message for MessageFrameEnd test: " + ErrorMessage(status);
+    }
+    if (rCameraID != cameraID) {
+      return "Error getting camera ID from message for MessageFrameEnd test: Camera ID is not " +
+        std::to_string(cameraID);
+    }
+
 
     // Construct a Message based on the existing one and make sure we
     // can read data from it as well.
