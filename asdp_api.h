@@ -60,7 +60,9 @@ enum Status {
   /// @brief Error: Buffer too small to receive packet or other issue.
   SOCKET_READ_FAILURE           = 1011,
   /// @brief File error
-  FILE_FAILURE                  = 1012
+  FILE_FAILURE                  = 1012,
+  /// @brief Error: Unexpected internal state.
+  UNEXPECTED_INTERNAL_STATE     = 1013
 };
 
 /// @brief Helper function to return a descriptive error message based on a status value.
@@ -246,6 +248,7 @@ protected:
 
   Time m_coreOffset;  ///< Offset between Core time and local time.
 
+  friend class StreamWriter;  // So it can implement Test().
   friend class Core;
 };
 
@@ -543,6 +546,8 @@ protected:
   friend class SenderFile;
   friend class ReceiverUDP;
   friend class ReceiverFile;
+
+  friend class StreamWriter;
 
   friend class Message;
   friend class MessageFrameBegin;
@@ -1008,10 +1013,64 @@ protected:
 };
 
 //---------------------------------------------------------------------------
+/// @brief Class used to support writing messages to streams.
+///
+/// This class is used to support writing messages to streams.  It is used
+/// by a server to write messages to a stream, keeping track of the sequence
+/// number and time code for each message.  It provides methods to handle
+/// keeping track of the current packet and sending it when it is full, but
+/// the caller is responsible for ensuring that a message fits in the current
+/// packet or else flushing the current packet and starting a new one.
+
+class StreamWriter {
+public:
+  /// @brief Construct a StreamWriter object.
+  /// @param [in] sender Pointer to the sender object to use to send the packets.
+  /// @param [in] timer Pointer to the timer object to use to get the time code.
+  /// @param [in] maxPacketSize Maximum size of the packet to send.
+  StreamWriter(std::shared_ptr<asdp::Sender> sender,
+    std::shared_ptr<asdp::Timer> timer,
+    uint32_t maxPacketSize = 1500 - 28);
+
+  /// @brief Virtual destructor so all derived class pointers will destroy properly.
+  ///
+  /// Flushes the current packet before destroying.
+  virtual ~StreamWriter();
+
+  /// @brief Return the status of the constructor.
+  /// @return Constructor status.
+  Status GetConstructorStatus() const;
+
+  /// @brief Get the current packet being used.
+  /// @param [out] packet The current packet being used.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetCurrentPacket(std::shared_ptr<asdp::StreamPacket>& packet) const;
+
+  /// @brief Flush the current packet, sending it and getting a new one.
+  /// @return OKAY if successful, otherwise an error code.
+  Status Flush();
+
+  /// @brief Test function.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
+
+protected:
+  Status m_constructorStatus;       ///< Reports any errors during construction
+  std::shared_ptr<asdp::Sender> m_sender;  ///< Pointer to the sender object to use to send the packets.
+  std::shared_ptr<asdp::Timer> m_timer;    ///< Pointer to the timer object to use to get the time code.
+  uint32_t m_maxPacketSize;           ///< Maximum size of the packet to send.
+  uint32_t m_sequenceNumber;          ///< Sequence number for the next packet to send.
+  std::shared_ptr<asdp::StreamPacket> m_currentPacket; ///< Current packet being built.
+};
+
+//---------------------------------------------------------------------------
 /// @brief Core class, which is the derived class for both a client and server.
 
 class Core {
 public:
+  /// @brief Virtual destructor so all derived class pointers will destroy properly.
+  virtual ~Core();
+
   /// @brief Get the version of the Core API being used.
   /// @return The version of the Core API.
   static std::string GetVersion();
@@ -1026,8 +1085,8 @@ public:
   /// @return OKAY if successful, otherwise an error code.
   Status SetMaxPayloadSize(size_t value);
 
-  /// @brief Virtual destructor so all derived class pointers will destroy properly.
-  virtual ~Core();
+  /// @brief Return the status of the constructor.
+  virtual Status GetConstructorStatus() const { return m_constructorStatus; }
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
@@ -1039,6 +1098,7 @@ protected:
   Core& operator=(const Core&) = delete;
   Core(Core&&) = delete;
   Core& operator=(Core&&) = delete;
+  Status m_constructorStatus;       ///< Reports any errors during construction
 };
 
 //---------------------------------------------------------------------------

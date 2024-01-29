@@ -5,6 +5,7 @@
 #include "asdp_api.h"
 #include <string.h>   // For memcpy
 #include <iostream>
+#include <thread>
 
 using namespace asdp;
 
@@ -44,6 +45,8 @@ std::string asdp::ErrorMessage(Status status)
     return "Read error on socket; perhaps client buffer too small";
   case FILE_FAILURE:
     return "File error";
+  case UNEXPECTED_INTERNAL_STATE:
+    return "Unexpected internal state";
 
   default:
     return "Unrecognized error code: " + std::to_string(status);
@@ -1725,7 +1728,6 @@ Status MessageFrameEnd::GetCameraID(uint32_t& cameraID) const
   return OKAY;
 }
 
-
 std::string MessageFrameEnd::Test()
 {
   {
@@ -2577,6 +2579,243 @@ std::string ReceiverFile::Test()
   return "";
 }
 
+StreamWriter::StreamWriter(std::shared_ptr<asdp::Sender> sender,
+    std::shared_ptr<asdp::Timer> timer,
+    uint32_t maxPacketSize)
+  : m_constructorStatus(OKAY)
+  , m_sender(sender)
+  , m_timer(timer)
+  , m_maxPacketSize(maxPacketSize)
+  , m_sequenceNumber(0)
+{
+// Make sure we have a valid sender.
+  if (m_sender == nullptr) {
+    m_constructorStatus = BAD_PARAMETER;
+    return;
+  }
+  if (m_sender->GetConstructorStatus() != OKAY) {
+    m_constructorStatus = m_sender->GetConstructorStatus();
+    return;
+  }
+
+  // Make sure we have a valid timer.
+  if (m_timer == nullptr) {
+    m_constructorStatus = BAD_PARAMETER;
+    return;
+  }
+
+  // Make sure we have a valid maximum packet size.
+  if (m_maxPacketSize == 0) {
+    m_constructorStatus = BAD_PARAMETER;
+    return;
+  }
+
+  // Construct the current packet.
+  StreamPacket *packetPtr = new StreamPacket(m_maxPacketSize, m_sequenceNumber);
+  m_currentPacket.reset(packetPtr);
+  if (m_currentPacket->GetConstructorStatus() != OKAY) {
+    m_constructorStatus = m_currentPacket->GetConstructorStatus();
+    return;
+  }
+}
+
+StreamWriter::~StreamWriter()
+{
+  Flush();
+}
+
+Status StreamWriter::GetCurrentPacket(std::shared_ptr<asdp::StreamPacket>& packet) const
+{
+  if (m_currentPacket == nullptr) {
+    if (m_constructorStatus != OKAY) {
+      return m_constructorStatus;
+    }
+    return UNEXPECTED_INTERNAL_STATE;
+  }
+  packet = m_currentPacket;
+  return OKAY;
+}
+
+Status StreamWriter::Flush()
+{
+  // Make sure we have a valid sender.
+  if (m_sender == nullptr) {
+    return UNEXPECTED_INTERNAL_STATE;
+  }
+  if (m_sender->GetConstructorStatus() != OKAY) {
+    return m_sender->GetConstructorStatus();
+  }
+
+  // Make sure we have a valid timer.
+  if (m_timer == nullptr) {
+    return UNEXPECTED_INTERNAL_STATE;
+  }
+
+  // Make sure we have a valid maximum packet size.
+  if (m_maxPacketSize == 0) {
+    return UNEXPECTED_INTERNAL_STATE;
+  }
+
+  // Make sure we have a valid current packet.
+  if (m_currentPacket == nullptr) {
+    if (m_constructorStatus != OKAY) {
+      return m_constructorStatus;
+    }
+    return UNEXPECTED_INTERNAL_STATE;
+  }
+
+  // Set the time code in the current packet.
+  Time timeCode;
+  Status status = m_timer->GetCoreTime(timeCode);
+  if (status != OKAY) {
+    return status;
+  }
+  status = m_currentPacket->SetTimeCode(timeCode);
+  if (status != OKAY) {
+    return status;
+  }
+
+  // Send the packet.
+  status = m_sender->SendStreamPacket(*m_currentPacket);
+  if (status != OKAY) {
+    return status;
+  }
+
+  // Construct a new packet with an incremented sequence number.
+  m_sequenceNumber++;
+  StreamPacket *packetPtr = new StreamPacket(m_maxPacketSize, m_sequenceNumber);
+  if (m_currentPacket->GetConstructorStatus() != OKAY) {
+    return m_currentPacket->GetConstructorStatus();
+  }
+  m_currentPacket.reset(packetPtr);
+
+  // Everything worked.
+  return OKAY;
+}
+
+Status StreamWriter::GetConstructorStatus() const
+{
+  return m_constructorStatus;
+}
+
+std::string StreamWriter::Test()
+{
+  Status status;
+
+  // Create a sender and receiver.
+  ReceiverUDP receiver;
+  if (receiver.GetConstructorStatus() != OKAY) {
+    return "Error constructing ReceiverUDP: " + ErrorMessage(receiver.GetConstructorStatus());
+  }
+  uint16_t port;
+  port = receiver.GetPort();
+  std::shared_ptr<SenderUDP> sender = std::make_shared<SenderUDP>("localhost", port);
+  if (sender->GetConstructorStatus() != OKAY) {
+    return "Error constructing SenderUDP: " + ErrorMessage(sender->GetConstructorStatus());
+  }
+
+  // Create a Timer
+  Timer *timerPtr = new Timer();
+  std::shared_ptr<Timer> timer;
+  timer.reset(timerPtr);
+
+  // Create a StreamWriter.
+  std::shared_ptr<StreamWriter> streamWriter = std::make_shared<StreamWriter>(sender, timer);
+  if (streamWriter->GetConstructorStatus() != OKAY) {
+    return "Error constructing StreamWriter: " + ErrorMessage(streamWriter->GetConstructorStatus());
+  }
+
+  // Try sending ten packets to make sure this works repeatedly
+  Time lastTimeCode;
+  timer->GetCoreTime(lastTimeCode);
+  for (size_t i = 0; i < 10; i++) {
+    // Make sure the time advances, so the new time will be larger than lastTimeCode.
+    std::this_thread::sleep_for(std::chrono::microseconds(10));
+
+      // Pack a message into the StreamWriter.
+    std::shared_ptr<asdp::StreamPacket> packet;
+    status = streamWriter->GetCurrentPacket(packet);
+    if (status != OKAY) {
+      return "Error getting current packet: " + ErrorMessage(status);
+    }
+    Time timeCode;
+    timer->GetCoreTime(timeCode);
+    uint32_t cameraID = 1;
+    uint32_t cameraType = 2;
+    uint32_t sensorWidth = 1920;
+    uint32_t sensorHeight = 1080;
+    float exposure = 0.001f;
+    float gain = 1.0f;
+    MessageFrameBegin message(*packet, timeCode, cameraID, cameraType, sensorWidth, sensorHeight, exposure, gain);
+    if (message.GetConstructorStatus() != OKAY) {
+      return "Error constructing MessageFrameBegin: " + ErrorMessage(message.GetConstructorStatus());
+    }
+
+    // Send the packet.
+    status = streamWriter->Flush();
+    if (status != OKAY) {
+      return "Error flushing StreamWriter: " + ErrorMessage(status);
+    }
+
+    // Make sure we received the packet.
+    std::shared_ptr<StreamPacket> receiveStreamPacket;
+    status = receiver.ReceiveStreamPacket(0.5, receiveStreamPacket);
+    if (status != OKAY) {
+      return "Error receiving StreamPacket: " + ErrorMessage(status);
+    }
+    if (receiveStreamPacket == nullptr) {
+      return "Empty StreamPacket packet";
+    }
+
+    // Make sure the sequence number is correct.
+    uint32_t sequenceNumber;
+    status = receiveStreamPacket->GetSequenceNumber(sequenceNumber);
+    if (status != OKAY) {
+      return "Error getting sequence number: " + ErrorMessage(status);
+    }
+    if (sequenceNumber != i) {
+      return "Unexpected sequence number: " + std::to_string(sequenceNumber);
+    }
+
+    // Make sure that the timecode is updating.
+    Time receiveTimeCode;
+    status = receiveStreamPacket->GetTimeCode(receiveTimeCode);
+    if (status != OKAY) {
+      return "Error getting timecode: " + ErrorMessage(status);
+    }
+    if (receiveTimeCode <= lastTimeCode) {
+      return "Unexpected timecode";
+    }
+    lastTimeCode = receiveTimeCode;
+  }
+
+  // Make sure we cannot receive another packet.
+  std::shared_ptr<StreamPacket> receiveStreamPacket;
+  status = receiver.ReceiveStreamPacket(0.05, receiveStreamPacket);
+  if (status != TIMEOUT) {
+    return "Received unexpected packet";
+  }
+
+  // Make sure we can set the maximum packet size in the constructor.
+  {
+    uint32_t maxPacketSize = 9000 - 28;
+    StreamWriter streamWriter2(sender, timer, maxPacketSize);
+    if (streamWriter2.GetConstructorStatus() != OKAY) {
+      return "Error constructing large StreamWriter: " + ErrorMessage(streamWriter2.GetConstructorStatus());
+    }
+    std::shared_ptr<asdp::StreamPacket> packet;
+    Status status = streamWriter2.GetCurrentPacket(packet);
+    if (status != OKAY) {
+      return "Error getting current packet for large StreamWriter: " + ErrorMessage(status);
+    }
+    if (packet->m_buffer->size() != maxPacketSize) {
+      return "Error constructing large StreamWriter: wrong maximum packet size";
+    }
+  }
+
+  return "";
+}
+
 std::string asdp::Test()
 {
   std::string ret;
@@ -2657,6 +2896,12 @@ std::string asdp::Test()
     return "Error testing MessageFrameEnd: " + ret;
   }
 
+  //-------------------------------------------------------------------
+  // Tests for StreamWriter and its derived classes.
+  ret = StreamWriter::Test();
+  if (ret.size() > 0) {
+    return "Error testing StreamWriter: " + ret;
+  }
   //-------------------------------------------------------------------
   // Tests for Core and its derived classes.
   /// @todo
