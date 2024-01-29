@@ -199,7 +199,7 @@ Status Timer::GetCoreTime(Time& core_time, const std::chrono::steady_clock::time
 {
   // Get the local time into a Time.
   Time localTime = {
-    (uint32_t)std::chrono::duration_cast<std::chrono::seconds>(local_time.time_since_epoch()).count(),
+    (uint32_t)std::chrono::duration_cast<std::chrono::microseconds>(local_time.time_since_epoch()).count() / 1000000,
     (uint32_t)std::chrono::duration_cast<std::chrono::microseconds>(local_time.time_since_epoch()).count() % 1000000
   };
 
@@ -218,7 +218,7 @@ Status Timer::SetCoreOffset(Time offset)
   // Ensure that the offset is not too large.
   std::chrono::steady_clock::time_point local_time = std::chrono::steady_clock::now();
   Time localTime = {
-    (uint32_t)std::chrono::duration_cast<std::chrono::seconds>(local_time.time_since_epoch()).count(),
+    (uint32_t)std::chrono::duration_cast<std::chrono::microseconds>(local_time.time_since_epoch()).count() / 1000000,
     (uint32_t)std::chrono::duration_cast<std::chrono::microseconds>(local_time.time_since_epoch()).count() % 1000000
   };
   if (offset > localTime) {
@@ -279,7 +279,7 @@ std::string Timer::Test()
     Time coreTime;
     std::chrono::steady_clock::time_point localTime = std::chrono::steady_clock::now();
     Time localTimeStruct = {
-      (uint32_t)std::chrono::duration_cast<std::chrono::seconds>(localTime.time_since_epoch()).count(),
+      (uint32_t)std::chrono::duration_cast<std::chrono::microseconds>(localTime.time_since_epoch()).count() / 1000000,
       (uint32_t)std::chrono::duration_cast<std::chrono::microseconds>(localTime.time_since_epoch()).count() % 1000000
     };
 
