@@ -22,6 +22,9 @@
 #include <memory>
 #include <vector>
 #include <fstream>
+#include <thread>
+#include <atomic>
+#include <mutex>
 
 namespace asdp {
 
@@ -33,6 +36,9 @@ enum Status {
 
   /// @brief A timeout was exceeded (not an error).
   TIMEOUT                       = 1,
+
+  /// @brief A thread has completed its work (not an error).
+  THREAD_COMPLETED              = 2,
 
   /// @brief Can be used to see if the return was a system error.
   HIGHEST_WARNING               = 1000,
@@ -62,7 +68,11 @@ enum Status {
   /// @brief File error
   FILE_FAILURE                  = 1012,
   /// @brief Error: Unexpected internal state.
-  UNEXPECTED_INTERNAL_STATE     = 1013
+  UNEXPECTED_INTERNAL_STATE     = 1013,
+  /// @brief The endianness on this architecture is incorrect
+  INCORRECT_ENDIANNESS          = 1014,
+  /// @brief Error: The object is not connected to a counterpart objects.
+  NOT_CONNECTED                 = 1015
 };
 
 /// @brief Helper function to return a descriptive error message based on a status value.
@@ -164,9 +174,7 @@ public:
 
   /// @brief Add operator.
   Time operator +(const Time& other) const {
-    Time result;
-    result.seconds = seconds + other.seconds;
-    result.microseconds = microseconds + other.microseconds;
+    Time result = { seconds + other.seconds, microseconds + other.microseconds };
     if (result.microseconds >= 1000000) {
       result.seconds++;
       result.microseconds -= 1000000;
@@ -176,9 +184,7 @@ public:
 
   /// @brief Subtract operator.
   Time operator -(const Time& other) const {
-    Time result;
-    result.seconds = seconds - other.seconds;
-    result.microseconds = microseconds;
+    Time result = { seconds - other.seconds, microseconds };
     if (result.microseconds < other.microseconds) {
       result.seconds--;
       result.microseconds += 1000000;
@@ -529,7 +535,7 @@ protected:
   /// For jumbo frames, this should be set to 9000 - 28 = 8972.
   /// @param [in] sequenceNumber Sequence number for the packet.
   /// @param [in] timeCode Time code for the packet.
-  StreamPacket(uint32_t bufferMaxSize = 1500 - 28, uint32_t sequenceNumber = 0, Time timeCode = { 0, 0 });
+  StreamPacket(uint32_t bufferMaxSize = 9000 - 28, uint32_t sequenceNumber = 0, Time timeCode = { 0, 0 });
 
   /// @brief Construct a StreamPacket that shares a buffer with another packet.
   ///
@@ -550,6 +556,7 @@ protected:
   friend class StreamWriter;
 
   friend class Message;
+  friend class MessageDiscovery;
   friend class MessageFrameBegin;
   friend class MessageFrameData;
   friend class MessageFrameEnd;
@@ -603,8 +610,42 @@ protected:
   uint32_t m_offset;                                ///< Offset into the buffer to the start of the message.
 
   friend class StreamPacket;
+};
 
-  /// @todo Finish the rest of the subclasses, here and below, once we've finished a full example.
+/// @brief Discovery message.
+class MessageDiscovery : public Message {
+public:
+  /// @brief Construct a MessageDiscovery and store it into a buffer from a StreamPacket.
+  /// @param [in] packet Pointer to the StreamPacket containing the message.
+  /// @param [in] timeCode Time code for the message.
+  /// @param [in] IP IP address of the system.
+  /// @param [in] port Port number of the system.
+  /// @param [in] serial Serial number of the system.
+  MessageDiscovery::MessageDiscovery(StreamPacket& packet, Time timeCode,
+    uint32_t IP, uint16_t port, uint32_t serial);
+
+  /// @brief Type-cast a base Message into a MessageDiscovery packet, re-using its buffer.
+  /// @param [in] baseMessage The base Message to convert from.
+  MessageDiscovery(Message& baseMessage);
+
+  /// @brief Get the IP address of the system.
+  /// @param [out] IP IP address of the system.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetIP(uint32_t& IP) const;
+
+  /// @brief Get the port number of the system.
+  /// @param [out] port Port number of the system.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetPort(uint16_t& port) const;
+
+  /// @brief Get the serial number of the system.
+  /// @param [out] serial Serial number of the system.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetSerial(uint32_t& serial) const;
+
+  /// @brief Test function.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
 };
 
 /// @brief Frame begin message.
@@ -815,8 +856,20 @@ public:
   /// @return OKAY if successful, otherwise an error code.
   Status SendStreamPacket(const StreamPacket& packet) override;
 
+  /// @brief Get the IP address associated with this sender.
+  /// @param [out] IP IP address associated with this sender.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetIP(uint32_t& IP) const;
+
+  /// @brief Get the port associated with this sender.
+  /// @param [out] port Port associated with this sender.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetPort(uint16_t& port) const;
+
 protected:
   std::shared_ptr<Socket> m_socket; ///< Pointer to the socket object to use to do our work.
+  uint32_t m_IP;                    ///< IP address to send to.
+  uint16_t m_port;                  ///< Port number to send to.
 };
 
 //---------------------------------------------------------------------------
@@ -858,7 +911,7 @@ class Receiver {
 public:
   /// @brief Construct a Receiver object.
   /// @param [in] maxLen Maximum length of a packet to receive (default of 1472 is the maximum for Ethernet).
-  Receiver(uint32_t maxLen = 1500 - 28) : m_constructorStatus(OKAY), m_maxLen(maxLen) {};
+  Receiver(uint32_t maxLen = 9000 - 28) : m_constructorStatus(OKAY), m_maxLen(maxLen) {};
 
   /// @brief See if a packet is available to receive.
   /// 
@@ -909,7 +962,7 @@ public:
   /// @param [in] interfaceName Name of the interface to listen on.
   /// @param [in] port Port number to listen on (default of 0 means any available port).
   /// @param [in] maxLen Maximum length of a packet to receive (default of 1472 is the maximum for Ethernet).
-  ReceiverUDP(std::string interfaceName = "localhost", uint16_t port = 0, uint32_t maxLen = 1500 - 28);
+  ReceiverUDP(std::string interfaceName = "localhost", uint16_t port = 0, uint32_t maxLen = 9000 - 28);
 
   /// @brief Get the port associated with this receiver.
   /// @return The port associated with this receiver, or 0 for failure.
@@ -967,7 +1020,7 @@ public:
   /// @brief Construct a SocketReceiver object.
   /// @param [in] fileName Name of the file to write to.
   /// @param [in] maxLen Maximum length of a packet to receive (default of 1472 is the maximum for Ethernet).
-  ReceiverFile(std::string fileName, uint32_t maxLen = 1500 - 28);
+  ReceiverFile(std::string fileName, uint32_t maxLen = 9000 - 28);
 
   /// @brief See if a packet is available to receive.
   /// 
@@ -1027,10 +1080,10 @@ public:
   /// @brief Construct a StreamWriter object.
   /// @param [in] sender Pointer to the sender object to use to send the packets.
   /// @param [in] timer Pointer to the timer object to use to get the time code.
-  /// @param [in] maxPacketSize Maximum size of the packet to send.
+  /// @param [in] maxPayloadSize Maximum size of a packet payload to send.
   StreamWriter(std::shared_ptr<asdp::Sender> sender,
     std::shared_ptr<asdp::Timer> timer,
-    uint32_t maxPacketSize = 1500 - 28);
+    uint32_t maxPayloadSize = 9000 - 28);
 
   /// @brief Virtual destructor so all derived class pointers will destroy properly.
   ///
@@ -1058,8 +1111,8 @@ protected:
   Status m_constructorStatus;       ///< Reports any errors during construction
   std::shared_ptr<asdp::Sender> m_sender;  ///< Pointer to the sender object to use to send the packets.
   std::shared_ptr<asdp::Timer> m_timer;    ///< Pointer to the timer object to use to get the time code.
-  uint32_t m_maxPacketSize;           ///< Maximum size of the packet to send.
-  uint32_t m_sequenceNumber;          ///< Sequence number for the next packet to send.
+  uint32_t m_maxPayloadSize;        ///< Maximum size of the packet payload to send.
+  uint32_t m_sequenceNumber;        ///< Sequence number for the next packet to send.
   std::shared_ptr<asdp::StreamPacket> m_currentPacket; ///< Current packet being built.
 };
 
@@ -1071,7 +1124,7 @@ public:
   /// @brief Virtual destructor so all derived class pointers will destroy properly.
   virtual ~Core();
 
-  /// @brief Get the version of the Core API being used.
+  /// @brief Get the version of the Core API that was linked against (not the network-connected one).
   /// @return The version of the Core API.
   static std::string GetVersion();
 
@@ -1080,25 +1133,170 @@ public:
   /// @return OKAY if successful, otherwise an error code.
   Status GetMaxPayloadSize(size_t& value) const;
 
-  /// @brief Set the maximum size of the payload that can be sent in a UDP packet using this Core.
-  /// @param [in] value The maximum size of the payload that can be sent in a UDP packet using this Core.
-  /// @return OKAY if successful, otherwise an error code.
-  Status SetMaxPayloadSize(size_t value);
-
   /// @brief Return the status of the constructor.
-  virtual Status GetConstructorStatus() const { return m_constructorStatus; }
+  virtual Status GetConstructorStatus() const;
+
+protected:
+  Core(uint32_t maxPayloadSize);
+  Core(const Core&) = delete;
+  Core& operator=(const Core&) = delete;
+  Core(Core&&) = delete;
+  Core& operator=(Core&&) = delete;
+
+  Status m_constructorStatus;       ///< Reports any errors during construction
+  uint32_t m_maxPayloadSize;        ///< Maximum size of the packet to send.
+  std::shared_ptr<Timer> m_timer;   ///< Pointer to the timer object to use to get the time code.
+};
+
+//---------------------------------------------------------------------------
+/// @brief Core Server class, which provides functions needed to implement a server.
+///
+/// Starts sending periodic discovery packets to clients, and creates a listening
+/// socket to receive commands from clients. This class is not used when streaming
+/// from disk files, only when using network connections.
+
+class CoreServer : public Core {
+public:
+  /// @brief Construct a CoreServer object.
+  /// @param [in] serial Serial number of the server.
+  /// @param [in] NICName Name of the network interface to use.
+  /// @param [in] sendPort Port number to send packets to.
+  /// @param [in] listenPort Port number to listen for packets on.
+  /// @param [in] maxPayloadSize Maximum size of a packet payload to send.
+  CoreServer(uint32_t serial, std::string NICName, uint16_t sendPort = 10102, uint16_t listenPort = 10101,
+    uint32_t maxPayloadSize = 9000 - 28);
+
+  /// @brief Get the receiver to use to receive command packets.
+  /// @param [out] receiver The receiver to use to receive command packets.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetReceiver(std::shared_ptr<Receiver>& receiver) const;
+
+  /// @brief Get the status of the discovery thread.
+  /// @param [out] threadStatus Stores the thread status.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetDiscoveryThreadStatus(Status& threadStatus) const;
+
+  /// @brief Destructor.
+  ~CoreServer();
+
+protected:
+  CoreServer() = delete;
+  CoreServer(const CoreServer&) = delete;
+  CoreServer& operator=(const CoreServer&) = delete;
+  CoreServer(CoreServer&&) = delete;
+  CoreServer& operator=(CoreServer&&) = delete;
+
+  std::shared_ptr<std::thread> m_discoveryThread; ///< Thread that sends discovery packets.
+  void DiscoveryThread();           ///< Thread that sends discovery packets.
+  std::atomic_bool m_stopThread;    ///< Flag to tell the thread to stop.
+  Status m_threadStatus;            ///< Status of the thread.
+
+  Status m_constructorStatus;                     ///< Reports any errors during construction
+  std::shared_ptr<SenderUDP> m_sender;            ///< Sender object to use to send packets.
+  std::shared_ptr<ReceiverUDP> m_receiver;        ///< Receiver object to use to receive packets.
+
+  uint32_t m_IP;                                  ///< IP address for the client to send commands to.
+  uint16_t m_port;                                ///< Port number for a client to send commands to.
+  uint32_t m_serial;                              ///< Serial number of the server.
+};
+
+//---------------------------------------------------------------------------
+/// @brief Core Client class, which provides functions needed to implement a client.
+///
+/// Handles polling for connections on an interface and listing available servers.
+/// Also provides function to send command packets to a connected server.
+
+class CoreClient : public Core {
+public:
+  /// @brief Construct a CoreServer object.
+  /// @param [in] NICName Name of the network interface to use.
+  /// @param [in] maxPayloadSize Maximum size of a packet payload to send.
+  CoreClient(std::string NICName, uint32_t maxPayloadSize = 9000 - 28);
+
+  /// @brief Get the status of the discovery thread.
+  /// @param [out] threadStatus Stores the thread status.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetDiscoveryThreadStatus(Status& threadStatus) const;
+
+  /// @brief Get the list of servers found.
+  /// @param [out] servers List of servers found.
+  /// @return OKAY if successful, otherwise an error code.
+  Status IdentifiedServers(std::vector<std::string>& servers) const;
+
+  /// @brief Connect to a server.
+  /// @param [in] serverURL Server to connect to.
+  /// @return OKAY if successful, otherwise an error code.
+  Status ConnectToServer(std::string serverURL);
+
+  /// @brief Get the IP address of the NIC we're using to talk with the server.
+  /// @param [out] IP IP address of the NIC we're using to talk with the server.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetMyIP(uint32_t& IP) const;
+
+  /// @brief Get the serial number of the server we're connected to.
+  /// @param [out] serial Serial number of the server we're connected to.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetServerSerialNumber(uint32_t& serial) const;
+
+  /// @brief Send a CommandPacket to the connected server.
+  /// @param [in] packet CommandPacket to send.
+  /// @return OKAY if successful, otherwise an error code.
+  Status SendCommandPacket(const CommandPacket& packet);
+
+  /// @brief Destructor.
+  ~CoreClient();
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
   static std::string Test();
 
 protected:
-  Core();
-  Core(const Core&) = delete;
-  Core& operator=(const Core&) = delete;
-  Core(Core&&) = delete;
-  Core& operator=(Core&&) = delete;
-  Status m_constructorStatus;       ///< Reports any errors during construction
+  CoreClient() = delete;
+  CoreClient(const CoreClient&) = delete;
+  CoreClient& operator=(const CoreClient&) = delete;
+  CoreClient(CoreServer&&) = delete;
+  CoreClient& operator=(CoreClient&&) = delete;
+
+  Status m_constructorStatus;                     ///< Reports any errors during construction
+
+  std::shared_ptr<std::thread> m_discoveryThread; ///< Thread that listens for discovery packets.
+  void DiscoveryThread();                         ///< Thread that listens for discovery packets.
+  std::atomic_bool m_stopThread;                  ///< Flag to tell the thread to stop.
+  Status m_threadStatus;                          ///< Status of the thread.
+
+  // Struct to describe the information about a server we've found.
+  struct ServerInfo {
+    uint32_t IP;                                  ///< IP address of the server.
+    uint16_t port;                                ///< Port number of the server.
+    uint32_t serial;                              ///< Serial number of the server.
+
+    ServerInfo(uint32_t pIP, uint32_t pPort, uint32_t pSerial) : IP(pIP), port(pPort), serial(pSerial) {}
+    bool operator==(const ServerInfo& rhs) const {
+      return IP == rhs.IP && port == rhs.port && serial == rhs.serial;
+    }
+    bool operator!=(const ServerInfo& rhs) const {
+      return !(*this == rhs);
+    }
+  };
+
+  /// @brief Get the URL for a server.
+  /// @param [in] serverInfo Information about the server.
+  /// @return URL for the server.
+  static std::string URLFromServerInfo(ServerInfo serverInfo);
+
+  /// @brief Get the server connection information from a URL.
+  /// @param [in] URL URL for the server.
+  /// @param [out] IP IP address of the server.
+  /// @param [out] port Port number of the server.
+  static Status ServerInfoFromURL(std::string URL, std::string &IP, uint16_t& port);
+
+  /// Mutex to protect the list of servers. Marked mutable so it can be used in const member functions.
+  mutable std::mutex m_mutex;
+  std::vector<ServerInfo> m_servers;              ///< List of servers found.
+  std::shared_ptr<SenderUDP> m_sender;            ///< Sender object to use to send packets.
+  std::shared_ptr<ReceiverUDP> m_receiver;        ///< Receiver object to use to receive Discovery packets.
+  uint32_t m_IP;                                  ///< Our IP address where we're listening for packets.
+  uint32_t m_serial;                              ///< Serial number of the server we're connected to.
 };
 
 //---------------------------------------------------------------------------

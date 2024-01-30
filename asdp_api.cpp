@@ -5,7 +5,6 @@
 #include "asdp_api.h"
 #include <string.h>   // For memcpy
 #include <iostream>
-#include <thread>
 
 using namespace asdp;
 
@@ -20,6 +19,9 @@ std::string asdp::ErrorMessage(Status status)
 
   case TIMEOUT:
     return "Timeout";
+
+  case THREAD_COMPLETED:
+    return "Thread completed";
 
   case BAD_PARAMETER:
     return "Bad parameter";
@@ -47,6 +49,10 @@ std::string asdp::ErrorMessage(Status status)
     return "File error";
   case UNEXPECTED_INTERNAL_STATE:
     return "Unexpected internal state";
+  case INCORRECT_ENDIANNESS:
+    return "This architecture is not little-endian";
+  case NOT_CONNECTED:
+    return "Not connected";
 
   default:
     return "Unrecognized error code: " + std::to_string(status);
@@ -185,6 +191,14 @@ static size_t PaddedSize(size_t size)
     padding = 0;
   }
   return size + padding;
+}
+
+/// @brief Helper function to unpack the version sections.
+static void UnpackVersion(const uint8_t *version, uint16_t& major, uint16_t& minor, uint16_t& patch)
+{
+  major = version[0];
+  minor = version[1] + (version[2] * static_cast<uint16_t>(256));
+  patch = version[3];
 }
 
 //----------------------------------------------------------------------------
@@ -1120,9 +1134,9 @@ std::string Message::Test()
     return "Error constructing message from buffer for message test: packet length is not " +
       std::to_string(STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE) + " but " + std::to_string(totalLength);
   }
-  if (packet.m_buffer->size() != 1500 - 28) {
+  if (packet.m_buffer->size() != 9000 - 28) {
     return "Error constructing message from buffer for message test: packet size is not " +
-      std::to_string(1500 - 28) + " but " + std::to_string(packet.m_buffer->size());
+      std::to_string(9000 - 28) + " but " + std::to_string(packet.m_buffer->size());
   }
 
   // Check the time and type of the message.
@@ -1196,6 +1210,189 @@ std::string Message::Test()
   }
   if (message3 != nullptr) {
     return "Error getting second message from packet for message test: message is not null";
+  }
+
+  return "";
+}
+
+MessageDiscovery::MessageDiscovery(StreamPacket& packet, Time timeCode,
+  uint32_t IP, uint16_t port, uint32_t serial)
+  : Message(packet, 3 * sizeof(uint32_t), timeCode, DISCOVERY)
+{
+  // See if our subobject failed. If so, we're done.
+  if (m_constructorStatus != OKAY) {
+    return;
+  }
+
+  // Pack our parameters.
+  unsigned char* bufPtr = m_buffer->data() + m_offset + MESSAGE_BASE_SIZE;
+  memcpy(bufPtr, &IP, sizeof(IP)); bufPtr += sizeof(IP);
+  uint32_t portField = port;
+  memcpy(bufPtr, &portField, sizeof(portField)); bufPtr += sizeof(portField);
+  memcpy(bufPtr, &serial, sizeof(serial)); bufPtr += sizeof(serial);
+}
+
+MessageDiscovery::MessageDiscovery(Message& baseMessage)
+  : Message(baseMessage)
+{
+  MessageID type;
+  baseMessage.GetType(type);
+  if (type != DISCOVERY) {
+    m_constructorStatus = BAD_PARAMETER;
+  }
+}
+
+Status MessageDiscovery::GetIP(uint32_t& IP) const
+{
+  if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE + sizeof(IP)) {
+    return READ_PAST_END;
+  }
+  memcpy(&IP, m_buffer->data() + m_offset + MESSAGE_BASE_SIZE, sizeof(IP));
+  return OKAY;
+}
+
+Status MessageDiscovery::GetPort(uint16_t& port) const
+{
+  if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE + 2 * sizeof(uint32_t)) {
+    return READ_PAST_END;
+  }
+  uint32_t portField;
+  memcpy(&portField, m_buffer->data() + m_offset + MESSAGE_BASE_SIZE + sizeof(uint32_t), sizeof(portField));
+  port = portField;
+  return OKAY;
+}
+
+Status MessageDiscovery::GetSerial(uint32_t& serial) const
+{
+  if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE + 3 * sizeof(uint32_t)) {
+    return READ_PAST_END;
+  }
+  memcpy(&serial, m_buffer->data() + m_offset + MESSAGE_BASE_SIZE + 2 * sizeof(uint32_t), sizeof(serial));
+  return OKAY;
+}
+
+std::string MessageDiscovery::Test()
+{
+  {
+    // Construct a message and check its length, time and type.
+    StreamPacket packet;
+    if (packet.GetConstructorStatus() != OKAY) {
+      return "Error constructing stream packet for MessageDiscovery test: " + ErrorMessage(packet.GetConstructorStatus());
+    }
+
+    // Add a message.
+    Time timeCode = { 1234, 5678 };
+    uint32_t IP = 0x01020304, serial = 0x05060708;
+    uint16_t port = 1234;
+    MessageDiscovery message(packet, timeCode, IP, port, serial);
+    if (message.GetConstructorStatus() != OKAY) {
+      return "Error constructing MessageDiscovery: " + ErrorMessage(message.GetConstructorStatus());
+    }
+
+    // Check the length of the packet including the message to make sure it matches expectation.
+    uint32_t totalLength;
+    Status status = packet.GetTotalLength(totalLength);
+    if (status != OKAY) {
+      return "Error checking message size for MessageDiscovery test: " + ErrorMessage(status);
+    }
+    if (totalLength != STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE + 3 * sizeof(uint32_t)) {
+      return "Error constructing MessageDiscovery from buffer: packet length is not " +
+        std::to_string(STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE + 3 * sizeof(uint32_t)) + " but " +
+        std::to_string(totalLength);
+    }
+
+    // Check the time and type of the message.
+    Time rTimeCode;
+    status = message.GetTime(rTimeCode);
+    if (status != OKAY) {
+      return "Error getting time code from MessageDiscovery for MessageDiscovery test: " + ErrorMessage(status);
+    }
+    if (rTimeCode != timeCode) {
+      return "Error getting time code from MessageDiscovery for MessageDiscovery test: time code is not " +
+        std::to_string(timeCode.seconds) + "." + std::to_string(timeCode.microseconds);
+    }
+    MessageID type;
+    status = message.GetType(type);
+    if (status != OKAY) {
+      return "Error getting type from MessageDiscovery for MessageDiscovery test: " + ErrorMessage(status);
+    }
+    if (type != DISCOVERY) {
+      return "Error getting type from MessageDiscovery for MessageDiscovery test: type is not DISCOVERY";
+    }
+
+    // Check the values of the message
+    uint32_t rIP, rSerial;
+    uint16_t rPort;
+    status = message.GetIP(rIP);
+    if (status != OKAY) {
+      return "Error getting IP from MessageDiscovery for MessageDiscovery test: " + ErrorMessage(status);
+    }
+    if (rIP != IP) {
+      return "Error getting IP from MessageDiscovery for MessageDiscovery test: IP is not " +
+        std::to_string(IP);
+    }
+    status = message.GetPort(rPort);
+    if (status != OKAY) {
+      return "Error getting port from MessageDiscovery for MessageDiscovery test: " + ErrorMessage(status);
+    }
+    if (rPort != port) {
+      return "Error getting port from MessageDiscovery for MessageDiscovery test: port is not " +
+        std::to_string(port);
+    }
+    status = message.GetSerial(rSerial);
+    if (status != OKAY) {
+      return "Error getting serial from MessageDiscovery for MessageDiscovery test: " + ErrorMessage(status);
+    }
+    if (rSerial != serial) {
+      return "Error getting serial from MessageDiscovery for MessageDiscovery test: serial is not " +
+        std::to_string(serial);
+    }
+
+    // Construct a MessageDiscovery based on the existing one in the StreamPacket and make sure we
+    // can read data from it as well.
+    MessageDiscovery message2(message);
+    if (message2.GetConstructorStatus() != OKAY) {
+      return "Error constructing second MessageDiscovery: " + ErrorMessage(message2.GetConstructorStatus());
+    }
+    status = message2.GetTime(rTimeCode);
+    if (status != OKAY) {
+      return "Error getting time code from second MessageDiscovery for MessageDiscovery test: " + ErrorMessage(status);
+    }
+    if (rTimeCode != timeCode) {
+      return "Error getting time code from second MessageDiscovery for MessageDiscovery test: time code is not " +
+        std::to_string(timeCode.seconds) + "." + std::to_string(timeCode.microseconds);
+    }
+    status = message2.GetType(type);
+    if (status != OKAY) {
+      return "Error getting type from second MessageDiscovery for MessageDiscovery test: " + ErrorMessage(status);
+    }
+    if (type != DISCOVERY) {
+      return "Error getting type from second MessageDiscovery for MessageDiscovery test: type is not DISCOVERY";
+    }
+    status = message2.GetIP(rIP);
+    if (status != OKAY) {
+      return "Error getting IP from second MessageDiscovery for MessageDiscovery test: " + ErrorMessage(status);
+    }
+    if (rIP != IP) {
+      return "Error getting IP from second MessageDiscovery for MessageDiscovery test: IP is not " +
+        std::to_string(IP);
+    }
+    status = message2.GetPort(rPort);
+    if (status != OKAY) {
+      return "Error getting port from second MessageDiscovery for MessageDiscovery test: " + ErrorMessage(status);
+    }
+    if (rPort != port) {
+      return "Error getting port from second MessageDiscovery for MessageDiscovery test: port is not " +
+        std::to_string(port);
+    }
+    status = message2.GetSerial(rSerial);
+    if (status != OKAY) {
+      return "Error getting serial from second MessageDiscovery for MessageDiscovery test: " + ErrorMessage(status);
+    }
+    if (rSerial != serial) {
+      return "Error getting serial from second MessageDiscovery for MessageDiscovery test: serial is not " +
+        std::to_string(serial);
+    }
   }
 
   return "";
@@ -1817,6 +2014,8 @@ public:
 
 SenderUDP::SenderUDP(std::string host, uint16_t port)
   : m_socket(std::make_shared<Socket>())
+  , m_IP(0)
+  , m_port(0)
 {
   // Map the host name to an IP address and set the port.
   struct addrinfo hints, * res;
@@ -1836,6 +2035,11 @@ SenderUDP::SenderUDP(std::string host, uint16_t port)
     freeaddrinfo(res);
     return;
   }
+
+  // Record our IP address and port.
+  struct sockaddr_in* addr = (struct sockaddr_in*)res->ai_addr;
+  m_IP = ntohl(addr->sin_addr.s_addr);
+  m_port = ntohs(addr->sin_port);
 
   // Connect the socket to the specified host and port.
   if (0 != connect(m_socket->socket, res->ai_addr, res->ai_addrlen)) {
@@ -1916,6 +2120,30 @@ Status SenderUDP::SendStreamPacket(const StreamPacket& packet)
   }
 
   // Everything worked.
+  return OKAY;
+}
+
+Status SenderUDP::GetIP(uint32_t &IP) const
+{
+  // Make sure we have a valid socket.
+  if ((m_socket == nullptr) || (m_socket->socket == BAD_SOCKET)) {
+    return m_constructorStatus;
+  }
+
+  // Return the IP address.
+  IP = m_IP;
+  return OKAY;
+}
+
+Status SenderUDP::GetPort(uint16_t& port) const
+{
+  // Make sure we have a valid socket.
+  if ((m_socket == nullptr) || (m_socket->socket == BAD_SOCKET)) {
+    return m_constructorStatus;
+  }
+
+  // Return the port.
+  port = m_port;
   return OKAY;
 }
 
@@ -2206,6 +2434,23 @@ std::string ReceiverUDP::Test()
   SenderUDP sender("localhost", port);
   if (sender.GetConstructorStatus() != OKAY) {
     return "Error constructing SenderUDP: " + ErrorMessage(sender.GetConstructorStatus());
+  }
+
+  // Verify that we can get the IP address and port from the sender.
+  uint32_t IP;
+  status = sender.GetIP(IP);
+  if (status != OKAY) {
+    return "Error getting IP address from SenderUDP: " + ErrorMessage(status);
+  }
+  if (IP != 0x7f000001) {
+    return "Error getting IP address from SenderUDP: IP address is not Localhost";
+  }
+  status = sender.GetPort(port);
+  if (status != OKAY) {
+    return "Error getting port from SenderUDP: " + ErrorMessage(status);
+  }
+  if (port != receiver.GetPort()) {
+    return "Error getting port from SenderUDP: port is not " + std::to_string(receiver.GetPort());
   }
 
   // Send a packet.
@@ -2581,11 +2826,11 @@ std::string ReceiverFile::Test()
 
 StreamWriter::StreamWriter(std::shared_ptr<asdp::Sender> sender,
     std::shared_ptr<asdp::Timer> timer,
-    uint32_t maxPacketSize)
+    uint32_t maxPayloadSize)
   : m_constructorStatus(OKAY)
   , m_sender(sender)
   , m_timer(timer)
-  , m_maxPacketSize(maxPacketSize)
+  , m_maxPayloadSize(maxPayloadSize)
   , m_sequenceNumber(0)
 {
 // Make sure we have a valid sender.
@@ -2605,13 +2850,13 @@ StreamWriter::StreamWriter(std::shared_ptr<asdp::Sender> sender,
   }
 
   // Make sure we have a valid maximum packet size.
-  if (m_maxPacketSize == 0) {
+  if (m_maxPayloadSize == 0) {
     m_constructorStatus = BAD_PARAMETER;
     return;
   }
 
   // Construct the current packet.
-  StreamPacket *packetPtr = new StreamPacket(m_maxPacketSize, m_sequenceNumber);
+  StreamPacket *packetPtr = new StreamPacket(m_maxPayloadSize, m_sequenceNumber);
   m_currentPacket.reset(packetPtr);
   if (m_currentPacket->GetConstructorStatus() != OKAY) {
     m_constructorStatus = m_currentPacket->GetConstructorStatus();
@@ -2652,7 +2897,7 @@ Status StreamWriter::Flush()
   }
 
   // Make sure we have a valid maximum packet size.
-  if (m_maxPacketSize == 0) {
+  if (m_maxPayloadSize == 0) {
     return UNEXPECTED_INTERNAL_STATE;
   }
 
@@ -2683,7 +2928,7 @@ Status StreamWriter::Flush()
 
   // Construct a new packet with an incremented sequence number.
   m_sequenceNumber++;
-  StreamPacket *packetPtr = new StreamPacket(m_maxPacketSize, m_sequenceNumber);
+  StreamPacket *packetPtr = new StreamPacket(m_maxPayloadSize, m_sequenceNumber);
   if (m_currentPacket->GetConstructorStatus() != OKAY) {
     return m_currentPacket->GetConstructorStatus();
   }
@@ -2727,10 +2972,21 @@ std::string StreamWriter::Test()
 
   // Try sending ten packets to make sure this works repeatedly
   Time lastTimeCode;
-  timer->GetCoreTime(lastTimeCode);
+  status = timer->GetCoreTime(lastTimeCode);
+  if (status != OKAY) {
+    return "Error getting timecode: " + ErrorMessage(status);
+  }
+  status = timer->SetCoreOffset(lastTimeCode);
+  if (status != OKAY) {
+    return "Error setting timecode: " + ErrorMessage(status);
+  }
+  status = timer->GetCoreTime(lastTimeCode);
+  if (status != OKAY) {
+    return "Error getting timecode after setting it: " + ErrorMessage(status);
+  }
   for (size_t i = 0; i < 10; i++) {
     // Make sure the time advances, so the new time will be larger than lastTimeCode.
-    std::this_thread::sleep_for(std::chrono::microseconds(10));
+    std::this_thread::sleep_for(std::chrono::microseconds(20));
 
       // Pack a message into the StreamWriter.
     std::shared_ptr<asdp::StreamPacket> packet;
@@ -2784,7 +3040,9 @@ std::string StreamWriter::Test()
       return "Error getting timecode: " + ErrorMessage(status);
     }
     if (receiveTimeCode <= lastTimeCode) {
-      return "Unexpected timecode";
+      return "Unexpected timecode: "
+        + std::to_string(receiveTimeCode.seconds) + ":" + std::to_string(receiveTimeCode.microseconds)
+        + " vs. " + std::to_string(lastTimeCode.seconds) + ":" + std::to_string(lastTimeCode.microseconds);
     }
     lastTimeCode = receiveTimeCode;
   }
@@ -2798,8 +3056,8 @@ std::string StreamWriter::Test()
 
   // Make sure we can set the maximum packet size in the constructor.
   {
-    uint32_t maxPacketSize = 9000 - 28;
-    StreamWriter streamWriter2(sender, timer, maxPacketSize);
+    uint32_t maxPayloadSize = 1500 - 28;
+    StreamWriter streamWriter2(sender, timer, maxPayloadSize);
     if (streamWriter2.GetConstructorStatus() != OKAY) {
       return "Error constructing large StreamWriter: " + ErrorMessage(streamWriter2.GetConstructorStatus());
     }
@@ -2808,9 +3066,529 @@ std::string StreamWriter::Test()
     if (status != OKAY) {
       return "Error getting current packet for large StreamWriter: " + ErrorMessage(status);
     }
-    if (packet->m_buffer->size() != maxPacketSize) {
+    if (packet->m_buffer->size() != maxPayloadSize) {
       return "Error constructing large StreamWriter: wrong maximum packet size";
     }
+  }
+
+  return "";
+}
+
+Core::Core(uint32_t maxPayloadSize)
+  : m_constructorStatus(OKAY)
+  , m_maxPayloadSize(maxPayloadSize)
+{
+  // Verify that the endianness on this architecture is little endian.
+  std::vector<uint8_t> vals = { 1, 2, 3, 4 };
+  uint32_t val = vals[0] + (vals[1] << 8) + (vals[2] << 16) + (vals[3] << 24);
+  const uint8_t *ptr = reinterpret_cast<const uint8_t*>(&val);
+  for (size_t i = 0; i < vals.size(); i++) {
+    if (vals[i] != ptr[i]) {
+      m_constructorStatus = INCORRECT_ENDIANNESS;
+      return;
+    }
+  }
+
+  // Construct our timer.
+  Timer *timerPtr = new Timer();
+  m_timer.reset(timerPtr);
+}
+
+Status Core::GetConstructorStatus() const
+{
+  return m_constructorStatus;
+}
+
+Status Core::GetMaxPayloadSize(size_t& value) const
+{
+  value = m_maxPayloadSize;
+  return OKAY;
+}
+
+std::string Core::GetVersion()
+{
+  uint16_t major, minor, patch;
+  UnpackVersion(VERSION, major, minor, patch);
+  return std::to_string(major) + "." + std::to_string(minor) + "." + std::to_string(patch);
+}
+
+Core::~Core() {}
+
+CoreServer::CoreServer(uint32_t serial, std::string NICName, uint16_t sendPort, uint16_t listenPort, uint32_t maxPayloadSize)
+  : Core(maxPayloadSize)
+  , m_constructorStatus(OKAY)
+  , m_sender(std::make_shared<SenderUDP>(NICName, sendPort))
+  , m_receiver(std::make_shared<ReceiverUDP>(NICName, listenPort))
+  , m_stopThread(false)
+  , m_threadStatus(OKAY)
+  , m_IP(0)
+  , m_port(listenPort)
+  , m_serial(serial)
+{
+  // Make sure we have a valid sender.
+  if (m_sender == nullptr) {
+    m_constructorStatus = BAD_PARAMETER;
+    return;
+  }
+  if (m_sender->GetConstructorStatus() != OKAY) {
+    m_constructorStatus = m_sender->GetConstructorStatus();
+    return;
+  }
+  Status status = m_sender->GetIP(m_IP);
+  if (status != OKAY) {
+    m_constructorStatus = status;
+    return;
+  }
+
+  // Make sure we have a valid receiver.
+  if (m_receiver == nullptr) {
+    m_constructorStatus = BAD_PARAMETER;
+    return;
+  }
+  if (m_receiver->GetConstructorStatus() != OKAY) {
+    m_constructorStatus = m_receiver->GetConstructorStatus();
+    return;
+  }
+
+  // Make a thread to send discovery packets on, sending them to the broadcast address.
+  m_discoveryThread = std::make_shared<std::thread>(&CoreServer::DiscoveryThread, this);
+}
+
+void CoreServer::DiscoveryThread()
+{
+  /// Store a status to notify the caller if this thread fails.
+  m_threadStatus = OKAY;
+
+  // Make a StreamWriter to send the discovery packets.
+  if (m_sender->GetConstructorStatus() != OKAY) {
+    m_threadStatus = UNEXPECTED_INTERNAL_STATE;
+    return;
+  }
+  StreamWriter streamWriter(m_sender, m_timer, m_maxPayloadSize);
+
+  // Twice a second, send Discovery packets to the broadcast address.
+  while (!m_stopThread) {
+    // Pack a message into the StreamWriter.
+    std::shared_ptr<asdp::StreamPacket> packet;
+    Status status = streamWriter.GetCurrentPacket(packet);
+    if (status != OKAY) {
+      m_threadStatus = status;
+      return;
+    }
+    Time timeCode;
+    status = m_timer->GetCoreTime(timeCode);
+    if (status != OKAY) {
+      m_threadStatus = status;
+      return;
+    }
+    MessageDiscovery message(*packet, timeCode, m_IP, m_port, m_serial);
+    status = message.GetConstructorStatus();
+    if (status != OKAY) {
+      m_threadStatus = status;
+      return;
+    }
+    status = streamWriter.Flush();
+    if (status != OKAY) {
+      m_threadStatus = status;
+      return;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+  }
+  m_threadStatus = THREAD_COMPLETED;
+}
+
+Status CoreServer::GetReceiver(std::shared_ptr<Receiver>& receiver) const
+{
+  if (m_constructorStatus != OKAY) {
+    return m_constructorStatus;
+  }
+
+  receiver = m_receiver;
+  return OKAY;
+}
+
+Status CoreServer::GetDiscoveryThreadStatus(Status& threadStatus) const
+{
+  if (m_constructorStatus != OKAY) {
+    return m_constructorStatus;
+  }
+
+  threadStatus = m_threadStatus;
+  return OKAY;
+}
+
+CoreServer::~CoreServer()
+{
+  // Stop our discovery thread and wait for it to join.
+  m_stopThread = true;
+  if ((m_discoveryThread != nullptr) && m_discoveryThread->joinable()) {
+    m_discoveryThread->join();
+  }
+}
+
+CoreClient::CoreClient(std::string NICName, uint32_t maxPayloadSize)
+  : Core(maxPayloadSize)
+  , m_constructorStatus(OKAY)
+  , m_threadStatus(OKAY)
+  , m_IP(0)
+  , m_serial(0)
+{
+  // Open a socket on our NICName to receive Discovery packets.
+  m_receiver = std::make_shared<ReceiverUDP>(NICName, 10102);
+  if (m_receiver->GetConstructorStatus() != OKAY) {
+    m_constructorStatus = m_receiver->GetConstructorStatus();
+    return;
+  }
+
+  // Start the discovery thread to listen for servers.
+  m_discoveryThread = std::make_shared<std::thread>(&CoreClient::DiscoveryThread, this);
+}
+
+void CoreClient::DiscoveryThread()
+{
+  /// Store a status to notify the caller if this thread fails.
+  m_threadStatus = OKAY;
+
+  // Listen for Discovery packets. When they arrive, make a description of
+  // the server as a URL and add it and its other information to our list of servers
+  // if it isn't already there.
+  while (!m_stopThread) {
+    std::shared_ptr<StreamPacket> packet;
+    Status status = m_receiver->ReceiveStreamPacket(0.5, packet);
+
+    // If we timed out, just try again.
+    if (status == TIMEOUT) {
+      continue;
+    }
+
+    // If we got an error, stop the thread and record why.
+    if (status != OKAY) {
+      m_threadStatus = status;
+      return;
+    }
+
+    std::shared_ptr<Message> message = nullptr;
+    status = packet->GetNextMessage(message);
+    if (status != OKAY) {
+      m_threadStatus = status;
+      return;
+    }
+    MessageDiscovery discovery(*message);
+
+    // Get the IP address, port, and serial number from the message.
+    uint32_t IP;
+    status = discovery.GetIP(IP);
+    if (status != OKAY) {
+      m_threadStatus = status;
+      return;
+    }
+    uint16_t port;
+    status = discovery.GetPort(port);
+    if (status != OKAY) {
+      m_threadStatus = status;
+      return;
+    }
+    uint32_t serial;
+    status = discovery.GetSerial(serial);
+    if (status != OKAY) {
+      m_threadStatus = status;
+      return;
+    }
+    ServerInfo SI(IP, port, serial);
+
+    // Lock the mutex so we can modify our list of servers.
+    {
+      std::lock_guard<std::mutex> lock(m_mutex);
+
+      // See if we already have this server in our list.
+      bool found = false;
+      for (size_t i = 0; i < m_servers.size(); i++) {
+        if (m_servers[i] == SI) {
+          found = true;
+          break;
+        }
+      }
+
+      // If we don't have this server in our list, add it.
+      if (!found) {
+        m_servers.push_back(SI);
+      }
+    }
+  }
+
+  m_threadStatus = THREAD_COMPLETED;
+}
+
+Status CoreClient::GetDiscoveryThreadStatus(Status& threadStatus) const
+{
+  if (m_constructorStatus != OKAY) {
+    return m_constructorStatus;
+  }
+
+  threadStatus = m_threadStatus;
+  return OKAY;
+}
+
+Status CoreClient::IdentifiedServers(std::vector<std::string>& servers) const
+{
+  if (m_constructorStatus != OKAY) {
+    return m_constructorStatus;
+  }
+
+  std::lock_guard<std::mutex> lock(m_mutex);
+  std::vector<std::string> ret;
+  for (size_t i = 0; i < m_servers.size(); i++) {
+    ret.push_back(URLFromServerInfo(m_servers[i]));
+  }
+  servers = ret;
+  return OKAY;
+}
+
+Status CoreClient::GetMyIP(uint32_t& IP) const
+{
+  if (m_constructorStatus != OKAY) {
+    return m_constructorStatus;
+  }
+
+  IP = m_IP;
+  return OKAY;
+}
+
+Status CoreClient::GetServerSerialNumber(uint32_t& serial) const
+{
+  if (m_constructorStatus != OKAY) {
+    return m_constructorStatus;
+  }
+  if (m_sender == nullptr) {
+    return NOT_CONNECTED;
+  }
+
+  serial = m_serial;
+  return OKAY;
+}
+
+std::string CoreClient::URLFromServerInfo(ServerInfo serverInfo)
+{
+  uint32_t IP = serverInfo.IP;
+  uint16_t port = serverInfo.port;
+  std::string IPString = std::to_string((IP >> 24) & 0xff) + "." + std::to_string((IP >> 16) & 0xff) + "."
+    + std::to_string((IP >> 8) & 0xff) + "." + std::to_string(IP & 0xff);
+  return "socket://" + IPString + ":" + std::to_string(port);
+}
+
+Status CoreClient::ServerInfoFromURL(std::string URL, std::string& IP, uint16_t& port)
+{
+  // Make sure the URL starts with "socket://".
+  if (URL.substr(0, 9) != "socket://") {
+    return BAD_PARAMETER;
+  }
+
+  // Get the IP address and port.
+  std::string IPString = URL.substr(9);
+  size_t colonPos = IPString.find(':');
+  if (colonPos == std::string::npos) {
+    return BAD_PARAMETER;
+  }
+  IP = IPString.substr(0, colonPos);
+  std::string portString = IPString.substr(colonPos + 1);
+  port = 0;
+  port = std::stoi(portString);
+
+  return OKAY;
+}
+
+Status CoreClient::ConnectToServer(std::string serverURL)
+{
+  if (m_constructorStatus != OKAY) {
+    return m_constructorStatus;
+  }
+
+  // Parse the URL.
+  std::string IP;
+  uint16_t port;
+  Status status = ServerInfoFromURL(serverURL, IP, port);
+  if (status != OKAY) {
+    return status;
+  }
+
+  // Make a sender to send packets to the server.
+  m_sender = std::make_shared<SenderUDP>(IP, port);
+  if (m_sender->GetConstructorStatus() != OKAY) {
+    return m_sender->GetConstructorStatus();
+  }
+
+  // Record our IP address.
+  status = m_sender->GetIP(m_IP);
+
+  // Look up the server's serial number from our table based on the
+  // IP address and port being connected to.
+  bool found = false;
+  for (size_t i = 0; i < m_servers.size(); i++) {
+    if ((m_servers[i].IP == m_IP) && (m_servers[i].port == port)) {
+      m_serial = m_servers[i].serial;
+      found = true;
+      break;
+    }
+  }
+  if (!found) {
+    return BAD_PARAMETER;
+  }
+
+  return OKAY;
+}
+
+Status CoreClient::SendCommandPacket(const CommandPacket& packet)
+{
+  if (m_constructorStatus != OKAY) {
+    return m_constructorStatus;
+  }
+  if (m_sender == nullptr) {
+    return NOT_CONNECTED;
+  }
+
+  return m_sender->SendCommandPacket(packet);
+}
+
+CoreClient::~CoreClient()
+{
+  // Stop our discovery thread and wait for it to join.
+  m_stopThread = true;
+  if ((m_discoveryThread != nullptr) && m_discoveryThread->joinable()) {
+    m_discoveryThread->join();
+  }
+}
+
+std::string CoreClient::Test()
+{
+  /// Test URLFromServerInfo on an IP gotten from localhost
+  SenderUDP sender("localhost", 10102);
+  if (sender.GetConstructorStatus() != OKAY) {
+    return "Error constructing SenderUDP: " + ErrorMessage(sender.GetConstructorStatus());
+  }
+  uint32_t IP;
+  Status status = sender.GetIP(IP);
+  if (status != OKAY) {
+    return "Error getting IP: " + ErrorMessage(status);
+  }
+  uint16_t port;
+  status = sender.GetPort(port);
+  if (status != OKAY) {
+    return "Error getting port: " + ErrorMessage(status);
+  }
+  uint32_t serial = 123456789;
+  ServerInfo serverInfo(IP, port, serial);
+  std::string URL = URLFromServerInfo(serverInfo);
+  if (URL != "socket://127.0.0.1:10102") {
+    return "Error creating URL: " + URL;
+  }
+
+  // Test ServerInfoFromURL on the URL we just created.
+  std::string IPString;
+  uint16_t port2;
+  status = ServerInfoFromURL(URL, IPString, port2);
+  if (status != OKAY) {
+    return "Error parsing URL: " + ErrorMessage(status);
+  }
+  if (IPString != "127.0.0.1") {
+    return "Error parsing URL: " + IPString;
+  }
+  if (port2 != port) {
+    return "Error parsing URL: " + std::to_string(port2);
+  }
+
+  // Start a CoreServer on Localhost.
+  CoreServer coreServer(serial, "localhost");
+  if (coreServer.GetConstructorStatus() != OKAY) {
+    return "Error constructing CoreServer: " + ErrorMessage(coreServer.GetConstructorStatus());
+  }
+  Status threadStatus;
+  status = coreServer.GetDiscoveryThreadStatus(threadStatus);
+  if (status != OKAY) {
+    return "Error getting server discovery thread status: " + ErrorMessage(status);
+  }
+
+  // Start a CoreClient on Localhost.
+  CoreClient coreClient("localhost");
+  if (coreClient.GetConstructorStatus() != OKAY) {
+    return "Error constructing CoreClient: " + ErrorMessage(coreClient.GetConstructorStatus());
+  }
+  status = coreClient.GetDiscoveryThreadStatus(threadStatus);
+  if (status != OKAY) {
+    return "Error getting client discovery thread status: " + ErrorMessage(status);
+  }
+
+  // Listen for a server on the CoreClient, waiting 1 second to find one.
+  std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+  std::vector<std::string> servers;
+  status = coreClient.IdentifiedServers(servers);
+  if (status != OKAY) {
+    return "Error getting identified servers: " + ErrorMessage(status);
+  }
+  if (servers.size() != 1) {
+    return "Error getting identified servers: " + std::to_string(servers.size());
+  }
+
+  // Try sending a CommandPacketReset from the CoreClient to the CoreServer, which
+  // should fail because it is not yet connected.
+  CommandPacketReset commandPacketReset;
+  status = coreClient.SendCommandPacket(commandPacketReset);
+  if (status != NOT_CONNECTED) {
+    return "Able to send CommandPacketReset when not connected.";
+  }
+
+  // Connect the CoreClient to the server.
+  status = coreClient.ConnectToServer(servers[0]);
+  if (status != OKAY) {
+    return "Error connecting to server: " + ErrorMessage(status);
+  }
+
+  // Get the Server's receiver so we can receive packets from it.
+  std::shared_ptr<Receiver> receiver;
+  status = coreServer.GetReceiver(receiver);
+  if (status != OKAY) {
+    return "Error getting receiver: " + ErrorMessage(status);
+  }
+
+  // Send a CommandPacketReset from the CoreClient to the CoreServer.
+  status = coreClient.SendCommandPacket(commandPacketReset);
+  if (status != OKAY) {
+    return "Error sending CommandPacketReset: " + ErrorMessage(status);
+  }
+
+  // Receive the CommandPacketReset on the CoreServer.
+  std::shared_ptr<CommandPacket> receiveCommandPacket;
+  status = receiver->ReceiveCommandPacket(0.5, receiveCommandPacket);
+  if (status != OKAY) {
+    return "Error receiving CommandPacketReset: " + ErrorMessage(status);
+  }
+  if (receiveCommandPacket == nullptr) {
+    return "Empty CommandPacketReset packet";
+  }
+  OpCode opCode;
+  status = receiveCommandPacket->GetOpCode(opCode);
+  if (status != OKAY) {
+    return "Error checking CommandPacketReset opcode: " + ErrorMessage(status);
+  }
+  if (opCode != RESET) {
+    return "Error receiving CommandPacketReset: wrong type";
+  }
+
+  // Get the IP address and server serial number from the CoreClient.
+  uint32_t IP2;
+  status = coreClient.GetMyIP(IP2);
+  if (status != OKAY) {
+    return "Error getting IP: " + ErrorMessage(status);
+  }
+  if (IP2 != IP) {
+    return "Error getting IP: " + std::to_string(IP2);
+  }
+  uint32_t serial2;
+  status = coreClient.GetServerSerialNumber(serial2);
+  if (status != OKAY) {
+    return "Error getting serial number: " + ErrorMessage(status);
+  }
+  if (serial2 != serial) {
+    return "Error getting serial number: " + std::to_string(serial2);
   }
 
   return "";
@@ -2883,6 +3661,10 @@ std::string asdp::Test()
   if (ret.size() > 0) {
     return "Error testing Message: " + ret;
   }
+  ret = MessageDiscovery::Test();
+  if (ret.size() > 0) {
+    return "Error testing MessageDiscovery: " + ret;
+  }
   ret = MessageFrameBegin::Test();
   if (ret.size() > 0) {
     return "Error testing MessageFrameBegin: " + ret;
@@ -2902,10 +3684,13 @@ std::string asdp::Test()
   if (ret.size() > 0) {
     return "Error testing StreamWriter: " + ret;
   }
+
   //-------------------------------------------------------------------
   // Tests for Core and its derived classes.
-  /// @todo
-
+  ret = CoreClient::Test();
+  if (ret.size() > 0) {
+    return "Error testing Core classes: " + ret;
+  }
 
   /// @todo Run tests.
   return "@todo Implement all tests.";
