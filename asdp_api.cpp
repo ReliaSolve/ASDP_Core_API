@@ -571,18 +571,25 @@ CommandPacketReset::CommandPacketReset(CommandPacket& basePacket)
 std::string CommandPacketReset::Test()
 {
   {
-    // Construct a reset command packet and verify that we can read its opcode.
-    CommandPacketReset resetPacket;
-    if (resetPacket.GetConstructorStatus() != OKAY) {
-      return "Error constructing reset packet: " + ErrorMessage(resetPacket.GetConstructorStatus());
+    // Construct a command packet and verify that we can read its opcode.
+    CommandPacketReset packet;
+    if (packet.GetConstructorStatus() != OKAY) {
+      return "Error constructing packet: " + ErrorMessage(packet.GetConstructorStatus());
     }
     OpCode opCode;
-    Status status = resetPacket.GetOpCode(opCode);
+    Status status = packet.GetOpCode(opCode);
     if (status != OKAY) {
-      return "Error getting opcode from reset packet: " + ErrorMessage(status);
+      return "Error getting opcode from packet: " + ErrorMessage(status);
     }
     if (opCode != RESET) {
-      return "Error getting opcode from reset packet: opcode is not RESET";
+      return "Error getting opcode from packet: opcode is not RESET";
+    }
+
+    // Construct a new packet from the packet's buffer and verify that it has the same opcode.
+    CommandPacket &originalPacket = packet;
+    CommandPacketReset packet2(originalPacket);
+    if (packet2.GetConstructorStatus() != OKAY) {
+      return "Error constructing packet from buffer: " + ErrorMessage(packet2.GetConstructorStatus());
     }
   }
 
@@ -639,6 +646,321 @@ std::string CommandPacketCancelAllStreams::Test()
     }
     if (subnet != 10) {
       return "Error getting subnet from CommandPacketCancelAllStreams packet: subnet is not 10";
+    }
+  }
+
+  return "";
+}
+
+CommandPacketStartRecording::CommandPacketStartRecording()
+  : CommandPacket(0, START_RECORDING)
+{
+}
+
+CommandPacketStartRecording::CommandPacketStartRecording(CommandPacket& basePacket)
+  : CommandPacket(basePacket.m_buffer)
+{
+  OpCode opCode;
+  basePacket.GetOpCode(opCode);
+  if (opCode != START_RECORDING) {
+    m_constructorStatus = BAD_PARAMETER;
+  }
+}
+
+std::string CommandPacketStartRecording::Test()
+{
+  {
+    // Construct a command packet and verify that we can read its opcode.
+    CommandPacketStartRecording packet;
+    if (packet.GetConstructorStatus() != OKAY) {
+      return "Error constructing packet: " + ErrorMessage(packet.GetConstructorStatus());
+    }
+    OpCode opCode;
+    Status status = packet.GetOpCode(opCode);
+    if (status != OKAY) {
+      return "Error getting opcode from packet: " + ErrorMessage(status);
+    }
+    if (opCode != START_RECORDING) {
+      return "Error getting opcode from packet: opcode is not START_RECORDING";
+    }
+
+    // Construct a new packet from the packet's buffer and verify that it has the same opcode.
+    CommandPacket& originalPacket = packet;
+    CommandPacketStartRecording packet2(originalPacket);
+    if (packet2.GetConstructorStatus() != OKAY) {
+      return "Error constructing packet from buffer: " + ErrorMessage(packet2.GetConstructorStatus());
+    }
+  }
+
+  return "";
+}
+
+CommandPacketCancelRecording::CommandPacketCancelRecording()
+  : CommandPacket(0, CANCEL_RECORDING)
+{
+}
+
+CommandPacketCancelRecording::CommandPacketCancelRecording(CommandPacket& basePacket)
+  : CommandPacket(basePacket.m_buffer)
+{
+  OpCode opCode;
+  basePacket.GetOpCode(opCode);
+  if (opCode != CANCEL_RECORDING) {
+    m_constructorStatus = BAD_PARAMETER;
+  }
+}
+
+std::string CommandPacketCancelRecording::Test()
+{
+  {
+    // Construct a command packet and verify that we can read its opcode.
+    CommandPacketCancelRecording packet;
+    if (packet.GetConstructorStatus() != OKAY) {
+      return "Error constructing packet: " + ErrorMessage(packet.GetConstructorStatus());
+    }
+    OpCode opCode;
+    Status status = packet.GetOpCode(opCode);
+    if (status != OKAY) {
+      return "Error getting opcode from packet: " + ErrorMessage(status);
+    }
+    if (opCode != CANCEL_RECORDING) {
+      return "Error getting opcode from packet: opcode is not CANCEL_RECORDING";
+    }
+
+    // Construct a new packet from the packet's buffer and verify that it has the same opcode.
+    CommandPacket& originalPacket = packet;
+    CommandPacketCancelRecording packet2(originalPacket);
+    if (packet2.GetConstructorStatus() != OKAY) {
+      return "Error constructing packet from buffer: " + ErrorMessage(packet2.GetConstructorStatus());
+    }
+  }
+
+  return "";
+}
+
+CommandPacketPauseReplay::CommandPacketPauseReplay()
+  : CommandPacket(0, PAUSE_REPLAY)
+{
+}
+
+CommandPacketPauseReplay::CommandPacketPauseReplay(CommandPacket& basePacket)
+  : CommandPacket(basePacket.m_buffer)
+{
+  OpCode opCode;
+  basePacket.GetOpCode(opCode);
+  if (opCode != PAUSE_REPLAY) {
+    m_constructorStatus = BAD_PARAMETER;
+  }
+}
+
+std::string CommandPacketPauseReplay::Test()
+{
+  {
+    // Construct a command packet and verify that we can read its opcode.
+    CommandPacketPauseReplay packet;
+    if (packet.GetConstructorStatus() != OKAY) {
+      return "Error constructing packet: " + ErrorMessage(packet.GetConstructorStatus());
+    }
+    OpCode opCode;
+    Status status = packet.GetOpCode(opCode);
+    if (status != OKAY) {
+      return "Error getting opcode from packet: " + ErrorMessage(status);
+    }
+    if (opCode != PAUSE_REPLAY) {
+      return "Error getting opcode from packet: opcode is not PAUSE_REPLAY";
+    }
+
+    // Construct a new packet from the packet's buffer and verify that it has the same opcode.
+    CommandPacket& originalPacket = packet;
+    CommandPacketPauseReplay packet2(originalPacket);
+    if (packet2.GetConstructorStatus() != OKAY) {
+      return "Error constructing packet from buffer: " + ErrorMessage(packet2.GetConstructorStatus());
+    }
+  }
+
+  return "";
+}
+
+CommandPacketStartReplay::CommandPacketStartReplay(uint32_t ID, Time initialTime)
+  : CommandPacket(sizeof(ID) + sizeof(initialTime), START_REPLAY)
+{
+  unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
+  memcpy(bufPtr, &ID, sizeof(ID)); bufPtr += sizeof(ID);
+  memcpy(bufPtr, &initialTime.seconds, sizeof(initialTime.seconds)); bufPtr += sizeof(initialTime.seconds);
+  memcpy(bufPtr, &initialTime.microseconds, sizeof(initialTime.microseconds)); bufPtr += sizeof(initialTime.microseconds);
+}
+
+CommandPacketStartReplay::CommandPacketStartReplay(CommandPacket& basePacket)
+  : CommandPacket(basePacket.m_buffer)
+{
+  OpCode opCode;
+  basePacket.GetOpCode(opCode);
+  if (opCode != START_REPLAY) {
+    m_constructorStatus = BAD_PARAMETER;
+  }
+}
+
+Status CommandPacketStartReplay::GetID(uint32_t& ID) const
+{
+  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + sizeof(ID)) {
+    return READ_PAST_END;
+  }
+  memcpy(&ID, m_buffer->data() + COMMAND_PACKET_BASE_SIZE, sizeof(ID));
+  return OKAY;
+}
+
+Status CommandPacketStartReplay::GetInitialTime(Time& initialTime) const
+{
+  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + 3 * sizeof(uint32_t)) {
+    return READ_PAST_END;
+  }
+  memcpy(&initialTime.seconds, m_buffer->data() + COMMAND_PACKET_BASE_SIZE + sizeof(uint32_t), sizeof(uint32_t));
+  memcpy(&initialTime.microseconds, m_buffer->data() + COMMAND_PACKET_BASE_SIZE + 2 * sizeof(uint32_t), sizeof(uint32_t));
+  return OKAY;
+}
+
+std::string CommandPacketStartReplay::Test()
+{
+  {
+    // Construct a command packet and verify that we can read its opcode.
+    CommandPacketStartReplay packet(10, { 1, 2 });
+    if (packet.GetConstructorStatus() != OKAY) {
+      return "Error constructing packet: " + ErrorMessage(packet.GetConstructorStatus());
+    }
+    OpCode opCode;
+    Status status = packet.GetOpCode(opCode);
+    if (status != OKAY) {
+      return "Error getting opcode from packet: " + ErrorMessage(status);
+    }
+    if (opCode != START_REPLAY) {
+      return "Error getting opcode from packet: opcode is not START_REPLAY";
+    }
+
+    // Also be sure we can read the ID.
+    uint32_t ID;
+    status = packet.GetID(ID);
+    if (status != OKAY) {
+      return "Error getting ID from packet: " + ErrorMessage(status);
+    }
+    if (ID != 10) {
+      return "Error getting ID from packet: ID is not 10";
+    }
+
+    // Also be sure we can read the initial time.
+    Time initialTime;
+    status = packet.GetInitialTime(initialTime);
+    if (status != OKAY) {
+      return "Error getting initial time from packet: " + ErrorMessage(status);
+    }
+    if (initialTime.seconds != 1 || initialTime.microseconds != 2) {
+      return "Error getting initial time from packet: time is not 1.2";
+    }
+
+    // Construct a new packet from the packet's buffer and verify that it has the same parameters.
+    CommandPacket& originalPacket = packet;
+    CommandPacketStartReplay packet2(originalPacket);
+    if (packet2.GetConstructorStatus() != OKAY) {
+      return "Error constructing packet from buffer: " + ErrorMessage(packet2.GetConstructorStatus());
+    }
+    status = packet2.GetID(ID);
+    if (status != OKAY) {
+      return "Error getting ID from packet constructed from buffer: " + ErrorMessage(status);
+    }
+    if (ID != 10) {
+      return "Error getting ID from packet constructed from buffer: ID is not 10";
+    }
+    status = packet2.GetInitialTime(initialTime);
+    if (status != OKAY) {
+      return "Error getting initial time from packet constructed from buffer: " + ErrorMessage(status);
+    }
+    if (initialTime.seconds != 1 || initialTime.microseconds != 2) {
+      return "Error getting initial time from packet constructed from buffer: time is not 1.2";
+    }
+  }
+
+  return "";
+}
+
+CommandPacketResumeReplay::CommandPacketResumeReplay()
+  : CommandPacket(0, RESUME_REPLAY)
+{
+}
+
+CommandPacketResumeReplay::CommandPacketResumeReplay(CommandPacket& basePacket)
+  : CommandPacket(basePacket.m_buffer)
+{
+  OpCode opCode;
+  basePacket.GetOpCode(opCode);
+  if (opCode != RESUME_REPLAY) {
+    m_constructorStatus = BAD_PARAMETER;
+  }
+}
+
+std::string CommandPacketResumeReplay::Test()
+{
+  {
+    // Construct a command packet and verify that we can read its opcode.
+    CommandPacketResumeReplay packet;
+    if (packet.GetConstructorStatus() != OKAY) {
+      return "Error constructing packet: " + ErrorMessage(packet.GetConstructorStatus());
+    }
+    OpCode opCode;
+    Status status = packet.GetOpCode(opCode);
+    if (status != OKAY) {
+      return "Error getting opcode from packet: " + ErrorMessage(status);
+    }
+    if (opCode != RESUME_REPLAY) {
+      return "Error getting opcode from packet: opcode is not RESUME_REPLAY";
+    }
+
+    // Construct a new packet from the packet's buffer and verify that it has the same opcode.
+    CommandPacket& originalPacket = packet;
+    CommandPacketResumeReplay packet2(originalPacket);
+    if (packet2.GetConstructorStatus() != OKAY) {
+      return "Error constructing packet from buffer: " + ErrorMessage(packet2.GetConstructorStatus());
+    }
+  }
+
+  return "";
+}
+
+CommandPacketCancelReplay::CommandPacketCancelReplay()
+  : CommandPacket(0, CANCEL_REPLAY)
+{
+}
+
+CommandPacketCancelReplay::CommandPacketCancelReplay(CommandPacket& basePacket)
+  : CommandPacket(basePacket.m_buffer)
+{
+  OpCode opCode;
+  basePacket.GetOpCode(opCode);
+  if (opCode != CANCEL_REPLAY) {
+    m_constructorStatus = BAD_PARAMETER;
+  }
+}
+
+std::string CommandPacketCancelReplay::Test()
+{
+  {
+    // Construct a command packet and verify that we can read its opcode.
+    CommandPacketCancelReplay packet;
+    if (packet.GetConstructorStatus() != OKAY) {
+      return "Error constructing packet: " + ErrorMessage(packet.GetConstructorStatus());
+    }
+    OpCode opCode;
+    Status status = packet.GetOpCode(opCode);
+    if (status != OKAY) {
+      return "Error getting opcode from packet: " + ErrorMessage(status);
+    }
+    if (opCode != CANCEL_REPLAY) {
+      return "Error getting opcode from packet: opcode is not CANCEL_REPLAY";
+    }
+
+    // Construct a new packet from the packet's buffer and verify that it has the same opcode.
+    CommandPacket& originalPacket = packet;
+    CommandPacketCancelReplay packet2(originalPacket);
+    if (packet2.GetConstructorStatus() != OKAY) {
+      return "Error constructing packet from buffer: " + ErrorMessage(packet2.GetConstructorStatus());
     }
   }
 
@@ -3649,6 +3971,30 @@ std::string asdp::Test()
   ret = CommandPacketCancelAllStreams::Test();
   if (ret.size() > 0) {
     return "Error testing CommandPacketCancelAllStreams: " + ret;
+  }
+  ret = CommandPacketStartRecording::Test();
+  if (ret.size() > 0) {
+    return "Error testing CommandPacketStartRecording: " + ret;
+  }
+  ret = CommandPacketCancelRecording::Test();
+  if (ret.size() > 0) {
+    return "Error testing CommandPacketCancelRecording: " + ret;
+  }
+  ret = CommandPacketStartReplay::Test();
+  if (ret.size() > 0) {
+    return "Error testing CommandPacketStartReplay: " + ret;
+  }
+  ret = CommandPacketPauseReplay::Test();
+  if (ret.size() > 0) {
+    return "Error testing CommandPacketPauseReplay: " + ret;
+  }
+  ret = CommandPacketResumeReplay::Test();
+  if (ret.size() > 0) {
+    return "Error testing CommandPacketResumeReplay: " + ret;
+  }
+  ret = CommandPacketCancelReplay::Test();
+  if (ret.size() > 0) {
+    return "Error testing CommandPacketCancelReplay: " + ret;
   }
   ret = CommandPacketStreamSubregions::Test();
   if (ret.size() > 0) {

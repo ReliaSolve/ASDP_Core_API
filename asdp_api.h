@@ -375,6 +375,12 @@ protected:
 
   friend class CommandPacketReset;
   friend class CommandPacketCancelAllStreams;
+  friend class CommandPacketStartRecording;
+  friend class CommandPacketCancelRecording;
+  friend class CommandPacketStartReplay;
+  friend class CommandPacketPauseReplay;
+  friend class CommandPacketResumeReplay;
+  friend class CommandPacketCancelReplay;
   /// @todo Finish the rest of the subclasses, here and below, once we've finished a full example.
   friend class CommandPacketStreamSubregions;
 };
@@ -409,6 +415,109 @@ public:
   /// @param [out] subnet Subnet to cancel all streams on.
   /// @return OKAY if successful, otherwise an error code.
   Status GetSubnet(uint32_t& subnet) const;
+
+  /// @brief Test function.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
+};
+
+/// @brief Command packet to start recording
+class CommandPacketStartRecording : public CommandPacket {
+public:
+  /// @brief Construct a brand-new command buffer with the start recording opcode.
+  CommandPacketStartRecording();
+
+  /// @brief Type-cast a base CommandPacket into a start recording packet, re-using its buffer.
+  /// @param [in] basePacket The base packet to convert from.
+  CommandPacketStartRecording(CommandPacket& basePacket);
+
+  /// @brief Test function.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
+};
+
+/// @brief Command packet to cancel recording
+class CommandPacketCancelRecording : public CommandPacket {
+public:
+  /// @brief Construct a brand-new command buffer with the start recording opcode.
+  CommandPacketCancelRecording();
+
+  /// @brief Type-cast a base CommandPacket into a start recording packet, re-using its buffer.
+  /// @param [in] basePacket The base packet to convert from.
+  CommandPacketCancelRecording(CommandPacket& basePacket);
+
+  /// @brief Test function.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
+};
+
+/// @brief Command packet to start replay.
+class CommandPacketStartReplay : public CommandPacket {
+public:
+  /// @brief Construct a brand-new command buffer with the StartReplay opcode.
+  /// @param [in] ID ID of the stream to replay.
+  /// @param [in] initialTime Time code of the initial packet to replay.
+  /// The first packet replayed will have its time code set to this value. Others will be relative to it.
+  CommandPacketStartReplay(uint32_t ID, Time initialTime);
+
+  /// @brief Type-cast a base CommandPacket into a CancelAllStreams packet, re-using its buffer.
+  /// @param [in] basePacket The base packet to convert from.
+  CommandPacketStartReplay(CommandPacket& basePacket);
+
+  /// @brief Get the ID of the stream to replay.
+  /// @param [out] ID ID of the stream to replay.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetID(uint32_t& ID) const;
+
+  /// @brief Get the time code of the initial packet to replay.
+  /// @param [out] initialTime Time code of the initial packet to replay.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetInitialTime(Time& initialTime) const;
+
+  /// @brief Test function.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
+};
+
+/// @brief Command packet to pause replay
+class CommandPacketPauseReplay : public CommandPacket {
+public:
+  /// @brief Construct a brand-new command buffer with the pause replay opcode.
+  CommandPacketPauseReplay();
+
+  /// @brief Type-cast a base CommandPacket into a pause replay packet, re-using its buffer.
+  /// @param [in] basePacket The base packet to convert from.
+  CommandPacketPauseReplay(CommandPacket& basePacket);
+
+  /// @brief Test function.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
+};
+
+/// @brief Command packet to resume replay
+class CommandPacketResumeReplay : public CommandPacket {
+public:
+  /// @brief Construct a brand-new command buffer with the resume replay opcode.
+  CommandPacketResumeReplay();
+
+  /// @brief Type-cast a base CommandPacket into a resume replay packet, re-using its buffer.
+  /// @param [in] basePacket The base packet to convert from.
+  CommandPacketResumeReplay(CommandPacket& basePacket);
+
+  /// @brief Test function.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
+};
+
+/// @brief Command packet to cancel replay
+class CommandPacketCancelReplay : public CommandPacket {
+public:
+  /// @brief Construct a brand-new command buffer with the cancel replay opcode.
+  CommandPacketCancelReplay();
+
+  /// @brief Type-cast a base CommandPacket into a cancel replay packet, re-using its buffer.
+  /// @param [in] basePacket The base packet to convert from.
+  CommandPacketCancelReplay(CommandPacket& basePacket);
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
