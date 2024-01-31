@@ -5709,6 +5709,22 @@ std::string asdp::Test()
   if (ret.size() > 0) {
     return "Error testing CommandPacketEraseStoredStream: " + ret;
   }
+  ret = CommandPacketStreamTemperatures::Test();
+  if (ret.size() > 0) {
+    return "Error testing CommandPacketStreamTemperatures: " + ret;
+  }
+  ret = CommandPacketCancelTemperatures::Test();
+  if (ret.size() > 0) {
+    return "Error testing CommandPacketCancelTemperatures: " + ret;
+  }
+  ret = CommandPacketStreamPoses::Test();
+  if (ret.size() > 0) {
+    return "Error testing CommandPacketStreamPoses: " + ret;
+  }
+  ret = CommandPacketCancelPoses::Test();
+  if (ret.size() > 0) {
+    return "Error testing CommandPacketCancelPoses: " + ret;
+  }
 
   //-------------------------------------------------------------------
   // Tests for Message and its derived classes.
