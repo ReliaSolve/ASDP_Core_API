@@ -86,11 +86,11 @@ enum OpCode {
   RESET                         = 0,
   CANCEL_ALL_STREAMS            = 1,
   START_RECORDING               = 2,
-  CANCEL_RECORDING              = 3,
+  STOP_RECORDING                = 3,
   START_REPLAY                  = 4,
   PAUSE_REPLAY                  = 5,
   RESUME_REPLAY                 = 6,
-  CANCEL_REPLAY                 = 7,
+  STOP_REPLAY                   = 7,
   SET_START_UP_RECORDING_STATE  = 8,
   SET_KEEPALIVE_INTERVAL        = 9,
   STREAM_STATE                  = 10,
@@ -376,11 +376,11 @@ protected:
   friend class CommandPacketReset;
   friend class CommandPacketCancelAllStreams;
   friend class CommandPacketStartRecording;
-  friend class CommandPacketCancelRecording;
+  friend class CommandPacketStopRecording;
   friend class CommandPacketStartReplay;
   friend class CommandPacketPauseReplay;
   friend class CommandPacketResumeReplay;
-  friend class CommandPacketCancelReplay;
+  friend class CommandPacketStopReplay;
   friend class CommandPacketSetStartUpRecordingState;
   friend class CommandPacketKeepaliveInterval;
   friend class CommandPacketStreamState;
@@ -441,14 +441,14 @@ public:
 };
 
 /// @brief Command packet to cancel recording
-class CommandPacketCancelRecording : public CommandPacket {
+class CommandPacketStopRecording : public CommandPacket {
 public:
   /// @brief Construct a brand-new command buffer with the start recording opcode.
-  CommandPacketCancelRecording();
+  CommandPacketStopRecording();
 
   /// @brief Type-cast a base CommandPacket, re-using its buffer.
   /// @param [in] basePacket The base packet to convert from.
-  CommandPacketCancelRecording(CommandPacket& basePacket);
+  CommandPacketStopRecording(CommandPacket& basePacket);
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
@@ -514,14 +514,14 @@ public:
 };
 
 /// @brief Command packet to cancel replay
-class CommandPacketCancelReplay : public CommandPacket {
+class CommandPacketStopReplay : public CommandPacket {
 public:
   /// @brief Construct a brand-new command buffer with the cancel replay opcode.
-  CommandPacketCancelReplay();
+  CommandPacketStopReplay();
 
   /// @brief Type-cast a base CommandPacket, re-using its buffer.
   /// @param [in] basePacket The base packet to convert from.
-  CommandPacketCancelReplay(CommandPacket& basePacket);
+  CommandPacketStopReplay(CommandPacket& basePacket);
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.

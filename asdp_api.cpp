@@ -695,26 +695,26 @@ std::string CommandPacketStartRecording::Test()
   return "";
 }
 
-CommandPacketCancelRecording::CommandPacketCancelRecording()
-  : CommandPacket(0, CANCEL_RECORDING)
+CommandPacketStopRecording::CommandPacketStopRecording()
+  : CommandPacket(0, STOP_RECORDING)
 {
 }
 
-CommandPacketCancelRecording::CommandPacketCancelRecording(CommandPacket& basePacket)
+CommandPacketStopRecording::CommandPacketStopRecording(CommandPacket& basePacket)
   : CommandPacket(basePacket.m_buffer)
 {
   OpCode opCode;
   basePacket.GetOpCode(opCode);
-  if (opCode != CANCEL_RECORDING) {
+  if (opCode != STOP_RECORDING) {
     m_constructorStatus = BAD_PARAMETER;
   }
 }
 
-std::string CommandPacketCancelRecording::Test()
+std::string CommandPacketStopRecording::Test()
 {
   {
     // Construct a command packet and verify that we can read its opcode.
-    CommandPacketCancelRecording packet;
+    CommandPacketStopRecording packet;
     if (packet.GetConstructorStatus() != OKAY) {
       return "Error constructing packet: " + ErrorMessage(packet.GetConstructorStatus());
     }
@@ -723,13 +723,13 @@ std::string CommandPacketCancelRecording::Test()
     if (status != OKAY) {
       return "Error getting opcode from packet: " + ErrorMessage(status);
     }
-    if (opCode != CANCEL_RECORDING) {
-      return "Error getting opcode from packet: opcode is not CANCEL_RECORDING";
+    if (opCode != STOP_RECORDING) {
+      return "Error getting opcode from packet: opcode is not STOP_RECORDING";
     }
 
     // Construct a new packet from the packet's buffer and verify that it has the same opcode.
     CommandPacket& originalPacket = packet;
-    CommandPacketCancelRecording packet2(originalPacket);
+    CommandPacketStopRecording packet2(originalPacket);
     if (packet2.GetConstructorStatus() != OKAY) {
       return "Error constructing packet from buffer: " + ErrorMessage(packet2.GetConstructorStatus());
     }
@@ -924,26 +924,26 @@ std::string CommandPacketResumeReplay::Test()
   return "";
 }
 
-CommandPacketCancelReplay::CommandPacketCancelReplay()
-  : CommandPacket(0, CANCEL_REPLAY)
+CommandPacketStopReplay::CommandPacketStopReplay()
+  : CommandPacket(0, STOP_REPLAY)
 {
 }
 
-CommandPacketCancelReplay::CommandPacketCancelReplay(CommandPacket& basePacket)
+CommandPacketStopReplay::CommandPacketStopReplay(CommandPacket& basePacket)
   : CommandPacket(basePacket.m_buffer)
 {
   OpCode opCode;
   basePacket.GetOpCode(opCode);
-  if (opCode != CANCEL_REPLAY) {
+  if (opCode != STOP_REPLAY) {
     m_constructorStatus = BAD_PARAMETER;
   }
 }
 
-std::string CommandPacketCancelReplay::Test()
+std::string CommandPacketStopReplay::Test()
 {
   {
     // Construct a command packet and verify that we can read its opcode.
-    CommandPacketCancelReplay packet;
+    CommandPacketStopReplay packet;
     if (packet.GetConstructorStatus() != OKAY) {
       return "Error constructing packet: " + ErrorMessage(packet.GetConstructorStatus());
     }
@@ -952,13 +952,13 @@ std::string CommandPacketCancelReplay::Test()
     if (status != OKAY) {
       return "Error getting opcode from packet: " + ErrorMessage(status);
     }
-    if (opCode != CANCEL_REPLAY) {
-      return "Error getting opcode from packet: opcode is not CANCEL_REPLAY";
+    if (opCode != STOP_REPLAY) {
+      return "Error getting opcode from packet: opcode is not STOP_REPLAY";
     }
 
     // Construct a new packet from the packet's buffer and verify that it has the same opcode.
     CommandPacket& originalPacket = packet;
-    CommandPacketCancelReplay packet2(originalPacket);
+    CommandPacketStopReplay packet2(originalPacket);
     if (packet2.GetConstructorStatus() != OKAY) {
       return "Error constructing packet from buffer: " + ErrorMessage(packet2.GetConstructorStatus());
     }
@@ -4317,9 +4317,9 @@ std::string asdp::Test()
   if (ret.size() > 0) {
     return "Error testing CommandPacketStartRecording: " + ret;
   }
-  ret = CommandPacketCancelRecording::Test();
+  ret = CommandPacketStopRecording::Test();
   if (ret.size() > 0) {
-    return "Error testing CommandPacketCancelRecording: " + ret;
+    return "Error testing CommandPacketStopRecording: " + ret;
   }
   ret = CommandPacketStartReplay::Test();
   if (ret.size() > 0) {
@@ -4333,9 +4333,9 @@ std::string asdp::Test()
   if (ret.size() > 0) {
     return "Error testing CommandPacketResumeReplay: " + ret;
   }
-  ret = CommandPacketCancelReplay::Test();
+  ret = CommandPacketStopReplay::Test();
   if (ret.size() > 0) {
-    return "Error testing CommandPacketCancelReplay: " + ret;
+    return "Error testing CommandPacketStopReplay: " + ret;
   }
   ret = CommandPacketSetStartUpRecordingState::Test();
   if (ret.size() > 0) {
