@@ -1310,17 +1310,16 @@ std::string CommandPacketCancelState::Test()
   return "";
 }
 
-CommandPacketConfigureTrigger::CommandPacketConfigureTrigger(uint16_t ID, uint8_t mode, uint8_t externalID,
-  float period, float offset, float trackingFactor)
-  : CommandPacket(sizeof(uint16_t) + 2 * sizeof(uint8_t) + 3 * sizeof(float), CONFIGURE_TRIGGER)
+CommandPacketConfigureTrigger::CommandPacketConfigureTrigger(TriggerInfo config)
+  : CommandPacket(sizeof(config), CONFIGURE_TRIGGER)
 {
   unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
-  memcpy(bufPtr, &ID, sizeof(ID)); bufPtr += sizeof(ID);
-  memcpy(bufPtr, &mode, sizeof(mode)); bufPtr += sizeof(mode);
-  memcpy(bufPtr, &externalID, sizeof(externalID)); bufPtr += sizeof(externalID);
-  memcpy(bufPtr, &period, sizeof(period)); bufPtr += sizeof(period);
-  memcpy(bufPtr, &offset, sizeof(offset)); bufPtr += sizeof(offset);
-  memcpy(bufPtr, &trackingFactor, sizeof(trackingFactor)); bufPtr += sizeof(trackingFactor);
+  memcpy(bufPtr, &config.ID, sizeof(config.ID)); bufPtr += sizeof(config.ID);
+  memcpy(bufPtr, &config.mode, sizeof(config.mode)); bufPtr += sizeof(config.mode);
+  memcpy(bufPtr, &config.externalID, sizeof(config.externalID)); bufPtr += sizeof(config.externalID);
+  memcpy(bufPtr, &config.period, sizeof(config.period)); bufPtr += sizeof(config.period);
+  memcpy(bufPtr, &config.offset, sizeof(config.offset)); bufPtr += sizeof(config.offset);
+  memcpy(bufPtr, &config.trackingFactor, sizeof(config.trackingFactor)); bufPtr += sizeof(config.trackingFactor);
 }
 
 CommandPacketConfigureTrigger::CommandPacketConfigureTrigger(CommandPacket& basePacket)
@@ -1333,57 +1332,12 @@ CommandPacketConfigureTrigger::CommandPacketConfigureTrigger(CommandPacket& base
   }
 }
 
-Status CommandPacketConfigureTrigger::GetID(uint16_t& ID) const
+Status CommandPacketConfigureTrigger::GetConfiguration(TriggerInfo& config) const
 {
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + sizeof(ID)) {
+  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + sizeof(config)) {
     return READ_PAST_END;
   }
-  memcpy(&ID, m_buffer->data() + COMMAND_PACKET_BASE_SIZE, sizeof(ID));
-  return OKAY;
-}
-
-Status CommandPacketConfigureTrigger::GetMode(uint8_t& mode) const
-{
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + sizeof(uint16_t) + sizeof(mode)) {
-    return READ_PAST_END;
-  }
-  memcpy(&mode, m_buffer->data() + COMMAND_PACKET_BASE_SIZE + sizeof(uint16_t), sizeof(mode));
-  return OKAY;
-}
-
-Status CommandPacketConfigureTrigger::GetExternalID(uint8_t& externalID) const
-{
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + sizeof(uint16_t) + 2 * sizeof(uint8_t)) {
-    return READ_PAST_END;
-  }
-  memcpy(&externalID, m_buffer->data() + COMMAND_PACKET_BASE_SIZE + sizeof(uint16_t) + sizeof(uint8_t), sizeof(externalID));
-  return OKAY;
-}
-
-Status CommandPacketConfigureTrigger::GetPeriod(float& period) const
-{
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + sizeof(uint16_t) + 2 * sizeof(uint8_t) + sizeof(float)) {
-    return READ_PAST_END;
-  }
-  memcpy(&period, m_buffer->data() + COMMAND_PACKET_BASE_SIZE + sizeof(uint16_t) + 2 * sizeof(uint8_t), sizeof(period));
-  return OKAY;
-}
-
-Status CommandPacketConfigureTrigger::GetOffset(float& offset) const
-{
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + sizeof(uint16_t) + 2 * sizeof(uint8_t) + 2 * sizeof(float)) {
-    return READ_PAST_END;
-  }
-  memcpy(&offset, m_buffer->data() + COMMAND_PACKET_BASE_SIZE + sizeof(uint16_t) + 2 * sizeof(uint8_t) + sizeof(float), sizeof(offset));
-  return OKAY;
-}
-
-Status CommandPacketConfigureTrigger::GetTrackingFactor(float& trackingFactor) const
-{
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + sizeof(uint16_t) + 2 * sizeof(uint8_t) + 3 * sizeof(float)) {
-    return READ_PAST_END;
-  }
-  memcpy(&trackingFactor, m_buffer->data() + COMMAND_PACKET_BASE_SIZE + sizeof(uint16_t) + 2 * sizeof(uint8_t) + 2 * sizeof(float), sizeof(trackingFactor));
+  memcpy(&config, m_buffer->data() + COMMAND_PACKET_BASE_SIZE, sizeof(config));
   return OKAY;
 }
 
@@ -1391,7 +1345,8 @@ std::string CommandPacketConfigureTrigger::Test()
 {
   {
     // Construct a command packet and verify that we can read its opcode.
-    CommandPacketConfigureTrigger packet(1, 2, 3, 4, 5, 6);
+    TriggerInfo config = { 1, 2, 3, 4, 5, 6 };
+    CommandPacketConfigureTrigger packet(config);
     if (packet.GetConstructorStatus() != OKAY) {
       return "Error constructing packet: " + ErrorMessage(packet.GetConstructorStatus());
     }
@@ -1404,64 +1359,14 @@ std::string CommandPacketConfigureTrigger::Test()
       return "Error getting opcode from packet: opcode is not CONFIGURE_TRIGGER";
     }
 
-    // Also be sure we can read the ID.
-    uint16_t ID;
-    status = packet.GetID(ID);
+    // Also be sure we can read the configuration.
+    TriggerInfo rConfig;
+    status = packet.GetConfiguration(rConfig);
     if (status != OKAY) {
-      return "Error getting ID from packet: " + ErrorMessage(status);
+      return "Error getting configuration from packet: " + ErrorMessage(status);
     }
-    if (ID != 1) {
-      return "Error getting ID from packet: ID is not 1";
-    }
-
-    // Also be sure we can read the mode.
-    uint8_t mode;
-    status = packet.GetMode(mode);
-    if (status != OKAY) {
-      return "Error getting mode from packet: " + ErrorMessage(status);
-    }
-    if (mode != 2) {
-      return "Error getting mode from packet: mode is not 2";
-    }
-
-    // Also be sure we can read the external ID.
-    uint8_t externalID;
-    status = packet.GetExternalID(externalID);
-    if (status != OKAY) {
-      return "Error getting external ID from packet: " + ErrorMessage(status);
-    }
-    if (externalID != 3) {
-      return "Error getting external ID from packet: external ID is not 3";
-    }
-
-    // Also be sure we can read the period.
-    float period;
-    status = packet.GetPeriod(period);
-    if (status != OKAY) {
-      return "Error getting period from packet: " + ErrorMessage(status);
-    }
-    if (period != 4) {
-      return "Error getting period from packet: period is not 4";
-    }
-
-    // Also be sure we can read the offset.
-    float offset;
-    status = packet.GetOffset(offset);
-    if (status != OKAY) {
-      return "Error getting offset from packet: " + ErrorMessage(status);
-    }
-    if (offset != 5) {
-      return "Error getting offset from packet: offset is not 5";
-    }
-
-    // Also be sure we can read the tracking factor.
-    float trackingFactor;
-    status = packet.GetTrackingFactor(trackingFactor);
-    if (status != OKAY) {
-      return "Error getting tracking factor from packet: " + ErrorMessage(status);
-    }
-    if (trackingFactor != 6) {
-      return "Error getting tracking factor from packet: tracking factor is not 6";
+    if (rConfig != config) {
+      return "Error getting configuration from packet: configuration does not match";
     }
 
     // Construct a new packet from the packet's buffer and verify that it has the same parameters.
@@ -1470,47 +1375,12 @@ std::string CommandPacketConfigureTrigger::Test()
     if (packet2.GetConstructorStatus() != OKAY) {
       return "Error constructing packet from buffer: " + ErrorMessage(packet2.GetConstructorStatus());
     }
-    status = packet2.GetID(ID);
+    status = packet2.GetConfiguration(rConfig);
     if (status != OKAY) {
-      return "Error getting ID from packet constructed from buffer: " + ErrorMessage(status);
+      return "Error getting configuration from packet constructed from buffer: " + ErrorMessage(status);
     }
-    if (ID != 1) {
-      return "Error getting ID from packet constructed from buffer: ID is not 1";
-    }
-    status = packet2.GetMode(mode);
-    if (status != OKAY) {
-      return "Error getting mode from packet constructed from buffer: " + ErrorMessage(status);
-    }
-    if (mode != 2) {
-      return "Error getting mode from packet constructed from buffer: mode is not 2";
-    }
-    status = packet2.GetExternalID(externalID);
-    if (status != OKAY) {
-      return "Error getting external ID from packet constructed from buffer: " + ErrorMessage(status);
-    }
-    if (externalID != 3) {
-      return "Error getting external ID from packet constructed from buffer: external ID is not 3";
-    }
-    status = packet2.GetPeriod(period);
-    if (status != OKAY) {
-      return "Error getting period from packet constructed from buffer: " + ErrorMessage(status);
-    }
-    if (period != 4) {
-      return "Error getting period from packet constructed from buffer: period is not 4";
-    }
-    status = packet2.GetOffset(offset);
-    if (status != OKAY) {
-      return "Error getting offset from packet constructed from buffer: " + ErrorMessage(status);
-    }
-    if (offset != 5) {
-      return "Error getting offset from packet constructed from buffer: offset is not 5";
-    }
-    status = packet2.GetTrackingFactor(trackingFactor);
-    if (status != OKAY) {
-      return "Error getting tracking factor from packet constructed from buffer: " + ErrorMessage(status);
-    }
-    if (trackingFactor != 6) {
-      return "Error getting tracking factor from packet constructed from buffer: tracking factor is not 6";
+    if (rConfig != config) {
+      return "Error getting configuration from packet constructed from buffer: configuration does not match";
     }
   }
 
@@ -4550,7 +4420,7 @@ Status ReceiverFile::IsPacketAvailable(double timeout_seconds, bool& available)
     return FILE_FAILURE;
   }
 
-  /// @todo Implement timeout.
+  /// @todo Implement timeout for the case of a file that gets appended to by another thread.
 
   // Check if there is more data available in the file.
   available = !m_file->eof();

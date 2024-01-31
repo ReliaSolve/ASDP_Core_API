@@ -137,6 +137,81 @@ enum EventID {
 };
 
 //---------------------------------------------------------------------------
+/// @brief Class to store information about a camera.
+
+class CameraInfo {
+public:
+  uint32_t type;              ///< Type of camera (used to look up lens, sensors, etc. in a table)
+  uint16_t width;             ///< Width of the camera image in pixels.
+  uint16_t height;            ///< Height of the camera image in pixels.
+  float minTriggerPeriod;     ///< Minimum period between triggers in seconds.
+  float maxTriggerPeriod;     ///< Maximum period between triggers in seconds.
+  uint32_t trigger;           ///< Internal hardware trigger ID camera is tied to (0 = none).
+
+  /// @brief Equality operator.
+  bool operator ==(const CameraInfo& other) const {
+    return type == other.type &&
+      width == other.width &&
+      height == other.height &&
+      minTriggerPeriod == other.minTriggerPeriod &&
+      maxTriggerPeriod == other.maxTriggerPeriod &&
+      trigger == other.trigger;
+  };
+
+  /// @brief Inequality operator.
+  bool operator !=(const CameraInfo& other) const {
+    return !(*this == other);
+  };
+};
+
+//---------------------------------------------------------------------------
+/// @brief Class to store information about a trigger configuration.
+
+class TriggerInfo {
+public:
+  uint16_t ID;                ///< ID of the trigger.
+  uint8_t mode;               ///< Mode of the trigger (0 = disabled, 1 = unsynchronized, 2 = one-shot software, 3 = periodic software, 4 = one-shot hardware, 5 = periodic hardware).
+  uint8_t externalID;         ///< ID of the external trigger to use (0 = none).
+  float period;               ///< Period of the trigger in seconds.
+  float offset;               ///< Offset of the trigger in seconds. A positive offset will cause the local hardware trigger to fire later than the incoming trigger command.  Negative values are clamped to 0.
+  float trackingFactor;       ///< Tracking factor of the trigger. Value in range [0-1] telling fraction of discrepancy to correct when synchronizing with a new incoming trigger.  A value of 1 completely synchronizes with each trigger. A value of 0.1 shifts by 1 / 10th of the distance, smoothing the adjustment to handle jitter in the incoming hardware trigger while following long-time-scale drift.
+
+  /// @brief Equality operator.
+  bool operator ==(const TriggerInfo& other) const {
+    return ID == other.ID &&
+      mode == other.mode &&
+      externalID == other.externalID &&
+      period == other.period &&
+      offset == other.offset &&
+      trackingFactor == other.trackingFactor;
+  }
+
+  /// @brief Inequality operator.
+  bool operator !=(const TriggerInfo& other) const {
+    return !(*this == other);
+  }
+};
+
+//---------------------------------------------------------------------------
+/// @brief Class to store information about a stream endpoint.
+
+class StreamInfo {
+public:
+  uint32_t IP;    ///< IP being streamed to
+  uint16_t port;  ///< Port being streamed to
+
+  /// @brief Equality operator.
+  bool operator ==(const StreamInfo& other) const {
+    return IP == other.IP && port == other.port;
+  }
+
+  /// @brief Inequality operator.
+  bool operator !=(const StreamInfo& other) const {
+    return !(*this == other);
+  }
+};
+
+//---------------------------------------------------------------------------
 /// @brief Class to store seconds and microseconds since the epoch, matching Linux gettimeofday().
 
 struct Time {
@@ -647,57 +722,17 @@ public:
 class CommandPacketConfigureTrigger : public CommandPacket {
 public:
   /// @brief Construct a brand-new command buffer with the CONFIGURE_TRIGGER opcode.
-  /// @param [in] ID ID of the trigger to configure.
-  /// @param [in] mode Mode of the trigger (0 = disabled, 1 = unsynchronized,
-  /// 2 = one-shot software, 3 = periodic software, 4 = one-shot hardware,
-  /// 5 = periodic hardware).
-  /// @param [in] externalID ID of the external trigger to use (0 = none).
-  /// @param [in] period Period of the trigger in seconds.
-  /// @param [in] offset Offset of the trigger in seconds. A posi??ve
-  /// offset will cause the local hardware trigger to fire later than the incoming
-  /// trigger command.  Negative values are clamped to 0.
-  /// @param [in] trackingFactor Tracking factor of the trigger.
-  /// Value in range [0-1] telling fraction of discrepancy to correct
-  /// when synchronizing with a new incoming trigger.  A value of 1 completely
-  /// synchronizes with each trigger. A value of 0.1 shifts by 1 / 10th of the distance,
-  /// smoothing the adjustment to handle jitter in the incoming hardware trigger
-  /// while following long-time-scale drift.
-  CommandPacketConfigureTrigger(uint16_t ID, uint8_t mode, uint8_t externalID,
-    float period, float offset, float trackingFactor);
+  /// @param [in] config Information about the trigger.
+  CommandPacketConfigureTrigger(TriggerInfo config);
 
   /// @brief Type-cast a base CommandPacket, re-using its buffer.
   /// @param [in] basePacket The base packet to convert from.
   CommandPacketConfigureTrigger(CommandPacket& basePacket);
 
-  /// @brief Get the ID of the trigger.
-  /// @param [out] ID ID of the trigger.
+  /// @brief Get the configuration for the trigger.
+  /// @param [out] config Configuration for the trigger.
   /// @return OKAY if successful, otherwise an error code.
-  Status GetID(uint16_t& ID) const;
-
-  /// @brief Get the mode of the trigger.
-  /// @param [out] mode Mode of the trigger.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetMode(uint8_t& mode) const;
-
-  /// @brief Get the ID of the external trigger.
-  /// @param [out] externalID ID of the external trigger.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetExternalID(uint8_t& externalID) const;
-
-  /// @brief Get the period of the trigger.
-  /// @param [out] period Period of the trigger in seconds.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetPeriod(float& period) const;
-
-  /// @brief Get the offset of the trigger.
-  /// @param [out] offset Offset of the trigger in seconds.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetOffset(float& offset) const;
-
-  /// @brief Get the tracking factor of the trigger.
-  /// @param [out] trackingFactor Tracking factor of the trigger.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetTrackingFactor(float& trackingFactor) const;
+  Status GetConfiguration(TriggerInfo &config) const;
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
@@ -1144,6 +1179,7 @@ protected:
 
   friend class Message;
   friend class MessageDiscovery;
+  friend class MessageState;
   friend class MessageFrameBegin;
   friend class MessageFrameData;
   friend class MessageFrameEnd;
@@ -1229,6 +1265,46 @@ public:
   /// @param [out] serial Serial number of the system.
   /// @return OKAY if successful, otherwise an error code.
   Status GetSerial(uint32_t& serial) const;
+
+  /// @brief Test function.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
+};
+
+/// @brief State message.
+class MessageState : public Message {
+public:
+  /// @brief Construct a MessageState and store it into a buffer from a StreamPacket.
+  /// @param [in] packet Pointer to the StreamPacket containing the message.
+  /// @param [in] timeCode Time code for the message.
+  /// @param [in] features Vector of features supported by the system.
+  /// @param [in] cameras Vector of cameras installed on the system.
+  /// @param [in] numTempSensorsPerCamera Number of temperature sensors per camera.
+  /// @param [in] numExternalTempSensors Number of external temperature sensors.
+  /// @param [in] keepAliveInterval Interval that keepalive messages must be sent at in seconds.
+  /// @param [in] storing Whether the system is storing data to disk.
+  /// @param [in] camerasStreaming Whether the system is streaming data from its cameras.
+  /// @param [in] replaying Whether the system is replaying data from disk.
+  /// @param [in] replayAtEnd Whether replaying data is at the end.
+  /// @param [in] recordOnReset Whether the system will record data on reset.
+  /// @param [in] triggerConfigs Vector of trigger configurations.
+  /// @param [in] totalDiskSpace Total disk space in bytes.
+  /// @param [in] remainingDiskSpace Remaining disk space in bytes.
+  /// @param [in] streamReplayTime Time code of the stream replay.
+  /// @param [in] streams Vector of active streams.
+  MessageState::MessageState(StreamPacket& packet, Time timeCode,
+    std::vector<uint32_t> features, std::vector<CameraInfo> cameras,
+    uint32_t numTempSensorsPerCamera, uint32_t numExternalTempSensors,
+    float keepAliveInterval,
+    uint8_t storing, uint8_t camerasStreaming, uint8_t replaying, uint8_t erplayAtEnd,
+    uint8_t recordOnReset,
+    std::vector<TriggerInfo> triggerConfigs,
+    uint64_t totalDiskSpace, uint64_t remainingDiskSpace,
+    Time streamReplayTime, std::vector<StreamInfo> streams);
+
+  /// @brief Type-cast a base Message into a MessageState packet, re-using its buffer.
+  /// @param [in] baseMessage The base Message to convert from.
+  MessageState(Message& baseMessage);
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
