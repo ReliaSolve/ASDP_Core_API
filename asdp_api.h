@@ -92,7 +92,7 @@ enum OpCode {
   RESUME_REPLAY                 = 6,
   CANCEL_REPLAY                 = 7,
   SET_START_UP_RECORDING_STATE  = 8,
-  SET_KEEPALIVE                 = 9,
+  SET_KEEPALIVE_INTERVAL        = 9,
   STREAM_STATE                  = 10,
   CANCEL_STATE                  = 11,
   CONFIGURE_TRIGGER             = 10000,
@@ -381,6 +381,10 @@ protected:
   friend class CommandPacketPauseReplay;
   friend class CommandPacketResumeReplay;
   friend class CommandPacketCancelReplay;
+  friend class CommandPacketSetStartUpRecordingState;
+  friend class CommandPacketKeepaliveInterval;
+  friend class CommandPacketStreamState;
+  friend class CommandPacketCancelState;
   /// @todo Finish the rest of the subclasses, here and below, once we've finished a full example.
   friend class CommandPacketStreamSubregions;
 };
@@ -391,7 +395,7 @@ public:
   /// @brief Construct a brand-new command buffer with the Reset opcode.
   CommandPacketReset();
 
-  /// @brief Type-cast a base CommandPacket into a Reset packet, re-using its buffer.
+  /// @brief Type-cast a base CommandPacket, re-using its buffer.
   /// @param [in] basePacket The base packet to convert from.
   CommandPacketReset(CommandPacket& basePacket);
 
@@ -407,7 +411,7 @@ public:
   /// @param [in] subnet Subnet to cancel all streams on.
   CommandPacketCancelAllStreams(uint32_t subnet);
 
-  /// @brief Type-cast a base CommandPacket into a CancelAllStreams packet, re-using its buffer.
+  /// @brief Type-cast a base CommandPacket, re-using its buffer.
   /// @param [in] basePacket The base packet to convert from.
   CommandPacketCancelAllStreams(CommandPacket& basePacket);
 
@@ -427,7 +431,7 @@ public:
   /// @brief Construct a brand-new command buffer with the start recording opcode.
   CommandPacketStartRecording();
 
-  /// @brief Type-cast a base CommandPacket into a start recording packet, re-using its buffer.
+  /// @brief Type-cast a base CommandPacket, re-using its buffer.
   /// @param [in] basePacket The base packet to convert from.
   CommandPacketStartRecording(CommandPacket& basePacket);
 
@@ -442,7 +446,7 @@ public:
   /// @brief Construct a brand-new command buffer with the start recording opcode.
   CommandPacketCancelRecording();
 
-  /// @brief Type-cast a base CommandPacket into a start recording packet, re-using its buffer.
+  /// @brief Type-cast a base CommandPacket, re-using its buffer.
   /// @param [in] basePacket The base packet to convert from.
   CommandPacketCancelRecording(CommandPacket& basePacket);
 
@@ -460,7 +464,7 @@ public:
   /// The first packet replayed will have its time code set to this value. Others will be relative to it.
   CommandPacketStartReplay(uint32_t ID, Time initialTime);
 
-  /// @brief Type-cast a base CommandPacket into a CancelAllStreams packet, re-using its buffer.
+  /// @brief Type-cast a base CommandPacket, re-using its buffer.
   /// @param [in] basePacket The base packet to convert from.
   CommandPacketStartReplay(CommandPacket& basePacket);
 
@@ -485,7 +489,7 @@ public:
   /// @brief Construct a brand-new command buffer with the pause replay opcode.
   CommandPacketPauseReplay();
 
-  /// @brief Type-cast a base CommandPacket into a pause replay packet, re-using its buffer.
+  /// @brief Type-cast a base CommandPacket, re-using its buffer.
   /// @param [in] basePacket The base packet to convert from.
   CommandPacketPauseReplay(CommandPacket& basePacket);
 
@@ -500,7 +504,7 @@ public:
   /// @brief Construct a brand-new command buffer with the resume replay opcode.
   CommandPacketResumeReplay();
 
-  /// @brief Type-cast a base CommandPacket into a resume replay packet, re-using its buffer.
+  /// @brief Type-cast a base CommandPacket, re-using its buffer.
   /// @param [in] basePacket The base packet to convert from.
   CommandPacketResumeReplay(CommandPacket& basePacket);
 
@@ -515,9 +519,111 @@ public:
   /// @brief Construct a brand-new command buffer with the cancel replay opcode.
   CommandPacketCancelReplay();
 
-  /// @brief Type-cast a base CommandPacket into a cancel replay packet, re-using its buffer.
+  /// @brief Type-cast a base CommandPacket, re-using its buffer.
   /// @param [in] basePacket The base packet to convert from.
   CommandPacketCancelReplay(CommandPacket& basePacket);
+
+  /// @brief Test function.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
+};
+
+/// @brief Command packet to set the start-up recording state
+class CommandPacketSetStartUpRecordingState : public CommandPacket {
+public:
+  /// @brief Construct a brand-new command buffer with the set the start-up recording opcode.
+  /// @param [in] state State to set the start-up recording to (0 = not recording, 1 = recording).
+  CommandPacketSetStartUpRecordingState(uint32_t state);
+
+  /// @brief Type-cast a base CommandPacket, re-using its buffer.
+  /// @param [in] basePacket The base packet to convert from.
+  CommandPacketSetStartUpRecordingState(CommandPacket& basePacket);
+
+  /// @brief Get the state to set the start-up recording to.
+  /// @param [out] state State to set the start-up recording to (0 = not recording, 1 = recording).
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetState(uint32_t& state) const;
+
+  /// @brief Test function.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
+};
+
+/// @brief Command packet to set the keepalive interval
+class CommandPacketKeepaliveInterval : public CommandPacket {
+public:
+  /// @brief Construct a brand-new command buffer with the keepalive interval opcode.
+  /// @param [in] interval Interval to set the keepalive to in seconds.
+  CommandPacketKeepaliveInterval(float interval);
+
+  /// @brief Type-cast a base CommandPacket, re-using its buffer.
+  /// @param [in] basePacket The base packet to convert from.
+  CommandPacketKeepaliveInterval(CommandPacket& basePacket);
+
+  /// @brief Get the keepalive interval.
+  /// @param [out] interval Interval to set the keepalive to in seconds.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetInterval(float& interval) const;
+
+  /// @brief Test function.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
+};
+
+/// @brief Command packet to start streaming state.
+class CommandPacketStreamState: public CommandPacket {
+public:
+  /// @brief Construct a brand-new command buffer with the StreamState opcode.
+  /// @param [in] IP IP address of the system to stream to.
+  /// @param [in] port Port number of the system to stream to.
+  /// @param [in] interval Interval to stream at in seconds.
+  CommandPacketStreamState(uint32_t IP, uint16_t port, float interval);
+
+  /// @brief Type-cast a base CommandPacket, re-using its buffer.
+  /// @param [in] basePacket The base packet to convert from.
+  CommandPacketStreamState(CommandPacket& basePacket);
+
+  /// @brief Get the IP to stream to.
+  /// @param [out] IP IP to stream state on.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetIP(uint32_t& IP) const;
+
+  /// @brief Get the port to stream to.
+  /// @param [out] port Port to stream.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetPort(uint16_t& port) const;
+
+  /// @brief Get the interval to stream at.
+  /// @param [out] interval Interval to stream at in seconds.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetInterval(float& interval) const;
+
+  /// @brief Test function.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
+};
+
+/// @brief Command packet to cancel streaming state.
+class CommandPacketCancelState : public CommandPacket {
+public:
+  /// @brief Construct a brand-new command buffer with the CancelState opcode.
+  /// @param [in] IP IP address of the system to stop streaming to.
+  /// @param [in] port Port number of the system to stop streaming to.
+  CommandPacketCancelState(uint32_t IP, uint16_t port);
+
+  /// @brief Type-cast a base CommandPacket, re-using its buffer.
+  /// @param [in] basePacket The base packet to convert from.
+  CommandPacketCancelState(CommandPacket& basePacket);
+
+  /// @brief Get the IP to stop streaming to.
+  /// @param [out] IP IP to stop streaming state on.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetIP(uint32_t& IP) const;
+
+  /// @brief Get the port to stop streaming to.
+  /// @param [out] port Port to stop streaming to .
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetPort(uint16_t& port) const;
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
@@ -559,7 +665,7 @@ public:
   /// @param [in] regions Vector of subregions to stream.
   CommandPacketStreamSubregions(uint32_t IP, uint16_t port, std::vector<SubregionDescription> const &regions);
 
-  /// @brief Type-cast a base CommandPacket into a StreamSubregions packet, re-using its buffer.
+  /// @brief Type-cast a base CommandPacket, re-using its buffer.
   /// @param [in] basePacket The base packet to convert from.
   CommandPacketStreamSubregions(CommandPacket& basePacket);
 
@@ -1373,7 +1479,7 @@ protected:
   std::atomic_bool m_stopThread;                  ///< Flag to tell the thread to stop.
   Status m_threadStatus;                          ///< Status of the thread.
 
-  // Struct to describe the information about a server we've found.
+  /// @brief Struct to describe the information about a server we've found.
   struct ServerInfo {
     uint32_t IP;                                  ///< IP address of the server.
     uint16_t port;                                ///< Port number of the server.
