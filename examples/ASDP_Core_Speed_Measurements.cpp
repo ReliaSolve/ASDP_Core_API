@@ -21,7 +21,7 @@ int main(int argc, char** argv)
     SubregionDescription region1 = { 1, 2, 3, 4, 5, 6 };
     SubregionDescription region2 = { 7, 8, 9,10,11,12 };
     std::vector<SubregionDescription> regions = { region1, region2 };
-    CommandPacketStreamSubregions packet(IP, port, regions);
+    CommandPacketStreamSubregions packet({ IP, port }, regions);
   }
 
   auto end = std::chrono::high_resolution_clock::now();

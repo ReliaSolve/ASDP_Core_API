@@ -73,6 +73,7 @@ static const uint32_t PACKET_HEADER_VERSION_OFFSET = 4;
 static const uint32_t PACKET_HEADER_TOTAL_SIZE_OFFSET = 8;
 static const uint32_t PACKET_HEADER_HEADER_SIZE_OFFSET = 12;
 static const uint32_t COMMAND_PACKET_BASE_SIZE = PACKET_BASIC_HEADER_SIZE + sizeof(uint32_t);
+static const uint32_t COMMAND_PACKET_START_STREAM_SIZE = COMMAND_PACKET_BASE_SIZE + 2 * sizeof(uint32_t);
 static const uint32_t STREAM_PACKET_BASE_SIZE = PACKET_BASIC_HEADER_SIZE + 3 * sizeof(uint32_t);
 
 static const uint32_t MESSAGE_BASE_SIZE = 6 * sizeof(uint32_t);
@@ -555,6 +556,163 @@ std::string CommandPacket::Test()
   return "";
 }
 
+CommandPacketStreamX::CommandPacketStreamX(StreamEndpoint endpoint, uint32_t extraParameterSize, OpCode opCode)
+  : CommandPacket(2 * sizeof(uint32_t) + extraParameterSize, opCode)
+{
+  unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
+  memcpy(bufPtr, &endpoint.IP, sizeof(endpoint.IP)); bufPtr += sizeof(endpoint.IP);
+  uint32_t portField = endpoint.port;
+  memcpy(bufPtr, &portField, sizeof(portField)); bufPtr += sizeof(portField);
+  // The derived class is responsible for packing its own extra parameters.
+}
+
+CommandPacketStreamX::CommandPacketStreamX(CommandPacket& basePacket, OpCode opCode)
+  : CommandPacket(basePacket.m_buffer)
+{
+  // Check the opcode
+  OpCode myOpCode;
+  basePacket.GetOpCode(myOpCode);
+  if (myOpCode != opCode) {
+    m_constructorStatus = BAD_PARAMETER;
+  }
+}
+
+Status CommandPacketStreamX::GetEndpoint(StreamEndpoint& endpoint) const
+{
+  if (m_buffer->size() < COMMAND_PACKET_START_STREAM_SIZE) {
+    return READ_PAST_END;
+  }
+
+  memcpy(&endpoint.IP, m_buffer->data() + COMMAND_PACKET_BASE_SIZE, sizeof(endpoint.IP));
+
+  uint32_t portField;
+  memcpy(&portField, m_buffer->data() + COMMAND_PACKET_BASE_SIZE + sizeof(uint32_t), sizeof(portField));
+  endpoint.port = portField;
+  return OKAY;
+}
+
+std::string CommandPacketStreamX::Test(OpCode opCode)
+{
+  {
+    // Construct a command packet and verify that we can read its opcode.
+    CommandPacketStreamX packet({ 1,2 }, 0, opCode);
+    if (packet.GetConstructorStatus() != OKAY) {
+      return "Error constructing packet: " + ErrorMessage(packet.GetConstructorStatus());
+    }
+    OpCode myOpCode;
+    Status status = packet.GetOpCode(myOpCode);
+    if (status != OKAY) {
+      return "Error getting opcode from packet: " + ErrorMessage(status);
+    }
+    if (myOpCode != opCode) {
+      return "Error getting opcode from packet: opcode is not as expected";
+    }
+
+    // Also be sure we can read the endpoint.
+    StreamEndpoint endpoint;
+    status = packet.GetEndpoint(endpoint);
+    if (status != OKAY) {
+      return "Error getting endpoint from packet: " + ErrorMessage(status);
+    }
+    if (endpoint.IP != 1 || endpoint.port != 2) {
+      return "Error getting endpoint from packet: endpoint does not match";
+    }
+
+    // Construct a new packet from the packet's buffer and verify that it has the same parameters.
+    CommandPacket& originalPacket = packet;
+    CommandPacketStreamX packet2(originalPacket, opCode);
+    if (packet2.GetConstructorStatus() != OKAY) {
+      return "Error constructing packet from buffer: " + ErrorMessage(packet2.GetConstructorStatus());
+    }
+    status = packet2.GetEndpoint(endpoint);
+    if (status != OKAY) {
+      return "Error getting endpoint from packet constructed from buffer: " + ErrorMessage(status);
+    }
+    if (endpoint.IP != 1 || endpoint.port != 2) {
+      return "Error getting endpoint from packet constructed from buffer: endpoint does not match";
+    }
+  }
+
+  return "";
+}
+
+CommandPacketCancelX::CommandPacketCancelX(StreamEndpoint endpoint, OpCode opCode)
+  : CommandPacket(2 * sizeof(uint32_t), opCode)
+{
+  unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
+  memcpy(bufPtr, &endpoint.IP, sizeof(endpoint.IP)); bufPtr += sizeof(endpoint.IP);
+  uint32_t portField = endpoint.port;
+  memcpy(bufPtr, &portField, sizeof(portField)); bufPtr += sizeof(portField);
+}
+
+CommandPacketCancelX::CommandPacketCancelX(CommandPacket& basePacket, OpCode opCode)
+  : CommandPacket(basePacket.m_buffer)
+{
+  OpCode rOpCode;
+  basePacket.GetOpCode(rOpCode);
+  if (rOpCode != opCode) {
+    m_constructorStatus = BAD_PARAMETER;
+  }
+}
+
+Status CommandPacketCancelX::GetEndpoint(StreamEndpoint& endpoint) const
+{
+  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + 2 * sizeof(uint32_t)) {
+    return READ_PAST_END;
+  }
+  memcpy(&endpoint.IP, m_buffer->data() + COMMAND_PACKET_BASE_SIZE, sizeof(endpoint.IP));
+  uint32_t portField;
+  memcpy(&portField, m_buffer->data() + COMMAND_PACKET_BASE_SIZE + sizeof(uint32_t), sizeof(portField));
+  endpoint.port = portField;
+  return OKAY;
+}
+
+std::string CommandPacketCancelX::Test(OpCode opCode)
+{
+  {
+    // Construct a command packet and verify that we can read its opcode. Use one of the
+    // derived types for this test, so it sets an opcode.
+    CommandPacketCancelX packet({ 1, 2 }, opCode);
+    if (packet.GetConstructorStatus() != OKAY) {
+      return "Error constructing packet: " + ErrorMessage(packet.GetConstructorStatus());
+    }
+    OpCode opCode;
+    Status status = packet.GetOpCode(opCode);
+    if (status != OKAY) {
+      return "Error getting opcode from packet: " + ErrorMessage(status);
+    }
+    if (opCode != opCode) {
+      return "Error getting opcode from packet: opcode is not as expected";
+    }
+
+    // Also be sure we can read the endpoint.
+    StreamEndpoint endpoint;
+    status = packet.GetEndpoint(endpoint);
+    if (status != OKAY) {
+      return "Error getting endpoint from packet: " + ErrorMessage(status);
+    }
+    if (endpoint.IP != 1 || endpoint.port != 2) {
+      return "Error getting endpoint from packet: endpoint does not match";
+    }
+
+    // Construct a new packet from the packet's buffer and verify that it has the same parameters.
+    CommandPacket& originalPacket = packet;
+    CommandPacketCancelX packet2(originalPacket, opCode);
+    if (packet2.GetConstructorStatus() != OKAY) {
+      return "Error constructing packet from buffer: " + ErrorMessage(packet2.GetConstructorStatus());
+    }
+    status = packet2.GetEndpoint(endpoint);
+    if (status != OKAY) {
+      return "Error getting endpoint from packet constructed from buffer: " + ErrorMessage(status);
+    }
+    if (endpoint.IP != 1 || endpoint.port != 2) {
+      return "Error getting endpoint from packet constructed from buffer: endpoint does not match";
+    }
+  }
+
+  return "";
+}
+
 CommandPacketReset::CommandPacketReset()
   : CommandPacket(0, RESET)
 {
@@ -629,25 +787,25 @@ std::string CommandPacketCancelAllStreams::Test()
     // Construct a CancelAllStreams command packet and verify that we can read its opcode.
     CommandPacketCancelAllStreams packet(10);
     if (packet.GetConstructorStatus() != OKAY) {
-      return "Error constructing CommandPacketCancelAllStreams packet: " + ErrorMessage(packet.GetConstructorStatus());
+      return "Error constructing packet: " + ErrorMessage(packet.GetConstructorStatus());
     }
     OpCode opCode;
     Status status = packet.GetOpCode(opCode);
     if (status != OKAY) {
-      return "Error getting opcode from CommandPacketCancelAllStreams packet: " + ErrorMessage(status);
+      return "Error getting opcode from packet: " + ErrorMessage(status);
     }
     if (opCode != CANCEL_ALL_STREAMS) {
-      return "Error getting opcode from CommandPacketCancelAllStreams packet: opcode is not CANCEL_ALL_STREAMS";
+      return "Error getting opcode from packet: opcode is not CANCEL_ALL_STREAMS";
     }
 
     // Also be sure we can read the subnet.
     uint32_t subnet;
     status = packet.GetSubnet(subnet);
     if (status != OKAY) {
-      return "Error getting subnet from CommandPacketCancelAllStreams packet: " + ErrorMessage(status);
+      return "Error getting subnet from packet: " + ErrorMessage(status);
     }
     if (subnet != 10) {
-      return "Error getting subnet from CommandPacketCancelAllStreams packet: subnet is not 10";
+      return "Error getting subnet from packet: subnet is not 10";
     }
   }
 
@@ -1081,95 +1239,39 @@ std::string CommandPacketKeepaliveInterval::Test()
   return "";
 }
 
-CommandPacketStreamState::CommandPacketStreamState(uint32_t IP, uint16_t port, float interval)
-  : CommandPacket(2 * sizeof(uint32_t) + sizeof(float), STREAM_STATE)
+CommandPacketStreamState::CommandPacketStreamState(StreamEndpoint endpoint, float interval)
+  : CommandPacketStreamX(endpoint, sizeof(float), STREAM_STATE)
 {
-  unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
-  memcpy(bufPtr, &IP, sizeof(IP)); bufPtr += sizeof(IP);
-  uint32_t portField = port;
-  memcpy(bufPtr, &portField, sizeof(portField)); bufPtr += sizeof(portField);
+  unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_START_STREAM_SIZE;
   memcpy(bufPtr, &interval, sizeof(interval)); bufPtr += sizeof(interval);
 }
 
 CommandPacketStreamState::CommandPacketStreamState(CommandPacket& basePacket)
-  : CommandPacket(basePacket.m_buffer)
+  : CommandPacketStreamX(basePacket, STREAM_STATE)
 {
-  OpCode opCode;
-  basePacket.GetOpCode(opCode);
-  if (opCode != STREAM_STATE) {
-    m_constructorStatus = BAD_PARAMETER;
-  }
-}
-
-Status CommandPacketStreamState::GetIP(uint32_t& IP) const
-{
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + sizeof(IP)) {
-    return READ_PAST_END;
-  }
-  memcpy(&IP, m_buffer->data() + COMMAND_PACKET_BASE_SIZE, sizeof(IP));
-  return OKAY;
-}
-
-Status CommandPacketStreamState::GetPort(uint16_t& port) const
-{
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + 2 * sizeof(uint32_t)) {
-    return READ_PAST_END;
-  }
-  uint32_t portField;
-  memcpy(&portField, m_buffer->data() + COMMAND_PACKET_BASE_SIZE + sizeof(uint32_t), sizeof(portField));
-  port = portField;
-  return OKAY;
 }
 
 Status CommandPacketStreamState::GetInterval(float& interval) const
 {
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + 2 * sizeof(uint32_t) + sizeof(float)) {
+  if (m_buffer->size() < COMMAND_PACKET_START_STREAM_SIZE + sizeof(float)) {
     return READ_PAST_END;
   }
-  memcpy(&interval, m_buffer->data() + COMMAND_PACKET_BASE_SIZE + 2 * sizeof(uint32_t), sizeof(interval));
+  memcpy(&interval, m_buffer->data() + COMMAND_PACKET_START_STREAM_SIZE, sizeof(interval));
   return OKAY;
 }
 
 std::string CommandPacketStreamState::Test()
 {
+  std::string ret = CommandPacketStreamX::Test(STREAM_STATE);
+  if (ret.size() > 0) { return ret; }
   {
-    // Construct a command packet and verify that we can read its opcode.
-    CommandPacketStreamState packet(1, 2, 3);
+    // Construct a command packet and verify that we can read its interval.
+    CommandPacketStreamState packet({ 1, 2 }, 3);
     if (packet.GetConstructorStatus() != OKAY) {
       return "Error constructing packet: " + ErrorMessage(packet.GetConstructorStatus());
     }
-    OpCode opCode;
-    Status status = packet.GetOpCode(opCode);
-    if (status != OKAY) {
-      return "Error getting opcode from packet: " + ErrorMessage(status);
-    }
-    if (opCode != STREAM_STATE) {
-      return "Error getting opcode from packet: opcode is not STREAM_STATE";
-    }
-
-    // Also be sure we can read the ID.
-    uint32_t IP;
-    status = packet.GetIP(IP);
-    if (status != OKAY) {
-      return "Error getting IP from packet: " + ErrorMessage(status);
-    }
-    if (IP != 1) {
-      return "Error getting IP from packet: IP is not 1";
-    }
-
-    // Also be sure we can read the port.
-    uint16_t port;
-    status = packet.GetPort(port);
-    if (status != OKAY) {
-      return "Error getting port from packet: " + ErrorMessage(status);
-    }
-    if (port != 2) {
-      return "Incorrect port returned: " + std::to_string(port);
-    }
-
-    // Also be sure we can read the interval.
     float interval;
-    status = packet.GetInterval(interval);
+    Status status = packet.GetInterval(interval);
     if (status != OKAY) {
       return "Error getting interval from packet: " + ErrorMessage(status);
     }
@@ -1183,127 +1285,12 @@ std::string CommandPacketStreamState::Test()
     if (packet2.GetConstructorStatus() != OKAY) {
       return "Error constructing packet from buffer: " + ErrorMessage(packet2.GetConstructorStatus());
     }
-    status = packet2.GetIP(IP);
-    if (status != OKAY) {
-      return "Error getting IP from packet constructed from buffer: " + ErrorMessage(status);
-    }
-    if (IP != 1) {
-      return "Error getting ID from packet constructed from buffer: IP is not 1";
-    }
-    status = packet2.GetPort(port);
-    if (status != OKAY) {
-      return "Error getting port from packet constructed from buffer: " + ErrorMessage(status);
-    }
-    if (port != 2) {
-      return "Incorrect port returned: " + std::to_string(port);
-    }
     status = packet2.GetInterval(interval);
     if (status != OKAY) {
       return "Error getting interval from packet constructed from buffer: " + ErrorMessage(status);
     }
     if (interval != 3) {
       return "Error getting interval from packet constructed from buffer: interval is not 3";
-    }
-  }
-
-  return "";
-}
-
-CommandPacketCancelState::CommandPacketCancelState(uint32_t IP, uint16_t port)
-  : CommandPacket(2 * sizeof(uint32_t), CANCEL_STATE)
-{
-  unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
-  memcpy(bufPtr, &IP, sizeof(IP)); bufPtr += sizeof(IP);
-  uint32_t portField = port;
-  memcpy(bufPtr, &portField, sizeof(portField)); bufPtr += sizeof(portField);
-}
-
-CommandPacketCancelState::CommandPacketCancelState(CommandPacket& basePacket)
-  : CommandPacket(basePacket.m_buffer)
-{
-  OpCode opCode;
-  basePacket.GetOpCode(opCode);
-  if (opCode != CANCEL_STATE) {
-    m_constructorStatus = BAD_PARAMETER;
-  }
-}
-
-Status CommandPacketCancelState::GetIP(uint32_t& IP) const
-{
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + sizeof(IP)) {
-    return READ_PAST_END;
-  }
-  memcpy(&IP, m_buffer->data() + COMMAND_PACKET_BASE_SIZE, sizeof(IP));
-  return OKAY;
-}
-
-Status CommandPacketCancelState::GetPort(uint16_t& port) const
-{
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + 2 * sizeof(uint32_t)) {
-    return READ_PAST_END;
-  }
-  uint32_t portField;
-  memcpy(&portField, m_buffer->data() + COMMAND_PACKET_BASE_SIZE + sizeof(uint32_t), sizeof(portField));
-  port = portField;
-  return OKAY;
-}
-
-std::string CommandPacketCancelState::Test()
-{
-  {
-    // Construct a command packet and verify that we can read its opcode.
-    CommandPacketCancelState packet(1, 2);
-    if (packet.GetConstructorStatus() != OKAY) {
-      return "Error constructing packet: " + ErrorMessage(packet.GetConstructorStatus());
-    }
-    OpCode opCode;
-    Status status = packet.GetOpCode(opCode);
-    if (status != OKAY) {
-      return "Error getting opcode from packet: " + ErrorMessage(status);
-    }
-    if (opCode != CANCEL_STATE) {
-      return "Error getting opcode from packet: opcode is not CANCEL_STATE";
-    }
-
-    // Also be sure we can read the ID.
-    uint32_t IP;
-    status = packet.GetIP(IP);
-    if (status != OKAY) {
-      return "Error getting IP from packet: " + ErrorMessage(status);
-    }
-    if (IP != 1) {
-      return "Error getting IP from packet: IP is not 1";
-    }
-
-    // Also be sure we can read the port.
-    uint16_t port;
-    status = packet.GetPort(port);
-    if (status != OKAY) {
-      return "Error getting port from packet: " + ErrorMessage(status);
-    }
-    if (port != 2) {
-      return "Incorrect port returned: " + std::to_string(port);
-    }
-
-    // Construct a new packet from the packet's buffer and verify that it has the same parameters.
-    CommandPacket& originalPacket = packet;
-    CommandPacketCancelState packet2(originalPacket);
-    if (packet2.GetConstructorStatus() != OKAY) {
-      return "Error constructing packet from buffer: " + ErrorMessage(packet2.GetConstructorStatus());
-    }
-    status = packet2.GetIP(IP);
-    if (status != OKAY) {
-      return "Error getting IP from packet constructed from buffer: " + ErrorMessage(status);
-    }
-    if (IP != 1) {
-      return "Error getting ID from packet constructed from buffer: IP is not 1";
-    }
-    status = packet2.GetPort(port);
-    if (status != OKAY) {
-      return "Error getting port from packet constructed from buffer: " + ErrorMessage(status);
-    }
-    if (port != 2) {
-      return "Incorrect port returned: " + std::to_string(port);
     }
   }
 
@@ -1489,95 +1476,39 @@ std::string CommandPacketSoftwareTrigger::Test()
   return "";
 }
 
-CommandPacketStreamEvents::CommandPacketStreamEvents(uint32_t IP, uint16_t port, uint32_t verbosity)
-  : CommandPacket(2 * sizeof(uint32_t) + sizeof(verbosity), STREAM_EVENTS)
+CommandPacketStreamEvents::CommandPacketStreamEvents(StreamEndpoint endpoint, uint32_t verbosity)
+  : CommandPacketStreamX(endpoint, sizeof(verbosity), STREAM_EVENTS)
 {
-  unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
-  memcpy(bufPtr, &IP, sizeof(IP)); bufPtr += sizeof(IP);
-  uint32_t portField = port;
-  memcpy(bufPtr, &portField, sizeof(portField)); bufPtr += sizeof(portField);
+  unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_START_STREAM_SIZE;
   memcpy(bufPtr, &verbosity, sizeof(verbosity)); bufPtr += sizeof(verbosity);
 }
 
 CommandPacketStreamEvents::CommandPacketStreamEvents(CommandPacket& basePacket)
-  : CommandPacket(basePacket.m_buffer)
+  : CommandPacketStreamX(basePacket, STREAM_EVENTS)
 {
-  OpCode opCode;
-  basePacket.GetOpCode(opCode);
-  if (opCode != STREAM_EVENTS) {
-    m_constructorStatus = BAD_PARAMETER;
-  }
-}
-
-Status CommandPacketStreamEvents::GetIP(uint32_t& IP) const
-{
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + sizeof(IP)) {
-    return READ_PAST_END;
-  }
-  memcpy(&IP, m_buffer->data() + COMMAND_PACKET_BASE_SIZE, sizeof(IP));
-  return OKAY;
-}
-
-Status CommandPacketStreamEvents::GetPort(uint16_t& port) const
-{
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + 2 * sizeof(uint32_t)) {
-    return READ_PAST_END;
-  }
-  uint32_t portField;
-  memcpy(&portField, m_buffer->data() + COMMAND_PACKET_BASE_SIZE + sizeof(uint32_t), sizeof(portField));
-  port = portField;
-  return OKAY;
 }
 
 Status CommandPacketStreamEvents::GetVerbosity(uint32_t& verbosity) const
 {
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + 2 * sizeof(uint32_t) + sizeof(float)) {
+  if (m_buffer->size() < COMMAND_PACKET_START_STREAM_SIZE + sizeof(float)) {
     return READ_PAST_END;
   }
-  memcpy(&verbosity, m_buffer->data() + COMMAND_PACKET_BASE_SIZE + 2 * sizeof(uint32_t), sizeof(verbosity));
+  memcpy(&verbosity, m_buffer->data() + COMMAND_PACKET_START_STREAM_SIZE, sizeof(verbosity));
   return OKAY;
 }
 
 std::string CommandPacketStreamEvents::Test()
 {
+  std::string ret = CommandPacketStreamX::Test(STREAM_EVENTS);
+  if (ret.size() > 0) { return ret; }
   {
-    // Construct a command packet and verify that we can read its opcode.
-    CommandPacketStreamEvents packet(1, 2, 3);
+    // Construct a command packet and verify that we can read its verbosity.
+    CommandPacketStreamEvents packet({ 1, 2 } , 3);
     if (packet.GetConstructorStatus() != OKAY) {
       return "Error constructing packet: " + ErrorMessage(packet.GetConstructorStatus());
     }
-    OpCode opCode;
-    Status status = packet.GetOpCode(opCode);
-    if (status != OKAY) {
-      return "Error getting opcode from packet: " + ErrorMessage(status);
-    }
-    if (opCode != STREAM_EVENTS) {
-      return "Error getting opcode from packet: opcode is not STREAM_EVENTS";
-    }
-
-    // Also be sure we can read the ID.
-    uint32_t IP;
-    status = packet.GetIP(IP);
-    if (status != OKAY) {
-      return "Error getting IP from packet: " + ErrorMessage(status);
-    }
-    if (IP != 1) {
-      return "Error getting IP from packet: IP is not 1";
-    }
-
-    // Also be sure we can read the port.
-    uint16_t port;
-    status = packet.GetPort(port);
-    if (status != OKAY) {
-      return "Error getting port from packet: " + ErrorMessage(status);
-    }
-    if (port != 2) {
-      return "Incorrect port returned: " + std::to_string(port);
-    }
-
-    // Also be sure we can read the verbosity.
     uint32_t verbosity;
-    status = packet.GetVerbosity(verbosity);
+    Status status = packet.GetVerbosity(verbosity);
     if (status != OKAY) {
       return "Error getting verbosity from packet: " + ErrorMessage(status);
     }
@@ -1591,20 +1522,6 @@ std::string CommandPacketStreamEvents::Test()
     if (packet2.GetConstructorStatus() != OKAY) {
       return "Error constructing packet from buffer: " + ErrorMessage(packet2.GetConstructorStatus());
     }
-    status = packet2.GetIP(IP);
-    if (status != OKAY) {
-      return "Error getting IP from packet constructed from buffer: " + ErrorMessage(status);
-    }
-    if (IP != 1) {
-      return "Error getting ID from packet constructed from buffer: IP is not 1";
-    }
-    status = packet2.GetPort(port);
-    if (status != OKAY) {
-      return "Error getting port from packet constructed from buffer: " + ErrorMessage(status);
-    }
-    if (port != 2) {
-      return "Incorrect port returned: " + std::to_string(port);
-    }
     status = packet2.GetVerbosity(verbosity);
     if (status != OKAY) {
       return "Error getting verbosity from packet constructed from buffer: " + ErrorMessage(status);
@@ -1617,116 +1534,12 @@ std::string CommandPacketStreamEvents::Test()
   return "";
 }
 
-CommandPacketCancelEvents::CommandPacketCancelEvents(uint32_t IP, uint16_t port)
-  : CommandPacket(2 * sizeof(uint32_t), CANCEL_EVENTS)
-{
-  unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
-  memcpy(bufPtr, &IP, sizeof(IP)); bufPtr += sizeof(IP);
-  uint32_t portField = port;
-  memcpy(bufPtr, &portField, sizeof(portField)); bufPtr += sizeof(portField);
-}
-
-CommandPacketCancelEvents::CommandPacketCancelEvents(CommandPacket& basePacket)
-  : CommandPacket(basePacket.m_buffer)
-{
-  OpCode opCode;
-  basePacket.GetOpCode(opCode);
-  if (opCode != CANCEL_EVENTS) {
-    m_constructorStatus = BAD_PARAMETER;
-  }
-}
-
-Status CommandPacketCancelEvents::GetIP(uint32_t& IP) const
-{
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + sizeof(IP)) {
-    return READ_PAST_END;
-  }
-  memcpy(&IP, m_buffer->data() + COMMAND_PACKET_BASE_SIZE, sizeof(IP));
-  return OKAY;
-}
-
-Status CommandPacketCancelEvents::GetPort(uint16_t& port) const
-{
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + 2 * sizeof(uint32_t)) {
-    return READ_PAST_END;
-  }
-  uint32_t portField;
-  memcpy(&portField, m_buffer->data() + COMMAND_PACKET_BASE_SIZE + sizeof(uint32_t), sizeof(portField));
-  port = portField;
-  return OKAY;
-}
-
-std::string CommandPacketCancelEvents::Test()
-{
-  {
-    // Construct a command packet and verify that we can read its opcode.
-    CommandPacketCancelEvents packet(1, 2);
-    if (packet.GetConstructorStatus() != OKAY) {
-      return "Error constructing packet: " + ErrorMessage(packet.GetConstructorStatus());
-    }
-    OpCode opCode;
-    Status status = packet.GetOpCode(opCode);
-    if (status != OKAY) {
-      return "Error getting opcode from packet: " + ErrorMessage(status);
-    }
-    if (opCode != CANCEL_EVENTS) {
-      return "Error getting opcode from packet: opcode is not CANCEL_EVENTS";
-    }
-
-    // Also be sure we can read the ID.
-    uint32_t IP;
-    status = packet.GetIP(IP);
-    if (status != OKAY) {
-      return "Error getting IP from packet: " + ErrorMessage(status);
-    }
-    if (IP != 1) {
-      return "Error getting IP from packet: IP is not 1";
-    }
-
-    // Also be sure we can read the port.
-    uint16_t port;
-    status = packet.GetPort(port);
-    if (status != OKAY) {
-      return "Error getting port from packet: " + ErrorMessage(status);
-    }
-    if (port != 2) {
-      return "Incorrect port returned: " + std::to_string(port);
-    }
-
-    // Construct a new packet from the packet's buffer and verify that it has the same parameters.
-    CommandPacket& originalPacket = packet;
-    CommandPacketCancelEvents packet2(originalPacket);
-    if (packet2.GetConstructorStatus() != OKAY) {
-      return "Error constructing packet from buffer: " + ErrorMessage(packet2.GetConstructorStatus());
-    }
-    status = packet2.GetIP(IP);
-    if (status != OKAY) {
-      return "Error getting IP from packet constructed from buffer: " + ErrorMessage(status);
-    }
-    if (IP != 1) {
-      return "Error getting ID from packet constructed from buffer: IP is not 1";
-    }
-    status = packet2.GetPort(port);
-    if (status != OKAY) {
-      return "Error getting port from packet constructed from buffer: " + ErrorMessage(status);
-    }
-    if (port != 2) {
-      return "Incorrect port returned: " + std::to_string(port);
-    }
-  }
-
-  return "";
-}
-
-CommandPacketStreamSubregions::CommandPacketStreamSubregions(uint32_t IP, uint16_t port,
+CommandPacketStreamSubregions::CommandPacketStreamSubregions(StreamEndpoint endpoint,
   std::vector<SubregionDescription> const &regions)
-  : CommandPacket(sizeof(IP) + sizeof(uint32_t) + sizeof(uint32_t)
-      + regions.size() * sizeof(SubregionDescription), STREAM_SUBREGIONS)
+  : CommandPacketStreamX(endpoint, sizeof(uint32_t) + regions.size() * sizeof(SubregionDescription),
+    STREAM_SUBREGIONS)
 {
-  unsigned char *bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
-  memcpy(bufPtr, &IP, sizeof(IP)); bufPtr += sizeof(IP);
-  uint32_t portField = port;
-  memcpy(bufPtr, &portField, sizeof(portField)); bufPtr += sizeof(portField);
+  unsigned char *bufPtr = m_buffer->data() + COMMAND_PACKET_START_STREAM_SIZE;
   uint32_t numRegions = regions.size();
   memcpy(bufPtr, &numRegions, sizeof(numRegions)); bufPtr += sizeof(numRegions);
   for (size_t i = 0; i < regions.size(); ++i) {
@@ -1741,47 +1554,22 @@ CommandPacketStreamSubregions::CommandPacketStreamSubregions(uint32_t IP, uint16
 }
 
 CommandPacketStreamSubregions::CommandPacketStreamSubregions(CommandPacket& basePacket)
-  : CommandPacket(basePacket.m_buffer)
+  : CommandPacketStreamX(basePacket, STREAM_SUBREGIONS)
 {
-  OpCode opCode;
-  basePacket.GetOpCode(opCode);
-  if (opCode != STREAM_SUBREGIONS) {
-    m_constructorStatus = BAD_PARAMETER;
-  }
-}
-
-Status CommandPacketStreamSubregions::GetIP(uint32_t& IP) const
-{
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + sizeof(IP)) {
-    return READ_PAST_END;
-  }
-  memcpy(&IP, m_buffer->data() + COMMAND_PACKET_BASE_SIZE, sizeof(IP));
-  return OKAY;
-}
-
-Status CommandPacketStreamSubregions::GetPort(uint16_t& port) const
-{
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + 2 * sizeof(uint32_t)) {
-    return READ_PAST_END;
-  }
-  uint32_t portField;
-  memcpy(&portField, m_buffer->data() + COMMAND_PACKET_BASE_SIZE + sizeof(uint32_t), sizeof(portField));
-  port = portField;
-  return OKAY;
 }
 
 Status CommandPacketStreamSubregions::GetRegionDescriptions(std::vector<SubregionDescription>& regions) const
 {
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + 3 * sizeof(uint32_t)) {
+  if (m_buffer->size() < COMMAND_PACKET_START_STREAM_SIZE + 3 * sizeof(uint32_t)) {
     return READ_PAST_END;
   }
   uint32_t numRegions;
-  memcpy(&numRegions, m_buffer->data() + COMMAND_PACKET_BASE_SIZE + 2 * sizeof(uint32_t), sizeof(numRegions));
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + 3 * sizeof(uint32_t) + numRegions * sizeof(SubregionDescription)) {
+  memcpy(&numRegions, m_buffer->data() + COMMAND_PACKET_START_STREAM_SIZE, sizeof(numRegions));
+  if (m_buffer->size() < COMMAND_PACKET_START_STREAM_SIZE + sizeof(uint32_t) + numRegions * sizeof(SubregionDescription)) {
     return READ_PAST_END;
   }
   regions.resize(numRegions);
-  unsigned char *bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE + 3 * sizeof(uint32_t);
+  unsigned char *bufPtr = m_buffer->data() + COMMAND_PACKET_START_STREAM_SIZE + sizeof(uint32_t);
   for (size_t i = 0; i < numRegions; ++i) {
     memcpy(&regions[i].cameraID, bufPtr, sizeof(uint32_t)); bufPtr += sizeof(uint32_t);
     memcpy(&regions[i].skipFrames, bufPtr, sizeof(uint32_t)); bufPtr += sizeof(uint32_t);
@@ -1796,155 +1584,26 @@ Status CommandPacketStreamSubregions::GetRegionDescriptions(std::vector<Subregio
 
 std::string CommandPacketStreamSubregions::Test()
 {
+  std::string ret = CommandPacketStreamX::Test(STREAM_SUBREGIONS);
+  if (ret.size() > 0) { return ret; }
   {
-    // Construct a CommandPacketStreamSubregions command packet and verify that we can read its opcode.
+    // Construct a CommandPacketStreamSubregions command packet and verify that we can read its values.
     uint32_t IP = 0x01020304;
     uint16_t port = 1234;
     SubregionDescription region1 = { 1, 2, 3, 4, 5, 6, 7 };
     SubregionDescription region2 = { 8, 9,10,11,12,13, 14 };
     std::vector<SubregionDescription> regions = { region1, region2 };
-    CommandPacketStreamSubregions packet(IP, port, regions);
+    CommandPacketStreamSubregions packet({ IP, port }, regions);
     if (packet.GetConstructorStatus() != OKAY) {
       return "Error constructing CommandPacketStreamSubregions packet: " + ErrorMessage(packet.GetConstructorStatus());
     }
-    OpCode opCode;
-    Status status = packet.GetOpCode(opCode);
-    if (status != OKAY) {
-      return "Error getting opcode from CommandPacketStreamSubregions packet: " + ErrorMessage(status);
-    }
-    if (opCode != STREAM_SUBREGIONS) {
-      return "Error getting opcode from CommandPacketStreamSubregions packet: opcode is not STREAM_SUBREGIONS";
-    }
-
-    // Also be sure we can read the values.
-    uint32_t rIP;
-    status = packet.GetIP(rIP);
-    if (status != OKAY) {
-      return "Error getting IP from CommandPacketStreamSubregions packet: " + ErrorMessage(status);
-    }
-    if (rIP != IP) {
-      return "Error getting IP from CommandPacketStreamSubregions packet: IP is not " +
-        std::to_string(IP);
-    }
-
-    uint16_t rPort;
-    status = packet.GetPort(rPort);
-    if (status != OKAY) {
-      return "Error getting port from CommandPacketStreamSubregions packet: " + ErrorMessage(status);
-    }
-    if (rPort != port) {
-      return "Error getting port from CommandPacketStreamSubregions packet: port is not " +
-        std::to_string(port);
-    }
-
     std::vector<SubregionDescription> rRegions;
-    status = packet.GetRegionDescriptions(rRegions);
+    Status status = packet.GetRegionDescriptions(rRegions);
     if (status != OKAY) {
       return "Error getting regions from CommandPacketStreamSubregions packet: " + ErrorMessage(status);
     }
     if (rRegions != regions) {
       return "Error getting regions from CommandPacketStreamSubregions packet: regions don't match";
-    }
-  }
-
-  return "";
-}
-
-CommandPacketCancelSubregions::CommandPacketCancelSubregions(uint32_t IP, uint16_t port)
-  : CommandPacket(2 * sizeof(uint32_t), CANCEL_SUBREGIONS)
-{
-  unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
-  memcpy(bufPtr, &IP, sizeof(IP)); bufPtr += sizeof(IP);
-  uint32_t portField = port;
-  memcpy(bufPtr, &portField, sizeof(portField)); bufPtr += sizeof(portField);
-}
-
-CommandPacketCancelSubregions::CommandPacketCancelSubregions(CommandPacket& basePacket)
-  : CommandPacket(basePacket.m_buffer)
-{
-  OpCode opCode;
-  basePacket.GetOpCode(opCode);
-  if (opCode != CANCEL_SUBREGIONS) {
-    m_constructorStatus = BAD_PARAMETER;
-  }
-}
-
-Status CommandPacketCancelSubregions::GetIP(uint32_t& IP) const
-{
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + sizeof(IP)) {
-    return READ_PAST_END;
-  }
-  memcpy(&IP, m_buffer->data() + COMMAND_PACKET_BASE_SIZE, sizeof(IP));
-  return OKAY;
-}
-
-Status CommandPacketCancelSubregions::GetPort(uint16_t& port) const
-{
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + 2 * sizeof(uint32_t)) {
-    return READ_PAST_END;
-  }
-  uint32_t portField;
-  memcpy(&portField, m_buffer->data() + COMMAND_PACKET_BASE_SIZE + sizeof(uint32_t), sizeof(portField));
-  port = portField;
-  return OKAY;
-}
-
-std::string CommandPacketCancelSubregions::Test()
-{
-  {
-    // Construct a command packet and verify that we can read its opcode.
-    CommandPacketCancelSubregions packet(1, 2);
-    if (packet.GetConstructorStatus() != OKAY) {
-      return "Error constructing packet: " + ErrorMessage(packet.GetConstructorStatus());
-    }
-    OpCode opCode;
-    Status status = packet.GetOpCode(opCode);
-    if (status != OKAY) {
-      return "Error getting opcode from packet: " + ErrorMessage(status);
-    }
-    if (opCode != CANCEL_SUBREGIONS) {
-      return "Error getting opcode from packet: opcode is not CANCEL_SUBREGIONS";
-    }
-
-    // Also be sure we can read the ID.
-    uint32_t IP;
-    status = packet.GetIP(IP);
-    if (status != OKAY) {
-      return "Error getting IP from packet: " + ErrorMessage(status);
-    }
-    if (IP != 1) {
-      return "Error getting IP from packet: IP is not 1";
-    }
-
-    // Also be sure we can read the port.
-    uint16_t port;
-    status = packet.GetPort(port);
-    if (status != OKAY) {
-      return "Error getting port from packet: " + ErrorMessage(status);
-    }
-    if (port != 2) {
-      return "Incorrect port returned: " + std::to_string(port);
-    }
-
-    // Construct a new packet from the packet's buffer and verify that it has the same parameters.
-    CommandPacket& originalPacket = packet;
-    CommandPacketCancelSubregions packet2(originalPacket);
-    if (packet2.GetConstructorStatus() != OKAY) {
-      return "Error constructing packet from buffer: " + ErrorMessage(packet2.GetConstructorStatus());
-    }
-    status = packet2.GetIP(IP);
-    if (status != OKAY) {
-      return "Error getting IP from packet constructed from buffer: " + ErrorMessage(status);
-    }
-    if (IP != 1) {
-      return "Error getting ID from packet constructed from buffer: IP is not 1";
-    }
-    status = packet2.GetPort(port);
-    if (status != OKAY) {
-      return "Error getting port from packet constructed from buffer: " + ErrorMessage(status);
-    }
-    if (port != 2) {
-      return "Incorrect port returned: " + std::to_string(port);
     }
   }
 
@@ -1994,80 +1653,25 @@ std::string CommandPacketEraseAllStoredStreams::Test()
   return "";
 }
 
-CommandPacketStreamStoredList::CommandPacketStreamStoredList(uint32_t IP, uint16_t port)
-  : CommandPacket(2 * sizeof(uint32_t), LIST_STORED_STREAMS)
+CommandPacketStreamStoredList::CommandPacketStreamStoredList(StreamEndpoint endpoint)
+  : CommandPacketStreamX(endpoint, 0, LIST_STORED_STREAMS)
 {
-  unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
-  memcpy(bufPtr, &IP, sizeof(IP)); bufPtr += sizeof(IP);
-  uint32_t portField = port;
-  memcpy(bufPtr, &portField, sizeof(portField)); bufPtr += sizeof(portField);
 }
 
 CommandPacketStreamStoredList::CommandPacketStreamStoredList(CommandPacket& basePacket)
-  : CommandPacket(basePacket.m_buffer)
+  : CommandPacketStreamX(basePacket, LIST_STORED_STREAMS)
 {
-  OpCode opCode;
-  basePacket.GetOpCode(opCode);
-  if (opCode != LIST_STORED_STREAMS) {
-    m_constructorStatus = BAD_PARAMETER;
-  }
-}
-
-Status CommandPacketStreamStoredList::GetIP(uint32_t& IP) const
-{
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + sizeof(IP)) {
-    return READ_PAST_END;
-  }
-  memcpy(&IP, m_buffer->data() + COMMAND_PACKET_BASE_SIZE, sizeof(IP));
-  return OKAY;
-}
-
-Status CommandPacketStreamStoredList::GetPort(uint16_t& port) const
-{
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + 2 * sizeof(uint32_t)) {
-    return READ_PAST_END;
-  }
-  uint32_t portField;
-  memcpy(&portField, m_buffer->data() + COMMAND_PACKET_BASE_SIZE + sizeof(uint32_t), sizeof(portField));
-  port = portField;
-  return OKAY;
 }
 
 std::string CommandPacketStreamStoredList::Test()
 {
+  std::string ret = CommandPacketStreamX::Test(LIST_STORED_STREAMS);
+  if (ret.size() > 0) { return ret; }
   {
-    // Construct a command packet and verify that we can read its opcode.
-    CommandPacketStreamStoredList packet(1, 2);
+    // Construct a command packet and verify that it worked.
+    CommandPacketStreamStoredList packet({ 1, 2 });
     if (packet.GetConstructorStatus() != OKAY) {
       return "Error constructing packet: " + ErrorMessage(packet.GetConstructorStatus());
-    }
-    OpCode opCode;
-    Status status = packet.GetOpCode(opCode);
-    if (status != OKAY) {
-      return "Error getting opcode from packet: " + ErrorMessage(status);
-    }
-    if (opCode != LIST_STORED_STREAMS) {
-      return "Error getting opcode from packet: opcode is not LIST_STORED_STREAMS";
-    }
-
-    // Also be sure we can read the ID.
-    uint32_t IP;
-    status = packet.GetIP(IP);
-    if (status != OKAY) {
-      return "Error getting IP from packet: " + ErrorMessage(status);
-    }
-    if (IP != 1) {
-      return "Error getting IP from packet: IP is not 1";
-    }
-
-    // Also be sure we can read the port.
-    uint16_t port;
-    status = packet.GetPort(port);
-    if (status != OKAY) {
-      return "Error getting port from packet: " + ErrorMessage(status);
-    }
-    if (port != 2) {
-      return "Incorrect port returned: " + std::to_string(port);
     }
 
     // Construct a new packet from the packet's buffer and verify that it has the same parameters.
@@ -2075,20 +1679,6 @@ std::string CommandPacketStreamStoredList::Test()
     CommandPacketStreamStoredList packet2(originalPacket);
     if (packet2.GetConstructorStatus() != OKAY) {
       return "Error constructing packet from buffer: " + ErrorMessage(packet2.GetConstructorStatus());
-    }
-    status = packet2.GetIP(IP);
-    if (status != OKAY) {
-      return "Error getting IP from packet constructed from buffer: " + ErrorMessage(status);
-    }
-    if (IP != 1) {
-      return "Error getting ID from packet constructed from buffer: IP is not 1";
-    }
-    status = packet2.GetPort(port);
-    if (status != OKAY) {
-      return "Error getting port from packet constructed from buffer: " + ErrorMessage(status);
-    }
-    if (port != 2) {
-      return "Incorrect port returned: " + std::to_string(port);
     }
   }
 
@@ -2166,95 +1756,39 @@ std::string CommandPacketEraseStoredStream::Test()
   return "";
 }
 
-CommandPacketStreamTemperatures::CommandPacketStreamTemperatures(uint32_t IP, uint16_t port, float interval)
-  : CommandPacket(2 * sizeof(uint32_t) + sizeof(float), STREAM_TEMPERATURES)
+CommandPacketStreamTemperatures::CommandPacketStreamTemperatures(StreamEndpoint endpoint, float interval)
+  : CommandPacketStreamX(endpoint, sizeof(float), STREAM_TEMPERATURES)
 {
-  unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
-  memcpy(bufPtr, &IP, sizeof(IP)); bufPtr += sizeof(IP);
-  uint32_t portField = port;
-  memcpy(bufPtr, &portField, sizeof(portField)); bufPtr += sizeof(portField);
+  unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_START_STREAM_SIZE;
   memcpy(bufPtr, &interval, sizeof(interval)); bufPtr += sizeof(interval);
 }
 
 CommandPacketStreamTemperatures::CommandPacketStreamTemperatures(CommandPacket& basePacket)
-  : CommandPacket(basePacket.m_buffer)
+  : CommandPacketStreamX(basePacket, STREAM_TEMPERATURES)
 {
-  OpCode opCode;
-  basePacket.GetOpCode(opCode);
-  if (opCode != STREAM_TEMPERATURES) {
-    m_constructorStatus = BAD_PARAMETER;
-  }
-}
-
-Status CommandPacketStreamTemperatures::GetIP(uint32_t& IP) const
-{
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + sizeof(IP)) {
-    return READ_PAST_END;
-  }
-  memcpy(&IP, m_buffer->data() + COMMAND_PACKET_BASE_SIZE, sizeof(IP));
-  return OKAY;
-}
-
-Status CommandPacketStreamTemperatures::GetPort(uint16_t& port) const
-{
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + 2 * sizeof(uint32_t)) {
-    return READ_PAST_END;
-  }
-  uint32_t portField;
-  memcpy(&portField, m_buffer->data() + COMMAND_PACKET_BASE_SIZE + sizeof(uint32_t), sizeof(portField));
-  port = portField;
-  return OKAY;
 }
 
 Status CommandPacketStreamTemperatures::GetInterval(float& interval) const
 {
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + 2 * sizeof(uint32_t) + sizeof(float)) {
+  if (m_buffer->size() < COMMAND_PACKET_START_STREAM_SIZE + sizeof(float)) {
     return READ_PAST_END;
   }
-  memcpy(&interval, m_buffer->data() + COMMAND_PACKET_BASE_SIZE + 2 * sizeof(uint32_t), sizeof(interval));
+  memcpy(&interval, m_buffer->data() + COMMAND_PACKET_START_STREAM_SIZE, sizeof(interval));
   return OKAY;
 }
 
 std::string CommandPacketStreamTemperatures::Test()
 {
+  std::string ret = CommandPacketStreamX::Test(STREAM_TEMPERATURES);
+  if (ret.size() > 0) { return ret; }
   {
-    // Construct a command packet and verify that we can read its opcode.
-    CommandPacketStreamTemperatures packet(1, 2, 3);
+    // Construct a command packet and verify that we can read its parameters.
+    CommandPacketStreamTemperatures packet({ 1, 2 }, 3);
     if (packet.GetConstructorStatus() != OKAY) {
       return "Error constructing packet: " + ErrorMessage(packet.GetConstructorStatus());
     }
-    OpCode opCode;
-    Status status = packet.GetOpCode(opCode);
-    if (status != OKAY) {
-      return "Error getting opcode from packet: " + ErrorMessage(status);
-    }
-    if (opCode != STREAM_TEMPERATURES) {
-      return "Error getting opcode from packet: opcode is not STREAM_TEMPERATURES";
-    }
-
-    // Also be sure we can read the ID.
-    uint32_t IP;
-    status = packet.GetIP(IP);
-    if (status != OKAY) {
-      return "Error getting IP from packet: " + ErrorMessage(status);
-    }
-    if (IP != 1) {
-      return "Error getting IP from packet: IP is not 1";
-    }
-
-    // Also be sure we can read the port.
-    uint16_t port;
-    status = packet.GetPort(port);
-    if (status != OKAY) {
-      return "Error getting port from packet: " + ErrorMessage(status);
-    }
-    if (port != 2) {
-      return "Incorrect port returned: " + std::to_string(port);
-    }
-
-    // Also be sure we can read the interval.
     float interval;
-    status = packet.GetInterval(interval);
+    Status status = packet.GetInterval(interval);
     if (status != OKAY) {
       return "Error getting interval from packet: " + ErrorMessage(status);
     }
@@ -2268,20 +1802,6 @@ std::string CommandPacketStreamTemperatures::Test()
     if (packet2.GetConstructorStatus() != OKAY) {
       return "Error constructing packet from buffer: " + ErrorMessage(packet2.GetConstructorStatus());
     }
-    status = packet2.GetIP(IP);
-    if (status != OKAY) {
-      return "Error getting IP from packet constructed from buffer: " + ErrorMessage(status);
-    }
-    if (IP != 1) {
-      return "Error getting ID from packet constructed from buffer: IP is not 1";
-    }
-    status = packet2.GetPort(port);
-    if (status != OKAY) {
-      return "Error getting port from packet constructed from buffer: " + ErrorMessage(status);
-    }
-    if (port != 2) {
-      return "Incorrect port returned: " + std::to_string(port);
-    }
     status = packet2.GetInterval(interval);
     if (status != OKAY) {
       return "Error getting interval from packet constructed from buffer: " + ErrorMessage(status);
@@ -2294,196 +1814,39 @@ std::string CommandPacketStreamTemperatures::Test()
   return "";
 }
 
-CommandPacketCancelTemperatures::CommandPacketCancelTemperatures(uint32_t IP, uint16_t port)
-  : CommandPacket(2 * sizeof(uint32_t), CANCEL_TEMPERATURES)
+CommandPacketStreamPoses::CommandPacketStreamPoses(StreamEndpoint endpoint, float interval)
+  : CommandPacketStreamX(endpoint, sizeof(float), STREAM_POSES)
 {
-  unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
-  memcpy(bufPtr, &IP, sizeof(IP)); bufPtr += sizeof(IP);
-  uint32_t portField = port;
-  memcpy(bufPtr, &portField, sizeof(portField)); bufPtr += sizeof(portField);
-}
-
-CommandPacketCancelTemperatures::CommandPacketCancelTemperatures(CommandPacket& basePacket)
-  : CommandPacket(basePacket.m_buffer)
-{
-  OpCode opCode;
-  basePacket.GetOpCode(opCode);
-  if (opCode != CANCEL_TEMPERATURES) {
-    m_constructorStatus = BAD_PARAMETER;
-  }
-}
-
-Status CommandPacketCancelTemperatures::GetIP(uint32_t& IP) const
-{
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + sizeof(IP)) {
-    return READ_PAST_END;
-  }
-  memcpy(&IP, m_buffer->data() + COMMAND_PACKET_BASE_SIZE, sizeof(IP));
-  return OKAY;
-}
-
-Status CommandPacketCancelTemperatures::GetPort(uint16_t& port) const
-{
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + 2 * sizeof(uint32_t)) {
-    return READ_PAST_END;
-  }
-  uint32_t portField;
-  memcpy(&portField, m_buffer->data() + COMMAND_PACKET_BASE_SIZE + sizeof(uint32_t), sizeof(portField));
-  port = portField;
-  return OKAY;
-}
-
-std::string CommandPacketCancelTemperatures::Test()
-{
-  {
-    // Construct a command packet and verify that we can read its opcode.
-    CommandPacketCancelTemperatures packet(1, 2);
-    if (packet.GetConstructorStatus() != OKAY) {
-      return "Error constructing packet: " + ErrorMessage(packet.GetConstructorStatus());
-    }
-    OpCode opCode;
-    Status status = packet.GetOpCode(opCode);
-    if (status != OKAY) {
-      return "Error getting opcode from packet: " + ErrorMessage(status);
-    }
-    if (opCode != CANCEL_TEMPERATURES) {
-      return "Error getting opcode from packet: opcode is not CANCEL_TEMPERATURES";
-    }
-
-    // Also be sure we can read the ID.
-    uint32_t IP;
-    status = packet.GetIP(IP);
-    if (status != OKAY) {
-      return "Error getting IP from packet: " + ErrorMessage(status);
-    }
-    if (IP != 1) {
-      return "Error getting IP from packet: IP is not 1";
-    }
-
-    // Also be sure we can read the port.
-    uint16_t port;
-    status = packet.GetPort(port);
-    if (status != OKAY) {
-      return "Error getting port from packet: " + ErrorMessage(status);
-    }
-    if (port != 2) {
-      return "Incorrect port returned: " + std::to_string(port);
-    }
-
-    // Construct a new packet from the packet's buffer and verify that it has the same parameters.
-    CommandPacket& originalPacket = packet;
-    CommandPacketCancelTemperatures packet2(originalPacket);
-    if (packet2.GetConstructorStatus() != OKAY) {
-      return "Error constructing packet from buffer: " + ErrorMessage(packet2.GetConstructorStatus());
-    }
-    status = packet2.GetIP(IP);
-    if (status != OKAY) {
-      return "Error getting IP from packet constructed from buffer: " + ErrorMessage(status);
-    }
-    if (IP != 1) {
-      return "Error getting ID from packet constructed from buffer: IP is not 1";
-    }
-    status = packet2.GetPort(port);
-    if (status != OKAY) {
-      return "Error getting port from packet constructed from buffer: " + ErrorMessage(status);
-    }
-    if (port != 2) {
-      return "Incorrect port returned: " + std::to_string(port);
-    }
-  }
-
-  return "";
-}
-
-CommandPacketStreamPoses::CommandPacketStreamPoses(uint32_t IP, uint16_t port, float interval)
-  : CommandPacket(2 * sizeof(uint32_t) + sizeof(float), STREAM_POSES)
-{
-  unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
-  memcpy(bufPtr, &IP, sizeof(IP)); bufPtr += sizeof(IP);
-  uint32_t portField = port;
-  memcpy(bufPtr, &portField, sizeof(portField)); bufPtr += sizeof(portField);
+  unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_START_STREAM_SIZE;
   memcpy(bufPtr, &interval, sizeof(interval)); bufPtr += sizeof(interval);
 }
 
 CommandPacketStreamPoses::CommandPacketStreamPoses(CommandPacket& basePacket)
-  : CommandPacket(basePacket.m_buffer)
+  : CommandPacketStreamX(basePacket, STREAM_POSES)
 {
-  OpCode opCode;
-  basePacket.GetOpCode(opCode);
-  if (opCode != STREAM_POSES) {
-    m_constructorStatus = BAD_PARAMETER;
-  }
-}
-
-Status CommandPacketStreamPoses::GetIP(uint32_t& IP) const
-{
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + sizeof(IP)) {
-    return READ_PAST_END;
-  }
-  memcpy(&IP, m_buffer->data() + COMMAND_PACKET_BASE_SIZE, sizeof(IP));
-  return OKAY;
-}
-
-Status CommandPacketStreamPoses::GetPort(uint16_t& port) const
-{
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + 2 * sizeof(uint32_t)) {
-    return READ_PAST_END;
-  }
-  uint32_t portField;
-  memcpy(&portField, m_buffer->data() + COMMAND_PACKET_BASE_SIZE + sizeof(uint32_t), sizeof(portField));
-  port = portField;
-  return OKAY;
 }
 
 Status CommandPacketStreamPoses::GetInterval(float& interval) const
 {
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + 2 * sizeof(uint32_t) + sizeof(float)) {
+  if (m_buffer->size() < COMMAND_PACKET_START_STREAM_SIZE + sizeof(float)) {
     return READ_PAST_END;
   }
-  memcpy(&interval, m_buffer->data() + COMMAND_PACKET_BASE_SIZE + 2 * sizeof(uint32_t), sizeof(interval));
+  memcpy(&interval, m_buffer->data() + COMMAND_PACKET_START_STREAM_SIZE, sizeof(interval));
   return OKAY;
 }
 
 std::string CommandPacketStreamPoses::Test()
 {
+  std::string ret = CommandPacketStreamX::Test(STREAM_POSES);
+  if (ret.size() > 0) { return ret; }
   {
-    // Construct a command packet and verify that we can read its opcode.
-    CommandPacketStreamPoses packet(1, 2, 3);
+    // Construct a command packet and verify that we can read its parameters.
+    CommandPacketStreamPoses packet({ 1, 2 }, 3);
     if (packet.GetConstructorStatus() != OKAY) {
       return "Error constructing packet: " + ErrorMessage(packet.GetConstructorStatus());
     }
-    OpCode opCode;
-    Status status = packet.GetOpCode(opCode);
-    if (status != OKAY) {
-      return "Error getting opcode from packet: " + ErrorMessage(status);
-    }
-    if (opCode != STREAM_POSES) {
-      return "Error getting opcode from packet: opcode is not STREAM_POSES";
-    }
-
-    // Also be sure we can read the ID.
-    uint32_t IP;
-    status = packet.GetIP(IP);
-    if (status != OKAY) {
-      return "Error getting IP from packet: " + ErrorMessage(status);
-    }
-    if (IP != 1) {
-      return "Error getting IP from packet: IP is not 1";
-    }
-
-    // Also be sure we can read the port.
-    uint16_t port;
-    status = packet.GetPort(port);
-    if (status != OKAY) {
-      return "Error getting port from packet: " + ErrorMessage(status);
-    }
-    if (port != 2) {
-      return "Incorrect port returned: " + std::to_string(port);
-    }
-
-    // Also be sure we can read the interval.
     float interval;
-    status = packet.GetInterval(interval);
+    Status status = packet.GetInterval(interval);
     if (status != OKAY) {
       return "Error getting interval from packet: " + ErrorMessage(status);
     }
@@ -2497,127 +1860,12 @@ std::string CommandPacketStreamPoses::Test()
     if (packet2.GetConstructorStatus() != OKAY) {
       return "Error constructing packet from buffer: " + ErrorMessage(packet2.GetConstructorStatus());
     }
-    status = packet2.GetIP(IP);
-    if (status != OKAY) {
-      return "Error getting IP from packet constructed from buffer: " + ErrorMessage(status);
-    }
-    if (IP != 1) {
-      return "Error getting ID from packet constructed from buffer: IP is not 1";
-    }
-    status = packet2.GetPort(port);
-    if (status != OKAY) {
-      return "Error getting port from packet constructed from buffer: " + ErrorMessage(status);
-    }
-    if (port != 2) {
-      return "Incorrect port returned: " + std::to_string(port);
-    }
     status = packet2.GetInterval(interval);
     if (status != OKAY) {
       return "Error getting interval from packet constructed from buffer: " + ErrorMessage(status);
     }
     if (interval != 3) {
       return "Error getting interval from packet constructed from buffer: interval is not 3";
-    }
-  }
-
-  return "";
-}
-
-CommandPacketCancelPoses::CommandPacketCancelPoses(uint32_t IP, uint16_t port)
-  : CommandPacket(2 * sizeof(uint32_t), CANCEL_POSES)
-{
-  unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
-  memcpy(bufPtr, &IP, sizeof(IP)); bufPtr += sizeof(IP);
-  uint32_t portField = port;
-  memcpy(bufPtr, &portField, sizeof(portField)); bufPtr += sizeof(portField);
-}
-
-CommandPacketCancelPoses::CommandPacketCancelPoses(CommandPacket& basePacket)
-  : CommandPacket(basePacket.m_buffer)
-{
-  OpCode opCode;
-  basePacket.GetOpCode(opCode);
-  if (opCode != CANCEL_POSES) {
-    m_constructorStatus = BAD_PARAMETER;
-  }
-}
-
-Status CommandPacketCancelPoses::GetIP(uint32_t& IP) const
-{
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + sizeof(IP)) {
-    return READ_PAST_END;
-  }
-  memcpy(&IP, m_buffer->data() + COMMAND_PACKET_BASE_SIZE, sizeof(IP));
-  return OKAY;
-}
-
-Status CommandPacketCancelPoses::GetPort(uint16_t& port) const
-{
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + 2 * sizeof(uint32_t)) {
-    return READ_PAST_END;
-  }
-  uint32_t portField;
-  memcpy(&portField, m_buffer->data() + COMMAND_PACKET_BASE_SIZE + sizeof(uint32_t), sizeof(portField));
-  port = portField;
-  return OKAY;
-}
-
-std::string CommandPacketCancelPoses::Test()
-{
-  {
-    // Construct a command packet and verify that we can read its opcode.
-    CommandPacketCancelPoses packet(1, 2);
-    if (packet.GetConstructorStatus() != OKAY) {
-      return "Error constructing packet: " + ErrorMessage(packet.GetConstructorStatus());
-    }
-    OpCode opCode;
-    Status status = packet.GetOpCode(opCode);
-    if (status != OKAY) {
-      return "Error getting opcode from packet: " + ErrorMessage(status);
-    }
-    if (opCode != CANCEL_POSES) {
-      return "Error getting opcode from packet: opcode is not CANCEL_POSES";
-    }
-
-    // Also be sure we can read the ID.
-    uint32_t IP;
-    status = packet.GetIP(IP);
-    if (status != OKAY) {
-      return "Error getting IP from packet: " + ErrorMessage(status);
-    }
-    if (IP != 1) {
-      return "Error getting IP from packet: IP is not 1";
-    }
-
-    // Also be sure we can read the port.
-    uint16_t port;
-    status = packet.GetPort(port);
-    if (status != OKAY) {
-      return "Error getting port from packet: " + ErrorMessage(status);
-    }
-    if (port != 2) {
-      return "Incorrect port returned: " + std::to_string(port);
-    }
-
-    // Construct a new packet from the packet's buffer and verify that it has the same parameters.
-    CommandPacket& originalPacket = packet;
-    CommandPacketCancelPoses packet2(originalPacket);
-    if (packet2.GetConstructorStatus() != OKAY) {
-      return "Error constructing packet from buffer: " + ErrorMessage(packet2.GetConstructorStatus());
-    }
-    status = packet2.GetIP(IP);
-    if (status != OKAY) {
-      return "Error getting IP from packet constructed from buffer: " + ErrorMessage(status);
-    }
-    if (IP != 1) {
-      return "Error getting ID from packet constructed from buffer: IP is not 1";
-    }
-    status = packet2.GetPort(port);
-    if (status != OKAY) {
-      return "Error getting port from packet constructed from buffer: " + ErrorMessage(status);
-    }
-    if (port != 2) {
-      return "Incorrect port returned: " + std::to_string(port);
     }
   }
 

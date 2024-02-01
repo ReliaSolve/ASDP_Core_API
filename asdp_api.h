@@ -195,18 +195,18 @@ public:
 //---------------------------------------------------------------------------
 /// @brief Class to store information about a stream endpoint.
 
-class StreamInfo {
+class StreamEndpoint {
 public:
   uint32_t IP;    ///< IP being streamed to
   uint16_t port;  ///< Port being streamed to
 
   /// @brief Equality operator.
-  bool operator ==(const StreamInfo& other) const {
+  bool operator ==(const StreamEndpoint& other) const {
     return IP == other.IP && port == other.port;
   }
 
   /// @brief Inequality operator.
-  bool operator !=(const StreamInfo& other) const {
+  bool operator !=(const StreamEndpoint& other) const {
     return !(*this == other);
   }
 };
@@ -450,6 +450,10 @@ protected:
   friend class ReceiverUDP;
   friend class ReceiverFile;
 
+  friend class CommandPacketStreamX;
+  friend class CommandPacketCancelX;
+
+  /// @todo Can we remove the Stream* friends below?
   friend class CommandPacketReset;
   friend class CommandPacketCancelAllStreams;
   friend class CommandPacketStartRecording;
@@ -461,20 +465,71 @@ protected:
   friend class CommandPacketSetStartUpRecordingState;
   friend class CommandPacketKeepaliveInterval;
   friend class CommandPacketStreamState;
-  friend class CommandPacketCancelState;
   friend class CommandPacketConfigureTrigger;
   friend class CommandPacketSoftwareTrigger;
   friend class CommandPacketStreamEvents;
-  friend class CommandPacketCancelEvents;
   friend class CommandPacketStreamSubregions;
-  friend class CommandPacketCancelSubregions;
   friend class CommandPacketEraseAllStoredStreams;
   friend class CommandPacketStreamStoredList;
   friend class CommandPacketEraseStoredStream;
   friend class CommandPacketStreamTemperatures;
-  friend class CommandPacketCancelTemperatures;
   friend class CommandPacketStreamPoses;
-  friend class CommandPacketCancelPoses;
+};
+
+/// @brief Base class for command packets that start streaming some stort of data.
+///
+/// This class is a base class for other command packets that start streaming of some sort of data.
+/// It should not be used directly by client code.
+class CommandPacketStreamX : public CommandPacket {
+public:
+  /// @brief Get the endpoint to stream to.
+  /// @param [out] endpoint Endpoint to stream to.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetEndpoint(StreamEndpoint& endpoint) const;
+
+protected:
+  /// @brief Construct a brand-new command buffer with the STREAM_EVENTS opcode.
+  /// @param [in] endpoint Endpoint to stream to.
+  /// @param [in] extraParameterSize Size of the parameters to be added by the subclass.
+  /// @param [in] opCode Operation code for the packet.
+  CommandPacketStreamX(StreamEndpoint endpoint, uint32_t extraParameterSize, OpCode opCode);
+
+  /// @brief Type-cast a base CommandPacket, re-using its buffer.
+  /// @param [in] basePacket The base packet to convert from.
+  /// @param [in] opCode Operation code for the packet.
+  CommandPacketStreamX(CommandPacket& basePacket, OpCode opCode);
+
+  /// @brief Test function.
+  /// @param [in] opCode Operation code for the packet.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test(OpCode opCode);
+};
+
+/// @brief Base class for command packets that cancel streaming of some sort of data.
+///
+/// This class is a base class for other command packets that cancel streaming of some sort of data.
+/// It should not be used directly by client code.
+class CommandPacketCancelX : public CommandPacket {
+public:
+  /// @brief Get the endpoint to stream to.
+  /// @param [out] endpoint Endpoint to stop streaming to.
+  /// @return OKAY if successful, otherwise an error code.
+  virtual Status GetEndpoint(StreamEndpoint& endpoint) const;
+
+protected:
+  /// @brief Construct a brand-new command buffer with the CANCEL_STATE opcode.
+  /// @param [in] endpoint Endpoint to stop streaming to.
+  /// @param [in] opCode Operation code for the packet.
+  CommandPacketCancelX(StreamEndpoint endpoint, OpCode opCode);
+
+  /// @brief Type-cast a base CommandPacket, re-using its buffer.
+  /// @param [in] basePacket The base packet to convert from.
+  /// @param [in] opCode Operation code for the packet.
+  CommandPacketCancelX(CommandPacket& basePacket, OpCode opCode);
+
+  /// @brief Test function.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test(OpCode opCode);
 };
 
 /// @brief Command packet to reset the system
@@ -659,27 +714,16 @@ public:
 };
 
 /// @brief Command packet to start streaming state.
-class CommandPacketStreamState: public CommandPacket {
+class CommandPacketStreamState: public CommandPacketStreamX {
 public:
   /// @brief Construct a brand-new command buffer with the STREAM_STATE opcode.
-  /// @param [in] IP IP address of the system to stream to.
-  /// @param [in] port Port number of the system to stream to.
+  /// @param [in] endpoint Endpoint to stream to.
   /// @param [in] interval Interval to stream at in seconds.
-  CommandPacketStreamState(uint32_t IP, uint16_t port, float interval);
+  CommandPacketStreamState(StreamEndpoint endpoint, float interval);
 
   /// @brief Type-cast a base CommandPacket, re-using its buffer.
   /// @param [in] basePacket The base packet to convert from.
   CommandPacketStreamState(CommandPacket& basePacket);
-
-  /// @brief Get the IP to stream to.
-  /// @param [out] IP IP to stream state on.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetIP(uint32_t& IP) const;
-
-  /// @brief Get the port to stream to.
-  /// @param [out] port Port to stream.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetPort(uint16_t& port) const;
 
   /// @brief Get the interval to stream at.
   /// @param [out] interval Interval to stream at in seconds.
@@ -692,30 +736,19 @@ public:
 };
 
 /// @brief Command packet to cancel streaming state.
-class CommandPacketCancelState : public CommandPacket {
+class CommandPacketCancelState : public CommandPacketCancelX {
 public:
   /// @brief Construct a brand-new command buffer with the CANCEL_STATE opcode.
-  /// @param [in] IP IP address of the system to stop streaming to.
-  /// @param [in] port Port number of the system to stop streaming to.
-  CommandPacketCancelState(uint32_t IP, uint16_t port);
+  /// @param [in] endpoint Endpoint to stop streaming to.
+  CommandPacketCancelState(StreamEndpoint endpoint) : CommandPacketCancelX(endpoint, CANCEL_STATE) {};
 
   /// @brief Type-cast a base CommandPacket, re-using its buffer.
   /// @param [in] basePacket The base packet to convert from.
-  CommandPacketCancelState(CommandPacket& basePacket);
-
-  /// @brief Get the IP to stop streaming to.
-  /// @param [out] IP IP to stop streaming to.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetIP(uint32_t& IP) const;
-
-  /// @brief Get the port to stop streaming to.
-  /// @param [out] port Port to stop streaming to.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetPort(uint16_t& port) const;
+  CommandPacketCancelState(CommandPacket& basePacket) : CommandPacketCancelX(basePacket, CANCEL_STATE) {};
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
-  static std::string Test();
+  static std::string Test() { return CommandPacketCancelX::Test(CANCEL_STATE); }
 };
 
 /// @brief Command packet to configure a trigger.
@@ -768,27 +801,16 @@ public:
 };
 
 /// @brief Command packet to start streaming events.
-class CommandPacketStreamEvents : public CommandPacket {
+class CommandPacketStreamEvents : public CommandPacketStreamX {
 public:
   /// @brief Construct a brand-new command buffer with the STREAM_EVENTS opcode.
-  /// @param [in] IP IP address of the system to stream to.
-  /// @param [in] port Port number of the system to stream to.
+  /// @param [in] endpoint Endpoint to stream to.
   /// @param [in] verbosity Verbosity of the events to stream.
-  CommandPacketStreamEvents(uint32_t IP, uint16_t port, uint32_t verbosity);
+  CommandPacketStreamEvents(StreamEndpoint endpoint, uint32_t verbosity);
 
   /// @brief Type-cast a base CommandPacket, re-using its buffer.
   /// @param [in] basePacket The base packet to convert from.
   CommandPacketStreamEvents(CommandPacket& basePacket);
-
-  /// @brief Get the IP to stream to.
-  /// @param [out] IP IP to stream state on.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetIP(uint32_t& IP) const;
-
-  /// @brief Get the port to stream to.
-  /// @param [out] port Port to stream.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetPort(uint16_t& port) const;
 
   /// @brief Get the verbosity of the events to stream.
   /// @param [out] verbosity Verbosity of the events to stream.
@@ -801,30 +823,19 @@ public:
 };
 
 /// @brief Command packet to cancel streaming events.
-class CommandPacketCancelEvents : public CommandPacket {
+class CommandPacketCancelEvents : public CommandPacketCancelX {
 public:
   /// @brief Construct a brand-new command buffer with the CANCEL_EVENTS opcode.
-  /// @param [in] IP IP address of the system to stop streaming to.
-  /// @param [in] port Port number of the system to stop streaming to.
-  CommandPacketCancelEvents(uint32_t IP, uint16_t port);
+  /// @param [in] endpoint Endpoint to stop streaming to.
+  CommandPacketCancelEvents(StreamEndpoint endpoint) : CommandPacketCancelX(endpoint, CANCEL_EVENTS) {};
 
   /// @brief Type-cast a base CommandPacket, re-using its buffer.
   /// @param [in] basePacket The base packet to convert from.
-  CommandPacketCancelEvents(CommandPacket& basePacket);
-
-  /// @brief Get the IP to stop streaming to.
-  /// @param [out] IP IP to stop streaming to.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetIP(uint32_t& IP) const;
-
-  /// @brief Get the port to stop streaming to.
-  /// @param [out] port Port to stop streaming to .
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetPort(uint16_t& port) const;
+  CommandPacketCancelEvents(CommandPacket& basePacket) : CommandPacketCancelX(basePacket, CANCEL_EVENTS) {};
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
-  static std::string Test();
+  static std::string Test() { return CommandPacketCancelX::Test(CANCEL_EVENTS); }
 };
 
 /// @brief Structure describing a subregion.
@@ -854,27 +865,16 @@ struct SubregionDescription {
 };
 
 /// @brief Command packet to stream subregions.
-class CommandPacketStreamSubregions : public CommandPacket {
+class CommandPacketStreamSubregions : public CommandPacketStreamX {
 public:
   /// @brief Construct a brand-new command buffer with the STREAM_SUBREGIONS opcode.
-  /// @param [in] IP IP address of the system to stream to.
-  /// @param [in] port Port number of the system to stream to.
+  /// @param [in] endpoint Endpoint to stream to.
   /// @param [in] regions Vector of subregions to stream.
-  CommandPacketStreamSubregions(uint32_t IP, uint16_t port, std::vector<SubregionDescription> const &regions);
+  CommandPacketStreamSubregions(StreamEndpoint endpoint, std::vector<SubregionDescription> const &regions);
 
   /// @brief Type-cast a base CommandPacket, re-using its buffer.
   /// @param [in] basePacket The base packet to convert from.
   CommandPacketStreamSubregions(CommandPacket& basePacket);
-
-  /// @brief Get the IP to stream to.
-  /// @param [out] IP IP to stream subregions on.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetIP(uint32_t& IP) const;
-
-  /// @brief Get the port to stream to.
-  /// @param [out] port Port to stream.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetPort(uint16_t& port) const;
 
   /// @brief Get the subregion description.
   /// @param [out] regions Regsion description.
@@ -887,30 +887,19 @@ public:
 };
 
 /// @brief Command packet to cancel streaming subregions.
-class CommandPacketCancelSubregions : public CommandPacket {
+class CommandPacketCancelSubregions : public CommandPacketCancelX {
 public:
   /// @brief Construct a brand-new command buffer with the CANCEL_SUBREGIONS opcode.
-  /// @param [in] IP IP address of the system to stop streaming to.
-  /// @param [in] port Port number of the system to stop streaming to.
-  CommandPacketCancelSubregions(uint32_t IP, uint16_t port);
+    /// @param [in] endpoint Endpoint to stop streaming to.
+  CommandPacketCancelSubregions(StreamEndpoint endpoint) : CommandPacketCancelX(endpoint, CANCEL_SUBREGIONS) {};
 
   /// @brief Type-cast a base CommandPacket, re-using its buffer.
   /// @param [in] basePacket The base packet to convert from.
-  CommandPacketCancelSubregions(CommandPacket& basePacket);
-
-  /// @brief Get the IP to stop streaming to.
-  /// @param [out] IP IP to stop streaming to.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetIP(uint32_t& IP) const;
-
-  /// @brief Get the port to stop streaming to.
-  /// @param [out] port Port to stop streaming to .
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetPort(uint16_t& port) const;
+  CommandPacketCancelSubregions(CommandPacket& basePacket) : CommandPacketCancelX(basePacket, CANCEL_SUBREGIONS) {};
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
-  static std::string Test();
+  static std::string Test() { return CommandPacketCancelX::Test(CANCEL_SUBREGIONS); }
 };
 
 /// @brief Command packet to erase all stored streams.
@@ -929,26 +918,15 @@ public:
 };
 
 /// @brief Command packet to start streaming the list of stored streams (there is no corresponding cancel).
-class CommandPacketStreamStoredList : public CommandPacket {
+class CommandPacketStreamStoredList : public CommandPacketStreamX {
 public:
   /// @brief Construct a brand-new command buffer with the LIST_STORED_STREAMS opcode.
-  /// @param [in] IP IP address of the system to stream to.
-  /// @param [in] port Port number of the system to stream to.
-  CommandPacketStreamStoredList(uint32_t IP, uint16_t port);
+  /// @param [in] endpoint Endpoint to stream to.
+  CommandPacketStreamStoredList(StreamEndpoint endpoint);
 
   /// @brief Type-cast a base CommandPacket, re-using its buffer.
   /// @param [in] basePacket The base packet to convert from.
   CommandPacketStreamStoredList(CommandPacket& basePacket);
-
-  /// @brief Get the IP to stream to.
-  /// @param [out] IP IP to stream state on.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetIP(uint32_t& IP) const;
-
-  /// @brief Get the port to stream to.
-  /// @param [out] port Port to stream.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetPort(uint16_t& port) const;
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
@@ -977,27 +955,16 @@ public:
 };
 
 /// @brief Command packet to start streaming temperatures.
-class CommandPacketStreamTemperatures : public CommandPacket {
+class CommandPacketStreamTemperatures : public CommandPacketStreamX {
 public:
   /// @brief Construct a brand-new command buffer with the STREAM_TEMPERATURES opcode.
-  /// @param [in] IP IP address of the system to stream to.
-  /// @param [in] port Port number of the system to stream to.
+  /// @param [in] endpoint Endpoint to stream to.
   /// @param [in] interval Interval to stream at in seconds.
-  CommandPacketStreamTemperatures(uint32_t IP, uint16_t port, float interval);
+  CommandPacketStreamTemperatures(StreamEndpoint endpoint, float interval);
 
   /// @brief Type-cast a base CommandPacket, re-using its buffer.
   /// @param [in] basePacket The base packet to convert from.
   CommandPacketStreamTemperatures(CommandPacket& basePacket);
-
-  /// @brief Get the IP to stream to.
-  /// @param [out] IP IP to stream to.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetIP(uint32_t& IP) const;
-
-  /// @brief Get the port to stream to.
-  /// @param [out] port Port to stream.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetPort(uint16_t& port) const;
 
   /// @brief Get the interval to stream at.
   /// @param [out] interval Interval to stream at in seconds.
@@ -1010,54 +977,32 @@ public:
 };
 
 /// @brief Command packet to cancel streaming temperatures.
-class CommandPacketCancelTemperatures : public CommandPacket {
+class CommandPacketCancelTemperatures : public CommandPacketCancelX {
 public:
   /// @brief Construct a brand-new command buffer with the CANCEL_TEMPERATURES opcode.
-  /// @param [in] IP IP address of the system to stop streaming to.
-  /// @param [in] port Port number of the system to stop streaming to.
-  CommandPacketCancelTemperatures(uint32_t IP, uint16_t port);
+  /// @param [in] endpoint Endpoint to stop streaming to.
+  CommandPacketCancelTemperatures(StreamEndpoint endpoint) : CommandPacketCancelX(endpoint, CANCEL_TEMPERATURES) {};
 
   /// @brief Type-cast a base CommandPacket, re-using its buffer.
   /// @param [in] basePacket The base packet to convert from.
-  CommandPacketCancelTemperatures(CommandPacket& basePacket);
-
-  /// @brief Get the IP to stop streaming to.
-  /// @param [out] IP IP to stop streaming to.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetIP(uint32_t& IP) const;
-
-  /// @brief Get the port to stop streaming to.
-  /// @param [out] port Port to stop streaming to.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetPort(uint16_t& port) const;
+  CommandPacketCancelTemperatures(CommandPacket& basePacket) : CommandPacketCancelX(basePacket, CANCEL_TEMPERATURES) {};
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
-  static std::string Test();
+  static std::string Test() { return CommandPacketCancelX::Test(CANCEL_TEMPERATURES); }
 };
 
 /// @brief Command packet to start streaming poses.
-class CommandPacketStreamPoses : public CommandPacket {
+class CommandPacketStreamPoses : public CommandPacketStreamX {
 public:
   /// @brief Construct a brand-new command buffer with the STREAM_POSES opcode.
-  /// @param [in] IP IP address of the system to stream to.
-  /// @param [in] port Port number of the system to stream to.
+  /// @param [in] endpoint Endpoint to stream to.
   /// @param [in] interval Interval to stream at in seconds.
-  CommandPacketStreamPoses(uint32_t IP, uint16_t port, float interval);
+  CommandPacketStreamPoses(StreamEndpoint endpoint, float interval);
 
   /// @brief Type-cast a base CommandPacket, re-using its buffer.
   /// @param [in] basePacket The base packet to convert from.
   CommandPacketStreamPoses(CommandPacket& basePacket);
-
-  /// @brief Get the IP to stream to.
-  /// @param [out] IP IP to stream to.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetIP(uint32_t& IP) const;
-
-  /// @brief Get the port to stream to.
-  /// @param [out] port Port to stream.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetPort(uint16_t& port) const;
 
   /// @brief Get the interval to stream at.
   /// @param [out] interval Interval to stream at in seconds.
@@ -1070,30 +1015,19 @@ public:
 };
 
 /// @brief Command packet to cancel streaming state.
-class CommandPacketCancelPoses : public CommandPacket {
+class CommandPacketCancelPoses : public CommandPacketCancelX {
 public:
   /// @brief Construct a brand-new command buffer with the CANCEL_POSES opcode.
-  /// @param [in] IP IP address of the system to stop streaming to.
-  /// @param [in] port Port number of the system to stop streaming to.
-  CommandPacketCancelPoses(uint32_t IP, uint16_t port);
+  /// @param [in] endpoint Endpoint to stop streaming to.
+  CommandPacketCancelPoses(StreamEndpoint endpoint) : CommandPacketCancelX(endpoint, CANCEL_POSES) {};
 
   /// @brief Type-cast a base CommandPacket, re-using its buffer.
   /// @param [in] basePacket The base packet to convert from.
-  CommandPacketCancelPoses(CommandPacket& basePacket);
-
-  /// @brief Get the IP to stop streaming to.
-  /// @param [out] IP IP to stop streaming to.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetIP(uint32_t& IP) const;
-
-  /// @brief Get the port to stop streaming to.
-  /// @param [out] port Port to stop streaming to.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetPort(uint16_t& port) const;
+  CommandPacketCancelPoses(CommandPacket& basePacket) : CommandPacketCancelX(basePacket, CANCEL_POSES) {};
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
-  static std::string Test();
+  static std::string Test() { return CommandPacketCancelX::Test(CANCEL_POSES); }
 };
 
 //---------------------------------------------------------------------------
@@ -1244,6 +1178,7 @@ public:
   /// @param [in] IP IP address of the system.
   /// @param [in] port Port number of the system.
   /// @param [in] serial Serial number of the system.
+  /// @todo Replace the IP and port with a StreamEndpoint.
   MessageDiscovery::MessageDiscovery(StreamPacket& packet, Time timeCode,
     uint32_t IP, uint16_t port, uint32_t serial);
 
@@ -1300,7 +1235,7 @@ public:
     uint8_t recordOnReset,
     std::vector<TriggerInfo> triggerConfigs,
     uint64_t totalDiskSpace, uint64_t remainingDiskSpace,
-    Time streamReplayTime, std::vector<StreamInfo> streams);
+    Time streamReplayTime, std::vector<StreamEndpoint> streams);
 
   /// @brief Type-cast a base Message into a MessageState packet, re-using its buffer.
   /// @param [in] baseMessage The base Message to convert from.
