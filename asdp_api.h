@@ -25,6 +25,7 @@
 #include <thread>
 #include <atomic>
 #include <mutex>
+#include <array>
 
 namespace asdp {
 
@@ -343,11 +344,6 @@ protected:
 
 class BasicPacket {
 public:
-
-  /// @todo Think about how to do reading into a buffer pool and passing them to the
-  /// packets for both command packets and stream packets. Do we use a specialized
-  /// shared_ptr that returns things to a free pool; taking ownership rather than
-  /// creating them?
 
   /// @brief Return the status of the constructor.
   Status GetConstructorStatus() const;
@@ -1108,12 +1104,13 @@ protected:
   friend class MessageDiscovery;
   friend class MessageState;
   friend class MessageEvent;
-  friend class MessagePartialStorageList;
-  friend class MessageEndStorageList;
   friend class MessageFrameBegin;
   friend class MessageFrameData;
   friend class MessageFrameEnd;
-  /// @todo Finish the rest of the subclasses, here and below, once we've finished a full example.
+  friend class MessagePartialStorageList;
+  friend class MessageEndStorageList;
+  friend class MessageTemperature;
+  friend class MessagePose;
 };
 
 //---------------------------------------------------------------------------
@@ -1367,52 +1364,6 @@ public:
   static std::string Test();
 };
 
-/// @brief Partial list of stored message.
-class MessagePartialStorageList : public Message {
-public:
-  /// @brief Construct a MessagePartialStorageList and store it into a buffer from a StreamPacket.
-  /// @param [in] packet Pointer to the StreamPacket containing the message.
-  /// @param [in] timeCode Time code for the message.
-  /// @param [in] IDs Vector of IDs of stored streams.
-  MessagePartialStorageList(StreamPacket& packet, Time timeCode, std::vector<uint32_t> IDs);
-
-  /// @brief Type-cast a base Message into a MessagePartialStorageList packet, re-using its buffer.
-  /// @param [in] baseMessage The base Message to convert from.
-  MessagePartialStorageList(Message& baseMessage);
-
-  /// @brief Get the IDs of stored streams.
-  /// @param [out] IDs Vector of IDs of stored streams.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetIDs(std::vector<uint32_t>& IDs) const;
-
-  /// @brief Test function.
-  /// @return Empty string if successful, otherwise descriptive error message.
-  static std::string Test();
-};
-
-/// @brief End of list of stored message.
-class MessageEndStorageList : public Message {
-public:
-  /// @brief Construct a MessagePartialStorageList and store it into a buffer from a StreamPacket.
-  /// @param [in] packet Pointer to the StreamPacket containing the message.
-  /// @param [in] timeCode Time code for the message.
-  /// @param [in] IDs Vector of IDs of stored streams.
-  MessageEndStorageList(StreamPacket& packet, Time timeCode, std::vector<uint32_t> IDs);
-
-  /// @brief Type-cast a base Message into a MessagePartialStorageList packet, re-using its buffer.
-  /// @param [in] baseMessage The base Message to convert from.
-  MessageEndStorageList(Message& baseMessage);
-
-  /// @brief Get the IDs of stored streams.
-  /// @param [out] IDs Vector of IDs of stored streams.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetIDs(std::vector<uint32_t>& IDs) const;
-
-  /// @brief Test function.
-  /// @return Empty string if successful, otherwise descriptive error message.
-  static std::string Test();
-};
-
 /// @brief Frame begin message.
 class MessageFrameBegin : public Message {
 public:
@@ -1548,6 +1499,142 @@ public:
   /// @param [out] cameraID Camera ID for the frame.
   /// @return OKAY if successful, otherwise an error code.
   Status GetCameraID(uint32_t& cameraID) const;
+
+  /// @brief Test function.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
+};
+
+/// @brief Partial list of stored message.
+class MessagePartialStorageList : public Message {
+public:
+  /// @brief Construct a MessagePartialStorageList and store it into a buffer from a StreamPacket.
+  /// @param [in] packet Pointer to the StreamPacket containing the message.
+  /// @param [in] timeCode Time code for the message.
+  /// @param [in] IDs Vector of IDs of stored streams.
+  MessagePartialStorageList(StreamPacket& packet, Time timeCode, std::vector<uint32_t> IDs);
+
+  /// @brief Type-cast a base Message into a MessagePartialStorageList packet, re-using its buffer.
+  /// @param [in] baseMessage The base Message to convert from.
+  MessagePartialStorageList(Message& baseMessage);
+
+  /// @brief Get the IDs of stored streams.
+  /// @param [out] IDs Vector of IDs of stored streams.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetIDs(std::vector<uint32_t>& IDs) const;
+
+  /// @brief Test function.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
+};
+
+/// @brief End of list of stored message.
+class MessageEndStorageList : public Message {
+public:
+  /// @brief Construct a MessageEndStorageList and store it into a buffer from a StreamPacket.
+  /// @param [in] packet Pointer to the StreamPacket containing the message.
+  /// @param [in] timeCode Time code for the message.
+  /// @param [in] IDs Vector of IDs of stored streams.
+  MessageEndStorageList(StreamPacket& packet, Time timeCode, std::vector<uint32_t> IDs);
+
+  /// @brief Type-cast a base Message into a MessageEndStorageList packet, re-using its buffer.
+  /// @param [in] baseMessage The base Message to convert from.
+  MessageEndStorageList(Message& baseMessage);
+
+  /// @brief Get the IDs of stored streams.
+  /// @param [out] IDs Vector of IDs of stored streams.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetIDs(std::vector<uint32_t>& IDs) const;
+
+  /// @brief Test function.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
+};
+
+/// @brief Temperature message.
+class MessageTemperature : public Message {
+public:
+  /// @brief Construct a MessagePartialStorageList and store it into a buffer from a StreamPacket.
+  /// @param [in] packet Pointer to the StreamPacket containing the message.
+  /// @param [in] timeCode Time code for the message.
+  /// @param [in] cameraID Camera ID for the temperature (0 for system sensor).
+  /// @param [in] sensorID Sensor ID for the temperature.
+  /// @param [in] temperatureCelcius Temperature in degrees Celcius.
+  MessageTemperature(StreamPacket& packet, Time timeCode, uint16_t cameraID, uint16_t sensorID, float temperatureCelcius);
+
+  /// @brief Type-cast a base Message into a MessageTemperature packet, re-using its buffer.
+  /// @param [in] baseMessage The base Message to convert from.
+  MessageTemperature(Message& baseMessage);
+
+  /// @brief Get the camera ID for the temperature.
+  /// @param [out] cameraID Camera ID for the temperature.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetCameraID(uint16_t& cameraID) const;
+
+  /// @brief Get the sensor ID for the temperature.
+  /// @param [out] sensorID Sensor ID for the temperature.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetSensorID(uint16_t& sensorID) const;
+
+  /// @brief Get the temperature in degrees Celcius.
+  /// @param [out] temperatureCelcius Temperature in degrees Celcius.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetTemperatureCelcius(float& temperatureCelcius) const;
+
+  /// @brief Test function.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
+};
+
+/// @brief Pose message.
+class MessagePose : public Message {
+public:
+  /// @brief Construct a MessagePose and store it into a buffer from a StreamPacket.
+  /// @param [in] packet Pointer to the StreamPacket containing the message.
+  /// @param [in] timeCode Time code for the message.
+  /// @param [in] longitude Longitude in degrees.
+  /// @param [in] latitude Latitude in degrees.
+  /// @param [in] altitude Altitude in meters.
+  /// @param [in] rot Rotation about the X,Y,Z axis in radians.
+  /// @param [in] vel Velocity in the X,Y,Z direction in meters per second.
+  /// @param [in] rotVel Rotational velocity about the X,Y,Z axis in radians per second.
+  MessagePose(StreamPacket& packet, Time timeCode,
+    float longitude, float latitude, float altitude,
+    std::array<float, 3> rot, std::array<float, 3> vel, std::array<float, 3> rotvel);
+
+  /// @brief Type-cast a base Message into a MessagePose packet, re-using its buffer.
+  /// @param [in] baseMessage The base Message to convert from.
+  MessagePose(Message& baseMessage);
+
+  /// @brief Get the longitude in degrees.
+  /// @param [out] longitude Longitude in degrees.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetLongitude(float& longitude) const;
+
+  /// @brief Get the latitude in degrees.
+  /// @param [out] latitude Latitude in degrees.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetLatitude(float& latitude) const;
+
+  /// @brief Get the altitude in meters.
+  /// @param [out] altitude Altitude in meters.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetAltitude(float& altitude) const;
+
+  /// @brief Get the rotation about the X,Y,Z axis in radians.
+  /// @param [out] rot Rotation about the X,Y,Z axis in radians.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetRot(std::array<float, 3>& rot) const;
+
+  /// @brief Get the velocity in the X,Y,Z direction in meters per second.
+  /// @param [out] vel Velocity in the X,Y,Z direction in meters per second.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetVel(std::array<float, 3>& vel) const;
+
+  /// @brief Get the rotational velocity about the X,Y,Z axis in radians per second.
+  /// @param [out] rotVel Rotational velocity about the X,Y,Z axis in radians per second.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetRotVel(std::array<float, 3>& rotVel) const;
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
