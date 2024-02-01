@@ -1107,6 +1107,7 @@ protected:
   friend class Message;
   friend class MessageDiscovery;
   friend class MessageState;
+  friend class MessageEvent;
   friend class MessageFrameBegin;
   friend class MessageFrameData;
   friend class MessageFrameEnd;
@@ -1321,6 +1322,42 @@ protected:
   /// @param [out] offset Offset to the first parameter after the trigger configurations.
   /// @return OKAY if successful, otherwise an error code.
   Status GetAfterTriggerConfigsOffset(uint32_t& offset) const;
+};
+
+/// @brief State message.
+class MessageEvent : public Message {
+public:
+  /// @brief Construct a MessageEvent and store it into a buffer from a StreamPacket.
+  /// @param [in] packet Pointer to the StreamPacket containing the message.
+  /// @param [in] timeCode Time code for the message.
+  /// @param [in] priority Priority of the event.
+  /// @param [in] type Type of the event.
+  /// @param [in] param String parameter for the event.
+  MessageEvent(StreamPacket& packet, Time timeCode, uint8_t priority, EventID type,
+    std::string param);
+
+  /// @brief Type-cast a base Message into a MessageEvent packet, re-using its buffer.
+  /// @param [in] baseMessage The base Message to convert from.
+  MessageEvent(Message& baseMessage);
+
+  /// @brief Get the priority of the event.
+  /// @param [out] priority Priority of the event.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetPriority(uint8_t& priority) const;
+
+  /// @brief Get the type of the event.
+  /// @param [out] type Type of the event.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetType(EventID& type) const;
+
+  /// @brief Get the string parameter for the event.
+  /// @param [out] param String parameter for the event.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetParam(std::string& param) const;
+
+  /// @brief Test function.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
 };
 
 /// @brief Frame begin message.

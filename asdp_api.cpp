@@ -196,6 +196,17 @@ static size_t PaddedSize(size_t size)
   return size + padding;
 }
 
+/// @brief Helper function to determine how much padding to add to a string after null terminating it.
+static size_t PaddingToAdd(const std::string& str)
+{
+  size_t withNull = str.size() + 1;
+  size_t padding = 4 - (withNull % 4);
+  if (padding == 4) {
+    padding = 0;
+  }
+  return padding;
+}
+
 /// @brief Helper function to unpack the version sections.
 static void UnpackVersion(const uint8_t *version, uint16_t& major, uint16_t& minor, uint16_t& patch)
 {
@@ -3065,6 +3076,154 @@ Status MessageState::GetAfterTriggerConfigsOffset(uint32_t& offset) const
   return OKAY;
 }
 
+MessageEvent::MessageEvent(StreamPacket& packet, Time timeCode, uint8_t priority, EventID type, std::string param)
+  : Message(packet, 4 + sizeof(uint32_t) + param.size() + 1 + PaddingToAdd(param), timeCode, EVENT)
+{
+  // See if our subobject failed. If so, we're done.
+  if (m_constructorStatus != OKAY) {
+    return;
+  }
+
+  // Pack our parameters.
+  unsigned char* bufPtr = m_buffer->data() + m_offset + MESSAGE_BASE_SIZE;
+  *bufPtr = priority; bufPtr++;
+  // Only the first three bytes of the type are used.
+  memcpy(bufPtr, &type, 3); bufPtr += 3;
+  // Record the offset from the event base to the character array.
+  uint32_t paramOffset = 8;
+  memcpy(bufPtr, &paramOffset, sizeof(paramOffset)); bufPtr += sizeof(paramOffset);
+  // Copy the parameter string into the buffer and pad it to a multiple of 4 bytes.
+  memcpy(bufPtr, param.c_str(), param.size()); bufPtr += param.size();
+  *bufPtr = 0; bufPtr++;  // Null-terminate the string.
+  for (uint32_t i = 0; i < PaddingToAdd(param); i++) {
+    *bufPtr = 0; bufPtr++;
+  }
+}
+
+MessageEvent::MessageEvent(Message& baseMessage)
+  : Message(baseMessage)
+{
+  MessageID type;
+  baseMessage.GetType(type);
+  if (type != EVENT) {
+    m_constructorStatus = BAD_PARAMETER;
+  }
+}
+
+Status MessageEvent::GetPriority(uint8_t& priority) const
+{
+  if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE + sizeof(uint8_t)) {
+    return READ_PAST_END;
+  }
+  memcpy(&priority, m_buffer->data() + m_offset + MESSAGE_BASE_SIZE, sizeof(priority));
+  return OKAY;
+}
+
+Status MessageEvent::GetType(EventID& type) const
+{
+  if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE + sizeof(uint8_t) + 3) {
+    return READ_PAST_END;
+  }
+  uint32_t val = 0; // Zero all bits.
+  memcpy(&val, m_buffer->data() + m_offset + MESSAGE_BASE_SIZE + sizeof(uint8_t), 3);
+  memcpy(&type, &val, sizeof(type));
+  return OKAY;
+}
+
+Status MessageEvent::GetParam(std::string& param) const
+{
+  if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE + 4 + sizeof(uint32_t)) {
+    return READ_PAST_END;
+  }
+  uint32_t paramOffset;
+  memcpy(&paramOffset, m_buffer->data() + m_offset + MESSAGE_BASE_SIZE + 4, sizeof(paramOffset));
+  if (m_buffer->size() < m_offset + paramOffset) {
+    return READ_PAST_END;
+  }
+  // Read the string from the buffer until we get to a null character.
+  param.clear();
+  for (uint32_t i = m_offset + MESSAGE_BASE_SIZE + paramOffset; i < m_buffer->size(); i++) {
+    if (m_buffer->data()[i] == 0) {
+      break;
+    }
+    param.push_back(m_buffer->data()[i]);
+  }
+  return OKAY;
+}
+
+std::string MessageEvent::Test()
+{
+  {
+    // Construct a message and check its length, time and type.
+    StreamPacket packet;
+    if (packet.GetConstructorStatus() != OKAY) {
+      return "Error constructing stream packet for MessageEvent test: " + ErrorMessage(packet.GetConstructorStatus());
+    }
+
+    // Add a message.
+    Time timeCode = { 1234, 5678 };
+    uint8_t priority = 1;
+    EventID type = CLOCK_SYNC;
+    std::string param = "This is a test";
+    MessageEvent message(packet, timeCode, priority, type, param);
+    if (message.GetConstructorStatus() != OKAY) {
+      return "Error constructing MessageEvent: " + ErrorMessage(message.GetConstructorStatus());
+    }
+
+    // Check the length of the packet including the message to make sure it matches expectation.
+    uint32_t totalLength;
+    Status status = packet.GetTotalLength(totalLength);
+    if (status != OKAY) {
+      return "Error checking message size for MessageEvent test: " + ErrorMessage(status);
+    }
+    if (totalLength != STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE + 4 + sizeof(uint32_t) + param.size() + 1 + PaddingToAdd(param)) {
+      return "Error constructing MessageEvent from buffer: packet length is not " +
+        std::to_string(STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE + 4 + sizeof(uint32_t) + param.size() + 1 + PaddingToAdd(param)) + " but " +
+        std::to_string(totalLength);
+    }
+
+    // Check the time of the message.
+    Time rTimeCode;
+    status = message.GetTime(rTimeCode);
+    if (status != OKAY) {
+      return "Error getting time code from MessageEvent for MessageEvent test: " + ErrorMessage(status);
+    }
+    if (rTimeCode != timeCode) {
+      return "Error getting time code from MessageEvent for MessageEvent test: time code is not " +
+        std::to_string(timeCode.seconds) + "." + std::to_string(timeCode.microseconds);
+    }
+
+    // Check the values of the message
+    uint8_t rPriority;
+    status = message.GetPriority(rPriority);
+    if (status != OKAY) {
+      return "Error getting priority from MessageEvent for MessageEvent test: " + ErrorMessage(status);
+    }
+    if (rPriority != priority) {
+      return "Error getting priority from MessageEvent for MessageEvent test: priority is not 1";
+    }
+    EventID rType;
+    status = message.GetType(rType);
+    if (status != OKAY) {
+      return "Error getting type from MessageEvent for MessageEvent test: " + ErrorMessage(status);
+    }
+    if (rType != type) {
+      return "Error getting type from MessageEvent for MessageEvent test: type is not CLOCK_SYNC";
+    }
+    std::string rParam;
+    status = message.GetParam(rParam);
+    if (status != OKAY) {
+      return "Error getting param from MessageEvent for MessageEvent test: " + ErrorMessage(status);
+    }
+    if (rParam != param) {
+      return "Error getting param from MessageEvent for MessageEvent test: param is not \"" + param
+        + "\" but \"" + rParam + "\"";
+    }
+    /// @todo
+  }
+  return "";
+}
+
 MessageFrameBegin::MessageFrameBegin(StreamPacket& packet, Time timeCode,
   uint32_t cameraID, uint32_t cameraType, uint16_t sensorWidth, uint16_t sensorHeight,
   float exposure, float gain)
@@ -5425,6 +5584,10 @@ std::string asdp::Test()
   ret = MessageState::Test();
   if (ret.size() > 0) {
     return "Error testing MessageState: " + ret;
+  }
+  ret = MessageEvent::Test();
+  if (ret.size() > 0) {
+    return "Error testing MessageEvent: " + ret;
   }
   ret = MessageFrameBegin::Test();
   if (ret.size() > 0) {
