@@ -2479,6 +2479,592 @@ std::string MessageDiscovery::Test()
   return "";
 }
 
+MessageState::MessageState(StreamPacket& packet, Time timeCode,
+    std::vector<uint16_t> features, std::vector<CameraInfo> cameras,
+    uint32_t numTempSensorsPerCamera, uint32_t numExternalTempSensors,
+    float keepAliveInterval,
+    uint8_t storing, uint8_t camerasStreaming, uint8_t replaying, uint8_t replayAtEnd,
+    uint8_t recordOnReset,
+    std::vector<TriggerInfo> triggerConfigs,
+    uint64_t totalDiskSpace, uint64_t remainingDiskSpace,
+    Time streamReplayTime, std::vector<StreamEndpoint> streams)
+  : Message(packet,
+      sizeof(uint32_t) + features.size() * sizeof(uint16_t) + (features.size() % 2) * sizeof(uint16_t)
+        + cameras.size() * sizeof(CameraInfo)
+        + sizeof(numTempSensorsPerCamera) + sizeof(numExternalTempSensors)
+        + sizeof(keepAliveInterval) + 8 /* The byte-sized ones and padding */
+        + sizeof(uint32_t) + triggerConfigs.size() * sizeof(TriggerInfo)
+        + sizeof(totalDiskSpace) + sizeof(remainingDiskSpace)
+        + 2 * sizeof(uint32_t) /* Time */
+        + sizeof(uint32_t) + streams.size() * 2 * sizeof(uint32_t) /* Stream info */,
+      timeCode, DISCOVERY)
+{
+  // See if our subobject failed. If so, we're done.
+  if (m_constructorStatus != OKAY) {
+    return;
+  }
+
+  // Pack our parameters.
+  unsigned char* bufPtr = m_buffer->data() + m_offset + MESSAGE_BASE_SIZE;
+  uint32_t numFeatures = features.size();
+  memcpy(bufPtr, &numFeatures, sizeof(numFeatures)); bufPtr += sizeof(numFeatures);
+  for (uint32_t i = 0; i < numFeatures; i++) {
+    memcpy(bufPtr, &features[i], sizeof(features[i])); bufPtr += sizeof(features[i]);
+  }
+  // Pad to 4-byte alignment.
+  if (numFeatures % 2 != 0) {
+    bufPtr += sizeof(uint16_t);
+  }
+  uint32_t numCameras = cameras.size();
+  memcpy(bufPtr, &numCameras, sizeof(numCameras)); bufPtr += sizeof(numCameras);
+  for (uint32_t i = 0; i < numCameras; i++) {
+    memcpy(bufPtr, &cameras[i].type, sizeof(cameras[i].type)); bufPtr += sizeof(cameras[i].type);
+    memcpy(bufPtr, &cameras[i].width, sizeof(cameras[i].width)); bufPtr += sizeof(cameras[i].width);
+    memcpy(bufPtr, &cameras[i].height, sizeof(cameras[i].height)); bufPtr += sizeof(cameras[i].height);
+    memcpy(bufPtr, &cameras[i].minTriggerPeriod, sizeof(cameras[i].minTriggerPeriod)); bufPtr += sizeof(cameras[i].minTriggerPeriod);
+    memcpy(bufPtr, &cameras[i].maxTriggerPeriod, sizeof(cameras[i].maxTriggerPeriod)); bufPtr += sizeof(cameras[i].maxTriggerPeriod);
+    memcpy(bufPtr, &cameras[i].trigger, sizeof(cameras[i].trigger)); bufPtr += sizeof(cameras[i].trigger);
+  }
+  memcpy(bufPtr, &numTempSensorsPerCamera, sizeof(numTempSensorsPerCamera)); bufPtr += sizeof(numTempSensorsPerCamera);
+  memcpy(bufPtr, &numExternalTempSensors, sizeof(numExternalTempSensors)); bufPtr += sizeof(numExternalTempSensors);
+  memcpy(bufPtr, &keepAliveInterval, sizeof(keepAliveInterval)); bufPtr += sizeof(keepAliveInterval);
+  *bufPtr = storing; bufPtr++;
+  *bufPtr = camerasStreaming; bufPtr++;
+  *bufPtr = replaying; bufPtr++;
+  *bufPtr = replayAtEnd; bufPtr++;
+  *bufPtr = recordOnReset; bufPtr++;
+  bufPtr += 3; // Padding
+  uint32_t numTriggers = triggerConfigs.size();
+  memcpy(bufPtr, &numTriggers, sizeof(numTriggers)); bufPtr += sizeof(numTriggers);
+  for (uint32_t i = 0; i < numTriggers; i++) {
+    memcpy(bufPtr, &triggerConfigs[i].ID, sizeof(triggerConfigs[i].ID)); bufPtr += sizeof(triggerConfigs[i].ID);
+    memcpy(bufPtr, &triggerConfigs[i].mode, sizeof(triggerConfigs[i].mode)); bufPtr += sizeof(triggerConfigs[i].mode);
+    memcpy(bufPtr, &triggerConfigs[i].externalID, sizeof(triggerConfigs[i].externalID)); bufPtr += sizeof(triggerConfigs[i].externalID);
+    memcpy(bufPtr, &triggerConfigs[i].period, sizeof(triggerConfigs[i].period)); bufPtr += sizeof(triggerConfigs[i].period);
+    memcpy(bufPtr, &triggerConfigs[i].offset, sizeof(triggerConfigs[i].offset)); bufPtr += sizeof(triggerConfigs[i].offset);
+    memcpy(bufPtr, &triggerConfigs[i].trackingFactor, sizeof(triggerConfigs[i].trackingFactor)); bufPtr += sizeof(triggerConfigs[i].trackingFactor);
+  }
+  memcpy(bufPtr, &totalDiskSpace, sizeof(totalDiskSpace)); bufPtr += sizeof(totalDiskSpace);
+  memcpy(bufPtr, &remainingDiskSpace, sizeof(remainingDiskSpace)); bufPtr += sizeof(remainingDiskSpace);
+  memcpy(bufPtr, &streamReplayTime.seconds, sizeof(streamReplayTime.seconds)); bufPtr += sizeof(streamReplayTime.seconds);
+  memcpy(bufPtr, &streamReplayTime.microseconds, sizeof(streamReplayTime.microseconds)); bufPtr += sizeof(streamReplayTime.microseconds);
+  uint32_t numStreams = streams.size();
+  memcpy(bufPtr, &numStreams, sizeof(numStreams)); bufPtr += sizeof(numStreams);
+  for (uint32_t i = 0; i < numStreams; i++) {
+    memcpy(bufPtr, &streams[i].IP, sizeof(streams[i].IP)); bufPtr += sizeof(streams[i].IP);
+    uint32_t portField = streams[i].port;
+    memcpy(bufPtr, &portField, sizeof(portField)); bufPtr += sizeof(portField);
+  }
+}
+
+MessageState::MessageState(Message& baseMessage)
+  : Message(baseMessage)
+{
+  MessageID type;
+  baseMessage.GetType(type);
+  if (type != DISCOVERY) {
+    m_constructorStatus = BAD_PARAMETER;
+  }
+}
+
+Status MessageState::GetFeatures(std::vector<uint16_t>& features) const
+{
+  if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE + sizeof(uint32_t)) {
+    return READ_PAST_END;
+  }
+  uint32_t numFeatures;
+  memcpy(&numFeatures, m_buffer->data() + m_offset + MESSAGE_BASE_SIZE, sizeof(numFeatures));
+  features.resize(numFeatures);
+  if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE + sizeof(uint32_t) + numFeatures * sizeof(uint16_t)) {
+    return READ_PAST_END;
+  }
+  memcpy(features.data(), m_buffer->data() + m_offset + MESSAGE_BASE_SIZE + sizeof(uint32_t), numFeatures * sizeof(uint16_t));
+  return OKAY;
+}
+
+Status MessageState::GetCameras(std::vector<CameraInfo>& cameras) const
+{
+  uint32_t afterFeaturesOffset;
+  Status status = GetAfterFeaturesOffset(afterFeaturesOffset);
+  if (status != OKAY) {
+    return status;
+  }
+  if (m_buffer->size() < afterFeaturesOffset + sizeof(uint32_t)) {
+    return READ_PAST_END;
+  }
+  uint32_t numCameras;
+  memcpy(&numCameras, m_buffer->data() + afterFeaturesOffset, sizeof(numCameras));
+  cameras.resize(numCameras);
+  if (m_buffer->size() < afterFeaturesOffset + sizeof(uint32_t) + numCameras * sizeof(CameraInfo)) {
+    return READ_PAST_END;
+  }
+  memcpy(cameras.data(), m_buffer->data() + afterFeaturesOffset + sizeof(uint32_t), numCameras * sizeof(CameraInfo));
+  return OKAY;
+}
+
+Status MessageState::GetNumTempSensorsPerCamera(uint32_t& numTempSensorsPerCamera) const
+{
+  uint32_t afterCamerasOffset;
+  Status status = GetAfterCamerasOffset(afterCamerasOffset);
+  if (status != OKAY) {
+    return status;
+  }
+  if (m_buffer->size() < afterCamerasOffset + sizeof(uint32_t)) {
+    return READ_PAST_END;
+  }
+  memcpy(&numTempSensorsPerCamera, m_buffer->data() + afterCamerasOffset, sizeof(numTempSensorsPerCamera));
+  return OKAY;
+}
+
+Status MessageState::GetNumExternalTempSensors(uint32_t& numExternalTempSensors) const
+{
+  uint32_t afterCamerasOffset;
+  Status status = GetAfterCamerasOffset(afterCamerasOffset);
+  if (status != OKAY) {
+    return status;
+  }
+  if (m_buffer->size() < afterCamerasOffset + sizeof(uint32_t) + sizeof(uint32_t)) {
+    return READ_PAST_END;
+  }
+  memcpy(&numExternalTempSensors, m_buffer->data() + afterCamerasOffset + sizeof(uint32_t), sizeof(numExternalTempSensors));
+  return OKAY;
+}
+
+Status MessageState::GetKeepAliveInterval(float& keepAliveInterval) const
+{
+  uint32_t afterCamerasOffset;
+  Status status = GetAfterCamerasOffset(afterCamerasOffset);
+  if (status != OKAY) {
+    return status;
+  }
+  if (m_buffer->size() < afterCamerasOffset + 2 * sizeof(uint32_t) + sizeof(float)) {
+    return READ_PAST_END;
+  }
+  memcpy(&keepAliveInterval, m_buffer->data() + afterCamerasOffset + 2 * sizeof(uint32_t), sizeof(keepAliveInterval));
+  return OKAY;
+}
+
+Status MessageState::GetStoring(uint8_t& storing) const
+{
+  uint32_t afterCamerasOffset;
+  Status status = GetAfterCamerasOffset(afterCamerasOffset);
+  if (status != OKAY) {
+    return status;
+  }
+  if (m_buffer->size() < afterCamerasOffset + 2 * sizeof(uint32_t) + sizeof(float) + sizeof(uint8_t)) {
+    return READ_PAST_END;
+  }
+  memcpy(&storing, m_buffer->data() + afterCamerasOffset + 2 * sizeof(uint32_t) + sizeof(float), sizeof(storing));
+  return OKAY;
+}
+
+Status MessageState::GetCamerasStreaming(uint8_t& camerasStreaming) const
+{
+  uint32_t afterCamerasOffset;
+  Status status = GetAfterCamerasOffset(afterCamerasOffset);
+  if (status != OKAY) {
+    return status;
+  }
+  if (m_buffer->size() < afterCamerasOffset + 2 * sizeof(uint32_t) + sizeof(float) + 2 * sizeof(uint8_t)) {
+    return READ_PAST_END;
+  }
+  memcpy(&camerasStreaming, m_buffer->data() + afterCamerasOffset + 2 * sizeof(uint32_t) + sizeof(float) + sizeof(uint8_t), sizeof(camerasStreaming));
+  return OKAY;
+}
+
+Status MessageState::GetReplaying(uint8_t& replaying) const
+{
+  uint32_t afterCamerasOffset;
+  Status status = GetAfterCamerasOffset(afterCamerasOffset);
+  if (status != OKAY) {
+    return status;
+  }
+  if (m_buffer->size() < afterCamerasOffset + 2 * sizeof(uint32_t) + sizeof(float) + 3 * sizeof(uint8_t)) {
+    return READ_PAST_END;
+  }
+  memcpy(&replaying, m_buffer->data() + afterCamerasOffset + 2 * sizeof(uint32_t) + sizeof(float) + 2 * sizeof(uint8_t), sizeof(replaying));
+  return OKAY;
+}
+
+Status MessageState::GetReplayAtEnd(uint8_t& replayAtEnd) const
+{
+  uint32_t afterCamerasOffset;
+  Status status = GetAfterCamerasOffset(afterCamerasOffset);
+  if (status != OKAY) {
+    return status;
+  }
+  if (m_buffer->size() < afterCamerasOffset + 2 * sizeof(uint32_t) + sizeof(float) + 4 * sizeof(uint8_t)) {
+    return READ_PAST_END;
+  }
+  memcpy(&replayAtEnd, m_buffer->data() + afterCamerasOffset + 2 * sizeof(uint32_t) + sizeof(float) + 3 * sizeof(uint8_t), sizeof(replayAtEnd));
+  return OKAY;
+}
+
+Status MessageState::GetRecordOnReset(uint8_t& recordOnReset) const
+{
+  uint32_t afterCamerasOffset;
+  Status status = GetAfterCamerasOffset(afterCamerasOffset);
+  if (status != OKAY) {
+    return status;
+  }
+  if (m_buffer->size() < afterCamerasOffset + 2 * sizeof(uint32_t) + sizeof(float) + 5 * sizeof(uint8_t)) {
+    return READ_PAST_END;
+  }
+  memcpy(&recordOnReset, m_buffer->data() + afterCamerasOffset + 2 * sizeof(uint32_t) + sizeof(float) + 4 * sizeof(uint8_t), sizeof(recordOnReset));
+  return OKAY;
+}
+
+Status MessageState::GetTriggerConfigs(std::vector<TriggerInfo>& triggerConfigs) const
+{
+  uint32_t afterCamerasOffset;
+  Status status = GetAfterCamerasOffset(afterCamerasOffset);
+  if (status != OKAY) {
+    return status;
+  }
+  if (m_buffer->size() < afterCamerasOffset + 2 * sizeof(uint32_t) + sizeof(float) + 8 + sizeof(uint32_t)) {
+    return READ_PAST_END;
+  }
+  uint32_t numTriggers;
+  memcpy(&numTriggers, m_buffer->data() + afterCamerasOffset + 2 * sizeof(uint32_t) + sizeof(float) + 8, sizeof(numTriggers));
+  triggerConfigs.resize(numTriggers);
+  if (m_buffer->size() < afterCamerasOffset + 2 * sizeof(uint32_t) + sizeof(float) + 8 + sizeof(uint32_t) + numTriggers * sizeof(TriggerInfo)) {
+    return READ_PAST_END;
+  }
+  uint32_t baseOffset = afterCamerasOffset + 2 * sizeof(uint32_t) + sizeof(float) + 8 + sizeof(uint32_t);
+  for (uint32_t i = 0; i < numTriggers; i++) {
+    uint32_t paramOffset = baseOffset + i * sizeof(TriggerInfo);
+    memcpy(&triggerConfigs[i].ID, m_buffer->data() + paramOffset, sizeof(triggerConfigs[i].ID));
+    paramOffset += sizeof(triggerConfigs[i].ID);
+    memcpy(&triggerConfigs[i].mode, m_buffer->data() + paramOffset, sizeof(triggerConfigs[i].mode));
+    paramOffset += sizeof(triggerConfigs[i].mode);
+    memcpy(&triggerConfigs[i].externalID, m_buffer->data() + paramOffset, sizeof(triggerConfigs[i].externalID));
+    paramOffset += sizeof(triggerConfigs[i].externalID);
+    memcpy(&triggerConfigs[i].period, m_buffer->data() + paramOffset, sizeof(triggerConfigs[i].period));
+    paramOffset += sizeof(triggerConfigs[i].period);
+    memcpy(&triggerConfigs[i].offset, m_buffer->data() + paramOffset, sizeof(triggerConfigs[i].offset));
+    paramOffset += sizeof(triggerConfigs[i].offset);
+    memcpy(&triggerConfigs[i].trackingFactor, m_buffer->data() + paramOffset, sizeof(triggerConfigs[i].trackingFactor));
+    paramOffset += sizeof(triggerConfigs[i].trackingFactor);
+  }
+  return OKAY;
+}
+
+Status MessageState::GetTotalDiskSpace(uint64_t& totalDiskSpace) const
+{
+  uint32_t afterTriggerConfigsOffset;
+  Status status = GetAfterTriggerConfigsOffset(afterTriggerConfigsOffset);
+  if (status != OKAY) {
+    return status;
+  }
+  if (m_buffer->size() < afterTriggerConfigsOffset + sizeof(uint64_t)) {
+    return READ_PAST_END;
+  }
+  memcpy(&totalDiskSpace, m_buffer->data() + afterTriggerConfigsOffset, sizeof(totalDiskSpace));
+  return OKAY;
+}
+
+Status MessageState::GetRemainingDiskSpace(uint64_t& remainingDiskSpace) const
+{
+  uint32_t afterTriggerConfigsOffset;
+  Status status = GetAfterTriggerConfigsOffset(afterTriggerConfigsOffset);
+  if (status != OKAY) {
+    return status;
+  }
+  if (m_buffer->size() < afterTriggerConfigsOffset + sizeof(uint64_t) + sizeof(uint64_t)) {
+    return READ_PAST_END;
+  }
+  memcpy(&remainingDiskSpace, m_buffer->data() + afterTriggerConfigsOffset + sizeof(uint64_t), sizeof(remainingDiskSpace));
+  return OKAY;
+}
+
+Status MessageState::GetStreamReplayTime(Time& streamReplayTime) const
+{
+  uint32_t afterTriggerConfigsOffset;
+  Status status = GetAfterTriggerConfigsOffset(afterTriggerConfigsOffset);
+  if (status != OKAY) {
+    return status;
+  }
+  if (m_buffer->size() < afterTriggerConfigsOffset + 2 * sizeof(uint64_t) + 2 * sizeof(uint32_t)) {
+    return READ_PAST_END;
+  }
+  memcpy(&streamReplayTime.seconds,
+    m_buffer->data() + afterTriggerConfigsOffset + 2 * sizeof(uint64_t), sizeof(streamReplayTime.seconds));
+  memcpy(&streamReplayTime.microseconds,
+    m_buffer->data() + afterTriggerConfigsOffset + 2 * sizeof(uint64_t) + sizeof(streamReplayTime.seconds),
+    sizeof(streamReplayTime.microseconds));
+  return OKAY;
+}
+
+Status MessageState::GetStreams(std::vector<StreamEndpoint>& streams) const
+{
+  uint32_t afterTriggerConfigsOffset;
+  Status status = GetAfterTriggerConfigsOffset(afterTriggerConfigsOffset);
+  if (status != OKAY) {
+    return status;
+  }
+  if (m_buffer->size() < afterTriggerConfigsOffset + 2 * sizeof(uint64_t) + 2 * sizeof(uint32_t) + sizeof(uint32_t)) {
+    return READ_PAST_END;
+  }
+  uint32_t numStreams;
+  memcpy(&numStreams, m_buffer->data() + afterTriggerConfigsOffset + 2 * sizeof(uint64_t) + 2 * sizeof(uint32_t), sizeof(numStreams));
+  streams.resize(numStreams);
+  if (m_buffer->size() < afterTriggerConfigsOffset + 2 * sizeof(uint64_t) + 2 * sizeof(uint32_t) + sizeof(uint32_t) + numStreams * 2 * sizeof(uint32_t)) {
+    return READ_PAST_END;
+  }
+  uint32_t baseOffset = afterTriggerConfigsOffset + 2 * sizeof(uint64_t) + 2 * sizeof(uint32_t) + sizeof(uint32_t);
+  for (uint32_t i = 0; i < numStreams; i++) {
+    memcpy(&streams[i].IP, m_buffer->data() + baseOffset + i * 2 * sizeof(uint32_t), sizeof(streams[i].IP));
+    uint32_t portField;
+    memcpy(&portField, m_buffer->data() + baseOffset + i * 2 * sizeof(uint32_t) + sizeof(streams[i].IP), sizeof(portField));
+    streams[i].port = portField;
+  }
+  return OKAY;
+}
+
+std::string MessageState::Test()
+{
+  {
+    // Construct a message and check its length, time and type.
+    StreamPacket packet;
+    if (packet.GetConstructorStatus() != OKAY) {
+      return "Error constructing stream packet for MessageState test: " + ErrorMessage(packet.GetConstructorStatus());
+    }
+
+    // Add a message.
+    Time timeCode = { 1234, 5678 };
+    std::vector<uint16_t> features = { 1, 2, 3, 4, 5 };
+    std::vector<CameraInfo> cameras = { { 1, 2, 3, 4, 5, 6 }, { 7, 8, 9, 10, 11, 12 } };
+    uint32_t numTempSensorsPerCamera = 13, numExternalTempSensors = 14;
+    float keepAliveInterval = 15.0;
+    uint8_t storing = 16, camerasStreaming = 17, replaying = 18, replayAtEnd = 19, recordOnReset = 20;
+    std::vector<TriggerInfo> triggerConfigs = { { 1, 2, 3, 4, 5, 6 }, { 7, 8, 9, 10, 11, 12 } };
+    uint64_t totalDiskSpace = 21, remainingDiskSpace = 22;
+    Time streamReplayTime = { 23, 24 };
+    std::vector<StreamEndpoint> streams = { { 0x01020304, 1234 }, { 0x05060708, 5678 } };
+    MessageState message(packet, timeCode, features, cameras, numTempSensorsPerCamera, numExternalTempSensors,
+      keepAliveInterval, storing, camerasStreaming, replaying, replayAtEnd, recordOnReset, triggerConfigs,
+      totalDiskSpace, remainingDiskSpace, streamReplayTime, streams);
+    if (message.GetConstructorStatus() != OKAY) {
+      return "Error constructing MessageState: " + ErrorMessage(message.GetConstructorStatus());
+    }
+
+    // Check the length of the packet including the message to make sure it matches expectation.
+    uint32_t totalLength;
+    Status status = packet.GetTotalLength(totalLength);
+    if (status != OKAY) {
+      return "Error checking message size for MessageState test: " + ErrorMessage(status);
+    }
+    if (totalLength != STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE + sizeof(uint32_t) + features.size() * sizeof(uint16_t)
+      + (features.size() % 2) * sizeof(uint16_t)
+      + cameras.size() * sizeof(CameraInfo) + sizeof(numTempSensorsPerCamera) + sizeof(numExternalTempSensors)
+      + sizeof(keepAliveInterval) + 8 + sizeof(uint32_t) + triggerConfigs.size() * sizeof(TriggerInfo)
+      + sizeof(totalDiskSpace) + sizeof(remainingDiskSpace) + 2 * sizeof(uint32_t) + sizeof(uint32_t) + streams.size() * 2 * sizeof(uint32_t)) {
+      return "Error constructing MessageState from buffer: packet length is not " +
+        std::to_string(STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE + sizeof(uint32_t) + features.size() * sizeof(uint16_t)
+                 + (features.size() % 2) * sizeof(uint16_t)
+                 + cameras.size() * sizeof(CameraInfo) + sizeof(numTempSensorsPerCamera) + sizeof(numExternalTempSensors)
+                 + sizeof(keepAliveInterval) + 8 + sizeof(uint32_t) + triggerConfigs.size() * sizeof(TriggerInfo)
+                 + sizeof(totalDiskSpace) + sizeof(remainingDiskSpace) + 2 * sizeof(uint32_t) + sizeof(uint32_t) + streams.size() * 2 * sizeof(uint32_t)) + " but " +
+        std::to_string(totalLength);
+    }
+
+    // Check the time and type of the message.
+    Time rTimeCode;
+    status = message.GetTime(rTimeCode);
+    if (status != OKAY) {
+      return "Error getting time code from MessageState for MessageState test: " + ErrorMessage(status);
+    }
+    if (rTimeCode != timeCode) {
+      return "Error getting time code from MessageState for MessageState test: time code is not " +
+        std::to_string(timeCode.seconds) + "." + std::to_string(timeCode.microseconds);
+    }
+    MessageID type;
+    status = message.GetType(type);
+    if (status != OKAY) {
+      return "Error getting type from MessageState for MessageState test: " + ErrorMessage(status);
+    }
+    if (type != DISCOVERY) {
+      return "Error getting type from MessageState for MessageState test: type is not DISCOVERY";
+    }
+
+    // Check the values of the message
+    std::vector<uint16_t> rFeatures;
+    status = message.GetFeatures(rFeatures);
+    if (status != OKAY) {
+      return "Error getting features from MessageState for MessageState test: " + ErrorMessage(status);
+    }
+    if (rFeatures != features) {
+      return "Error getting features from MessageState for MessageState test: features are not { 1, 2, 3, 4, 5 }";
+    }
+    std::vector<CameraInfo> rCameras;
+    status = message.GetCameras(rCameras);
+    if (status != OKAY) {
+      return "Error getting cameras from MessageState for MessageState test: " + ErrorMessage(status);
+    }
+    if (rCameras != cameras) {
+      return "Error getting cameras from MessageState for MessageState test: cameras are not { { 1, 2, 3, 4, 5, 6 }, { 7, 8, 9, 10, 11, 12 } }";
+    }
+    uint32_t rNumTempSensorsPerCamera;
+    status = message.GetNumTempSensorsPerCamera(rNumTempSensorsPerCamera);
+    if (status != OKAY) {
+      return "Error getting numTempSensorsPerCamera from MessageState for MessageState test: " + ErrorMessage(status);
+    }
+    if (rNumTempSensorsPerCamera != numTempSensorsPerCamera) {
+      return "Error getting numTempSensorsPerCamera from MessageState for MessageState test: numTempSensorsPerCamera is not 13";
+    }
+    uint32_t rNumExternalTempSensors;
+    status = message.GetNumExternalTempSensors(rNumExternalTempSensors);
+    if (status != OKAY) {
+      return "Error getting numExternalTempSensors from MessageState for MessageState test: " + ErrorMessage(status);
+    }
+    if (rNumExternalTempSensors != numExternalTempSensors) {
+      return "Error getting numExternalTempSensors from MessageState for MessageState test: numExternalTempSensors is not 14";
+    }
+    float rKeepAliveInterval;
+    status = message.GetKeepAliveInterval(rKeepAliveInterval);
+    if (status != OKAY) {
+      return "Error getting keepAliveInterval from MessageState for MessageState test: " + ErrorMessage(status);
+    }
+    if (rKeepAliveInterval != keepAliveInterval) {
+      return "Error getting keepAliveInterval from MessageState for MessageState test: keepAliveInterval is not 15.0";
+    }
+    uint8_t rStoring;
+    status = message.GetStoring(rStoring);
+    if (status != OKAY) {
+      return "Error getting storing from MessageState for MessageState test: " + ErrorMessage(status);
+    }
+    if (rStoring != storing) {
+      return "Error getting storing from MessageState for MessageState test: storing is not 16";
+    }
+    uint8_t rCamerasStreaming;
+    status = message.GetCamerasStreaming(rCamerasStreaming);
+    if (status != OKAY) {
+      return "Error getting camerasStreaming from MessageState for MessageState test: " + ErrorMessage(status);
+    }
+    if (rCamerasStreaming != camerasStreaming) {
+      return "Error getting camerasStreaming from MessageState for MessageState test: camerasStreaming is not 17";
+    }
+    uint8_t rReplaying;
+    status = message.GetReplaying(rReplaying);
+    if (status != OKAY) {
+      return "Error getting replaying from MessageState for MessageState test: " + ErrorMessage(status);
+    }
+    if (rReplaying != replaying) {
+      return "Error getting replaying from MessageState for MessageState test: replaying is not 18";
+    }
+    uint8_t rReplayAtEnd;
+    status = message.GetReplayAtEnd(rReplayAtEnd);
+    if (status != OKAY) {
+      return "Error getting replayAtEnd from MessageState for MessageState test: " + ErrorMessage(status);
+    }
+    if (rReplayAtEnd != replayAtEnd) {
+      return "Error getting replayAtEnd from MessageState for MessageState test: replayAtEnd is not 19";
+    }
+    uint8_t rRecordOnReset;
+    status = message.GetRecordOnReset(rRecordOnReset);
+    if (status != OKAY) {
+      return "Error getting recordOnReset from MessageState for MessageState test: " + ErrorMessage(status);
+    }
+    if (rRecordOnReset != recordOnReset) {
+      return "Error getting recordOnReset from MessageState for MessageState test: recordOnReset is not 20";
+    }
+    std::vector<TriggerInfo> rTriggerConfigs;
+    status = message.GetTriggerConfigs(rTriggerConfigs);
+    if (status != OKAY) {
+      return "Error getting triggerConfigs from MessageState for MessageState test: " + ErrorMessage(status);
+    }
+    if (rTriggerConfigs != triggerConfigs) {
+      return "Error getting triggerConfigs from MessageState for MessageState test: triggerConfigs are not { { 1, 2, 3, 4, 5, 6 }, { 7, 8, 9, 10, 11, 12 } }";
+    }
+    uint64_t rTotalDiskSpace;
+    status = message.GetTotalDiskSpace(rTotalDiskSpace);
+    if (status != OKAY) {
+      return "Error getting totalDiskSpace from MessageState for MessageState test: " + ErrorMessage(status);
+    }
+    if (rTotalDiskSpace != totalDiskSpace) {
+      return "Error getting totalDiskSpace from MessageState for MessageState test: totalDiskSpace is not 21";
+    }
+    uint64_t rRemainingDiskSpace;
+    status = message.GetRemainingDiskSpace(rRemainingDiskSpace);
+    if (status != OKAY) {
+      return "Error getting remainingDiskSpace from MessageState for MessageState test: " + ErrorMessage(status);
+    }
+    if (rRemainingDiskSpace != remainingDiskSpace) {
+      return "Error getting remainingDiskSpace from MessageState for MessageState test: remainingDiskSpace is not 22";
+    }
+    Time rStreamReplayTime;
+    status = message.GetStreamReplayTime(rStreamReplayTime);
+    if (status != OKAY) {
+      return "Error getting streamReplayTime from MessageState for MessageState test: " + ErrorMessage(status);
+    }
+    if (rStreamReplayTime != streamReplayTime) {
+      return "Error getting streamReplayTime from MessageState for MessageState test: streamReplayTime is not { 23, 24 }";
+    }
+    std::vector<StreamEndpoint> rStreams;
+    status = message.GetStreams(rStreams);
+    if (status != OKAY) {
+      return "Error getting streams from MessageState for MessageState test: " + ErrorMessage(status);
+    }
+    if (rStreams != streams) {
+      return "Error getting streams from MessageState for MessageState test: streams are not { { 0x01020304, 1234 }, { 0x05060708, 5678 } }";
+    }
+  }
+
+  return "";
+}
+
+Status MessageState::GetAfterFeaturesOffset(uint32_t& offset) const
+{
+  if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE + sizeof(uint32_t)) {
+    return READ_PAST_END;
+  }
+  uint32_t numFeatures;
+  memcpy(&numFeatures, m_buffer->data() + m_offset + MESSAGE_BASE_SIZE, sizeof(numFeatures));
+  offset = m_offset + MESSAGE_BASE_SIZE + sizeof(uint32_t) + numFeatures * sizeof(uint16_t);
+  // Skip padding if any
+  if (numFeatures % 2 != 0) {
+    offset += sizeof(uint16_t);
+  }
+  return OKAY;
+}
+
+Status MessageState::GetAfterCamerasOffset(uint32_t& offset) const
+{
+  uint32_t afterFeaturesOffset;
+  Status status = GetAfterFeaturesOffset(afterFeaturesOffset);
+  if (status != OKAY) {
+    return status;
+  }
+  if (m_buffer->size() < afterFeaturesOffset + sizeof(uint32_t)) {
+    return READ_PAST_END;
+  }
+  uint32_t numCameras;
+  memcpy(&numCameras, m_buffer->data() + afterFeaturesOffset, sizeof(numCameras));
+  offset = afterFeaturesOffset + sizeof(uint32_t) + numCameras * sizeof(CameraInfo);
+  return OKAY;
+}
+
+Status MessageState::GetAfterTriggerConfigsOffset(uint32_t& offset) const
+{
+  uint32_t afterCamerasOffset;
+  Status status = GetAfterCamerasOffset(afterCamerasOffset);
+  if (status != OKAY) {
+    return status;
+  }
+  if (m_buffer->size() < afterCamerasOffset + sizeof(uint32_t)) {
+    return READ_PAST_END;
+  }
+
+  // Add the size of the storing, camerasStreaming, replaying, replayAtEnd, recordOnReset, triggerConfigs
+  // to the offset.
+  offset = afterCamerasOffset + 2 * sizeof(uint32_t) + sizeof(float) + 8;
+  uint32_t numTriggers;
+  memcpy(&numTriggers, m_buffer->data() + offset, sizeof(numTriggers));
+  offset += sizeof(uint32_t) + numTriggers * sizeof(TriggerInfo);
+
+  return OKAY;
+}
+
 MessageFrameBegin::MessageFrameBegin(StreamPacket& packet, Time timeCode,
   uint32_t cameraID, uint32_t cameraType, uint16_t sensorWidth, uint16_t sensorHeight,
   float exposure, float gain)
@@ -4835,6 +5421,10 @@ std::string asdp::Test()
   ret = MessageDiscovery::Test();
   if (ret.size() > 0) {
     return "Error testing MessageDiscovery: " + ret;
+  }
+  ret = MessageState::Test();
+  if (ret.size() > 0) {
+    return "Error testing MessageState: " + ret;
   }
   ret = MessageFrameBegin::Test();
   if (ret.size() > 0) {

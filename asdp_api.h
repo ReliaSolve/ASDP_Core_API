@@ -1170,7 +1170,6 @@ public:
   /// @param [in] timeCode Time code for the message.
   /// @param [in] endpoint Endpoint for the client to connect to on the server.
   /// @param [in] serial Serial number of the system.
-  /// @todo Replace the IP and port with a StreamEndpoint.
   MessageDiscovery::MessageDiscovery(StreamPacket& packet, Time timeCode,
     StreamEndpoint endpoint, uint32_t serial);
 
@@ -1215,10 +1214,10 @@ public:
   /// @param [in] streamReplayTime Time code of the stream replay.
   /// @param [in] streams Vector of active streams.
   MessageState::MessageState(StreamPacket& packet, Time timeCode,
-    std::vector<uint32_t> features, std::vector<CameraInfo> cameras,
+    std::vector<uint16_t> features, std::vector<CameraInfo> cameras,
     uint32_t numTempSensorsPerCamera, uint32_t numExternalTempSensors,
     float keepAliveInterval,
-    uint8_t storing, uint8_t camerasStreaming, uint8_t replaying, uint8_t erplayAtEnd,
+    uint8_t storing, uint8_t camerasStreaming, uint8_t replaying, uint8_t replayAtEnd,
     uint8_t recordOnReset,
     std::vector<TriggerInfo> triggerConfigs,
     uint64_t totalDiskSpace, uint64_t remainingDiskSpace,
@@ -1228,9 +1227,100 @@ public:
   /// @param [in] baseMessage The base Message to convert from.
   MessageState(Message& baseMessage);
 
+  /// @brief Get the features supported by the system.
+  /// @param [out] features Vector of features supported by the system.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetFeatures(std::vector<uint16_t>& features) const;
+
+  /// @brief Get the cameras installed on the system.
+  /// @param [out] cameras Vector of cameras installed on the system.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetCameras(std::vector<CameraInfo>& cameras) const;
+
+  /// @brief Get the number of temperature sensors per camera.
+  /// @param [out] numTempSensorsPerCamera Number of temperature sensors per camera.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetNumTempSensorsPerCamera(uint32_t& numTempSensorsPerCamera) const;
+
+  /// @brief Get the number of external temperature sensors.
+  /// @param [out] numExternalTempSensors Number of external temperature sensors.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetNumExternalTempSensors(uint32_t& numExternalTempSensors) const;
+
+  /// @brief Get the interval that keepalive messages must be sent at.
+  /// @param [out] keepAliveInterval Interval that keepalive messages must be sent at in seconds.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetKeepAliveInterval(float& keepAliveInterval) const;
+
+  /// @brief Get whether the system is storing data to disk.
+  /// @param [out] storing Whether the system is storing data to disk.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetStoring(uint8_t& storing) const;
+
+  /// @brief Get whether the system is streaming data from its cameras.
+  /// @param [out] camerasStreaming Whether the system is streaming data from its cameras.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetCamerasStreaming(uint8_t& camerasStreaming) const;
+
+  /// @brief Get whether the system is replaying data from disk.
+  /// @param [out] replaying Whether the system is replaying data from disk.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetReplaying(uint8_t& replaying) const;
+
+  /// @brief Get whether replaying data is at the end.
+  /// @param [out] replayAtEnd Whether replaying data is at the end.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetReplayAtEnd(uint8_t& replayAtEnd) const;
+
+  /// @brief Get whether the system will record data on reset.
+  /// @param [out] recordOnReset Whether the system will record data on reset.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetRecordOnReset(uint8_t& recordOnReset) const;
+
+  /// @brief Get the trigger configurations.
+  /// @param [out] triggerConfigs Vector of trigger configurations.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetTriggerConfigs(std::vector<TriggerInfo>& triggerConfigs) const;
+
+  /// @brief Get the total disk space.
+  /// @param [out] totalDiskSpace Total disk space in bytes.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetTotalDiskSpace(uint64_t& totalDiskSpace) const;
+
+  /// @brief Get the remaining disk space.
+  /// @param [out] remainingDiskSpace Remaining disk space in bytes.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetRemainingDiskSpace(uint64_t& remainingDiskSpace) const;
+
+  /// @brief Get the time code of the stream replay.
+  /// @param [out] streamReplayTime Time code of the stream replay.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetStreamReplayTime(Time& streamReplayTime) const;
+
+  /// @brief Get the active streams.
+  /// @param [out] streams Vector of active streams.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetStreams(std::vector<StreamEndpoint>& streams) const;
+
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
   static std::string Test();
+
+protected:
+  /// @brief Get a pointer to the first parameter after the (padded) features.
+  /// @param [out] offset Offset to the first parameter after the (padded) features.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetAfterFeaturesOffset(uint32_t& offset) const;
+
+  /// @brief Get a pointer to the first parameter after the cameras.
+  /// @param [out] offset Offset to the first parameter after the cameras.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetAfterCamerasOffset(uint32_t& offset) const;
+
+  /// @brief Get a pointer to the first parameter after the trigger configurations.
+  /// @param [out] offset Offset to the first parameter after the trigger configurations.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetAfterTriggerConfigsOffset(uint32_t& offset) const;
 };
 
 /// @brief Frame begin message.
