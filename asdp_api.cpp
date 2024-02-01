@@ -2311,7 +2311,7 @@ std::string Message::Test()
 }
 
 MessageDiscovery::MessageDiscovery(StreamPacket& packet, Time timeCode,
-  uint32_t IP, uint16_t port, uint32_t serial)
+    StreamEndpoint endpoint, uint32_t serial)
   : Message(packet, 3 * sizeof(uint32_t), timeCode, DISCOVERY)
 {
   // See if our subobject failed. If so, we're done.
@@ -2321,8 +2321,8 @@ MessageDiscovery::MessageDiscovery(StreamPacket& packet, Time timeCode,
 
   // Pack our parameters.
   unsigned char* bufPtr = m_buffer->data() + m_offset + MESSAGE_BASE_SIZE;
-  memcpy(bufPtr, &IP, sizeof(IP)); bufPtr += sizeof(IP);
-  uint32_t portField = port;
+  memcpy(bufPtr, &endpoint.IP, sizeof(endpoint.IP)); bufPtr += sizeof(endpoint.IP);
+  uint32_t portField = endpoint.port;
   memcpy(bufPtr, &portField, sizeof(portField)); bufPtr += sizeof(portField);
   memcpy(bufPtr, &serial, sizeof(serial)); bufPtr += sizeof(serial);
 }
@@ -2337,23 +2337,17 @@ MessageDiscovery::MessageDiscovery(Message& baseMessage)
   }
 }
 
-Status MessageDiscovery::GetIP(uint32_t& IP) const
-{
-  if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE + sizeof(IP)) {
-    return READ_PAST_END;
-  }
-  memcpy(&IP, m_buffer->data() + m_offset + MESSAGE_BASE_SIZE, sizeof(IP));
-  return OKAY;
-}
-
-Status MessageDiscovery::GetPort(uint16_t& port) const
+Status MessageDiscovery::GetEndpoint(StreamEndpoint& endpoint) const
 {
   if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE + 2 * sizeof(uint32_t)) {
     return READ_PAST_END;
   }
+
+  memcpy(&endpoint.IP, m_buffer->data() + m_offset + MESSAGE_BASE_SIZE, sizeof(endpoint.IP));
+
   uint32_t portField;
   memcpy(&portField, m_buffer->data() + m_offset + MESSAGE_BASE_SIZE + sizeof(uint32_t), sizeof(portField));
-  port = portField;
+  endpoint.port = portField;
   return OKAY;
 }
 
@@ -2379,7 +2373,7 @@ std::string MessageDiscovery::Test()
     Time timeCode = { 1234, 5678 };
     uint32_t IP = 0x01020304, serial = 0x05060708;
     uint16_t port = 1234;
-    MessageDiscovery message(packet, timeCode, IP, port, serial);
+    MessageDiscovery message(packet, timeCode, { IP, port }, serial);
     if (message.GetConstructorStatus() != OKAY) {
       return "Error constructing MessageDiscovery: " + ErrorMessage(message.GetConstructorStatus());
     }
@@ -2416,24 +2410,20 @@ std::string MessageDiscovery::Test()
     }
 
     // Check the values of the message
-    uint32_t rIP, rSerial;
-    uint16_t rPort;
-    status = message.GetIP(rIP);
+    StreamEndpoint rEndpoint;
+    status = message.GetEndpoint(rEndpoint);
     if (status != OKAY) {
-      return "Error getting IP from MessageDiscovery for MessageDiscovery test: " + ErrorMessage(status);
+      return "Error getting endpoint from MessageDiscovery for MessageDiscovery test: " + ErrorMessage(status);
     }
-    if (rIP != IP) {
+    if (rEndpoint.IP != IP) {
       return "Error getting IP from MessageDiscovery for MessageDiscovery test: IP is not " +
         std::to_string(IP);
     }
-    status = message.GetPort(rPort);
-    if (status != OKAY) {
-      return "Error getting port from MessageDiscovery for MessageDiscovery test: " + ErrorMessage(status);
-    }
-    if (rPort != port) {
+    if (rEndpoint.port != port) {
       return "Error getting port from MessageDiscovery for MessageDiscovery test: port is not " +
         std::to_string(port);
     }
+    uint32_t rSerial;
     status = message.GetSerial(rSerial);
     if (status != OKAY) {
       return "Error getting serial from MessageDiscovery for MessageDiscovery test: " + ErrorMessage(status);
@@ -2464,19 +2454,15 @@ std::string MessageDiscovery::Test()
     if (type != DISCOVERY) {
       return "Error getting type from second MessageDiscovery for MessageDiscovery test: type is not DISCOVERY";
     }
-    status = message2.GetIP(rIP);
+    status = message2.GetEndpoint(rEndpoint);
     if (status != OKAY) {
-      return "Error getting IP from second MessageDiscovery for MessageDiscovery test: " + ErrorMessage(status);
+      return "Error getting endpoint from second MessageDiscovery for MessageDiscovery test: " + ErrorMessage(status);
     }
-    if (rIP != IP) {
+    if (rEndpoint.IP != IP) {
       return "Error getting IP from second MessageDiscovery for MessageDiscovery test: IP is not " +
         std::to_string(IP);
     }
-    status = message2.GetPort(rPort);
-    if (status != OKAY) {
-      return "Error getting port from second MessageDiscovery for MessageDiscovery test: " + ErrorMessage(status);
-    }
-    if (rPort != port) {
+    if (rEndpoint.port != port) {
       return "Error getting port from second MessageDiscovery for MessageDiscovery test: port is not " +
         std::to_string(port);
     }
@@ -4282,7 +4268,7 @@ void CoreServer::DiscoveryThread()
       m_threadStatus = status;
       return;
     }
-    MessageDiscovery message(*packet, timeCode, m_IP, m_port, m_serial);
+    MessageDiscovery message(*packet, timeCode, { m_IP, m_port }, m_serial);
     status = message.GetConstructorStatus();
     if (status != OKAY) {
       m_threadStatus = status;
@@ -4377,18 +4363,14 @@ void CoreClient::DiscoveryThread()
     MessageDiscovery discovery(*message);
 
     // Get the IP address, port, and serial number from the message.
-    uint32_t IP;
-    status = discovery.GetIP(IP);
+    StreamEndpoint endpoint;
+    status = discovery.GetEndpoint(endpoint);
     if (status != OKAY) {
       m_threadStatus = status;
       return;
     }
-    uint16_t port;
-    status = discovery.GetPort(port);
-    if (status != OKAY) {
-      m_threadStatus = status;
-      return;
-    }
+    uint32_t IP = endpoint.IP;
+    uint16_t port = endpoint.port;
     uint32_t serial;
     status = discovery.GetSerial(serial);
     if (status != OKAY) {

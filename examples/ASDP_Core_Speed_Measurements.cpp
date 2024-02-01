@@ -28,7 +28,7 @@ int main(int argc, char** argv)
   std::chrono::duration<double> duration = end - start;
   std::cout << "  Duration: " << duration.count() << " seconds" << std::endl;
   double fps = totalIterations / duration.count();
-  std::cout << "  Average frames per second: " << fps << std::endl;
+  std::cout << "  Average construct/destroy per second: " << fps << std::endl;
 
   return 0;
 }

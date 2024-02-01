@@ -453,7 +453,6 @@ protected:
   friend class CommandPacketStreamX;
   friend class CommandPacketCancelX;
 
-  /// @todo Can we remove the Stream* friends below?
   friend class CommandPacketReset;
   friend class CommandPacketCancelAllStreams;
   friend class CommandPacketStartRecording;
@@ -464,16 +463,10 @@ protected:
   friend class CommandPacketStopReplay;
   friend class CommandPacketSetStartUpRecordingState;
   friend class CommandPacketKeepaliveInterval;
-  friend class CommandPacketStreamState;
   friend class CommandPacketConfigureTrigger;
   friend class CommandPacketSoftwareTrigger;
-  friend class CommandPacketStreamEvents;
-  friend class CommandPacketStreamSubregions;
   friend class CommandPacketEraseAllStoredStreams;
-  friend class CommandPacketStreamStoredList;
   friend class CommandPacketEraseStoredStream;
-  friend class CommandPacketStreamTemperatures;
-  friend class CommandPacketStreamPoses;
 };
 
 /// @brief Base class for command packets that start streaming some stort of data.
@@ -1175,26 +1168,20 @@ public:
   /// @brief Construct a MessageDiscovery and store it into a buffer from a StreamPacket.
   /// @param [in] packet Pointer to the StreamPacket containing the message.
   /// @param [in] timeCode Time code for the message.
-  /// @param [in] IP IP address of the system.
-  /// @param [in] port Port number of the system.
+  /// @param [in] endpoint Endpoint for the client to connect to on the server.
   /// @param [in] serial Serial number of the system.
   /// @todo Replace the IP and port with a StreamEndpoint.
   MessageDiscovery::MessageDiscovery(StreamPacket& packet, Time timeCode,
-    uint32_t IP, uint16_t port, uint32_t serial);
+    StreamEndpoint endpoint, uint32_t serial);
 
   /// @brief Type-cast a base Message into a MessageDiscovery packet, re-using its buffer.
   /// @param [in] baseMessage The base Message to convert from.
   MessageDiscovery(Message& baseMessage);
 
-  /// @brief Get the IP address of the system.
-  /// @param [out] IP IP address of the system.
+  /// @brief Get the endpoint to send commands to.
+  /// @param [out] endpoint Endpoint to send commands to.
   /// @return OKAY if successful, otherwise an error code.
-  Status GetIP(uint32_t& IP) const;
-
-  /// @brief Get the port number of the system.
-  /// @param [out] port Port number of the system.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetPort(uint16_t& port) const;
+  Status GetEndpoint(StreamEndpoint& endpoint) const;
 
   /// @brief Get the serial number of the system.
   /// @param [out] serial Serial number of the system.
