@@ -1108,6 +1108,8 @@ protected:
   friend class MessageDiscovery;
   friend class MessageState;
   friend class MessageEvent;
+  friend class MessagePartialStorageList;
+  friend class MessageEndStorageList;
   friend class MessageFrameBegin;
   friend class MessageFrameData;
   friend class MessageFrameEnd;
@@ -1137,6 +1139,11 @@ public:
   /// @brief Return the status of the constructor.
   /// @return OKAY if successful, otherwise an error code.
   Status GetConstructorStatus() const;
+
+  /// @brief Get the total size of the message a packed into the message itself.
+  /// @param [out] size Total size of the message a packed into the message itself.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetTotalSize(uint32_t& size) const;
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
@@ -1324,7 +1331,7 @@ protected:
   Status GetAfterTriggerConfigsOffset(uint32_t& offset) const;
 };
 
-/// @brief State message.
+/// @brief Event message.
 class MessageEvent : public Message {
 public:
   /// @brief Construct a MessageEvent and store it into a buffer from a StreamPacket.
@@ -1354,6 +1361,52 @@ public:
   /// @param [out] param String parameter for the event.
   /// @return OKAY if successful, otherwise an error code.
   Status GetParam(std::string& param) const;
+
+  /// @brief Test function.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
+};
+
+/// @brief Partial list of stored message.
+class MessagePartialStorageList : public Message {
+public:
+  /// @brief Construct a MessagePartialStorageList and store it into a buffer from a StreamPacket.
+  /// @param [in] packet Pointer to the StreamPacket containing the message.
+  /// @param [in] timeCode Time code for the message.
+  /// @param [in] IDs Vector of IDs of stored streams.
+  MessagePartialStorageList(StreamPacket& packet, Time timeCode, std::vector<uint32_t> IDs);
+
+  /// @brief Type-cast a base Message into a MessagePartialStorageList packet, re-using its buffer.
+  /// @param [in] baseMessage The base Message to convert from.
+  MessagePartialStorageList(Message& baseMessage);
+
+  /// @brief Get the IDs of stored streams.
+  /// @param [out] IDs Vector of IDs of stored streams.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetIDs(std::vector<uint32_t>& IDs) const;
+
+  /// @brief Test function.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
+};
+
+/// @brief End of list of stored message.
+class MessageEndStorageList : public Message {
+public:
+  /// @brief Construct a MessagePartialStorageList and store it into a buffer from a StreamPacket.
+  /// @param [in] packet Pointer to the StreamPacket containing the message.
+  /// @param [in] timeCode Time code for the message.
+  /// @param [in] IDs Vector of IDs of stored streams.
+  MessageEndStorageList(StreamPacket& packet, Time timeCode, std::vector<uint32_t> IDs);
+
+  /// @brief Type-cast a base Message into a MessagePartialStorageList packet, re-using its buffer.
+  /// @param [in] baseMessage The base Message to convert from.
+  MessageEndStorageList(Message& baseMessage);
+
+  /// @brief Get the IDs of stored streams.
+  /// @param [out] IDs Vector of IDs of stored streams.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetIDs(std::vector<uint32_t>& IDs) const;
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.

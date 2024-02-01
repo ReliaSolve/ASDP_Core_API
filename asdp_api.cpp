@@ -2213,6 +2213,15 @@ Status Message::GetType(MessageID& messageID) const
   return OKAY;
 }
 
+Status Message::GetTotalSize(uint32_t& size) const
+{
+  if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE) {
+    return READ_PAST_END;
+  }
+  memcpy(&size, m_buffer->data() + m_offset + MESSAGE_HEADER_MESSAGE_TOTAL_SIZE_OFFSET, sizeof(size));
+  return OKAY;
+}
+
 Message::~Message()
 {
 }
@@ -2230,9 +2239,20 @@ std::string Message::Test()
     return "Error constructing message: " + ErrorMessage(message.GetConstructorStatus());
   }
 
+  // Check the length of the message to make sure it matches expectation.
+  uint32_t totalSize;
+  Status status = message.GetTotalSize(totalSize);
+  if (status != OKAY) {
+    return "Error checking message size for message test: " + ErrorMessage(status);
+  }
+  if (totalSize != MESSAGE_BASE_SIZE) {
+    return "Error constructing message from buffer for message test: message length is not " +
+      std::to_string(MESSAGE_BASE_SIZE) + " but " + std::to_string(totalSize);
+  }
+
   // Check the length of the packet including the message to make sure it matches expectation.
   uint32_t totalLength;
-  Status status = packet.GetTotalLength(totalLength);
+  status = packet.GetTotalLength(totalLength);
   if (status != OKAY) {
     return "Error checking message size for message test: " + ErrorMessage(status);
   }
@@ -3220,6 +3240,198 @@ std::string MessageEvent::Test()
         + "\" but \"" + rParam + "\"";
     }
     /// @todo
+  }
+  return "";
+}
+
+MessagePartialStorageList::MessagePartialStorageList(StreamPacket& packet, Time timeCode, std::vector<uint32_t> IDs)
+  : Message(packet, IDs.size() * sizeof(uint32_t), timeCode, LIST_STORED_PARTIAL)
+{
+  // See if our subobject failed. If so, we're done.
+  if (packet.GetConstructorStatus() != OKAY) {
+    m_constructorStatus = packet.GetConstructorStatus();
+    return;
+  }
+
+  // Pack our parameters.
+  uint8_t *bufPtr = m_buffer->data() + m_offset + MESSAGE_BASE_SIZE;
+  for (uint32_t i = 0; i < IDs.size(); i++) {
+    memcpy(bufPtr, &IDs[i], sizeof(IDs[i]));
+    bufPtr += sizeof(IDs[i]);
+  }
+}
+
+MessagePartialStorageList::MessagePartialStorageList(Message& baseMessage)
+  : Message(baseMessage)
+{
+  MessageID type;
+  baseMessage.GetType(type);
+  if (type != LIST_STORED_PARTIAL) {
+    m_constructorStatus = BAD_PARAMETER;
+  }
+}
+
+Status MessagePartialStorageList::GetIDs(std::vector<uint32_t>& IDs) const
+{
+  if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE) {
+    return READ_PAST_END;
+  }
+
+  // Read the size of the message from the Message base class.
+  uint32_t totalMessageSize;
+  Status status = GetTotalSize(totalMessageSize);
+  if (status != OKAY) {
+    return status;
+  }
+
+  // Read the IDs from the buffer from the offset of the parameters to the end of the message.
+  uint32_t numIDs = (totalMessageSize - MESSAGE_BASE_SIZE) / sizeof(uint32_t);
+  IDs.resize(numIDs);
+  memcpy(IDs.data(), m_buffer->data() + m_offset + MESSAGE_BASE_SIZE, numIDs * sizeof(uint32_t));
+  return OKAY;
+}
+
+std::string MessagePartialStorageList::Test()
+{
+  {
+    // Construct a message and check its length, time and type.
+    StreamPacket packet;
+    if (packet.GetConstructorStatus() != OKAY) {
+      return "Error constructing stream packet for MessagePartialStorageList test: " + ErrorMessage(packet.GetConstructorStatus());
+    }
+
+    // Add a message.
+    Time timeCode = { 1234, 5678 };
+    std::vector<uint32_t> IDs = { 1, 2, 3, 4, 5 };
+    MessagePartialStorageList message(packet, timeCode, IDs);
+    if (message.GetConstructorStatus() != OKAY) {
+      return "Error constructing MessagePartialStorageList: " + ErrorMessage(message.GetConstructorStatus());
+    }
+
+    // Check the time and type of the message.
+    Time rTimeCode;
+    Status status = message.GetTime(rTimeCode);
+    if (status != OKAY) {
+      return "Error getting time code from MessagePartialStorageList for MessagePartialStorageList test: " + ErrorMessage(status);
+    }
+    if (rTimeCode != timeCode) {
+      return "Error getting time code from MessagePartialStorageList for MessagePartialStorageList test: time code is not " +
+        std::to_string(timeCode.seconds) + "." + std::to_string(timeCode.microseconds);
+    }
+    MessageID type;
+    status = message.GetType(type);
+    if (status != OKAY) {
+      return "Error getting type from MessagePartialStorageList for MessagePartialStorageList test: " + ErrorMessage(status);
+    }
+    if (type != LIST_STORED_PARTIAL) {
+      return "Error getting type from MessagePartialStorageList";
+    }
+
+    // Check the values of the message
+    std::vector<uint32_t> rIDs;
+    status = message.GetIDs(rIDs);
+    if (status != OKAY) {
+      return "Error getting IDs from MessagePartialStorageList for MessagePartialStorageList test: " + ErrorMessage(status);
+    }
+    if (rIDs != IDs) {
+      return "Error getting IDs from MessagePartialStorageList for MessagePartialStorageList test: IDs are not { 1, 2, 3, 4, 5 }";
+    }
+  }
+  return "";
+}
+
+MessageEndStorageList::MessageEndStorageList(StreamPacket& packet, Time timeCode, std::vector<uint32_t> IDs)
+  : Message(packet, IDs.size() * sizeof(uint32_t), timeCode, LIST_STORED_END)
+{
+  // See if our subobject failed. If so, we're done.
+  if (packet.GetConstructorStatus() != OKAY) {
+    m_constructorStatus = packet.GetConstructorStatus();
+    return;
+  }
+
+  // Pack our parameters.
+  uint8_t* bufPtr = m_buffer->data() + m_offset + MESSAGE_BASE_SIZE;
+  for (uint32_t i = 0; i < IDs.size(); i++) {
+    memcpy(bufPtr, &IDs[i], sizeof(IDs[i]));
+    bufPtr += sizeof(IDs[i]);
+  }
+}
+
+MessageEndStorageList::MessageEndStorageList(Message& baseMessage)
+  : Message(baseMessage)
+{
+  MessageID type;
+  baseMessage.GetType(type);
+  if (type != LIST_STORED_PARTIAL) {
+    m_constructorStatus = BAD_PARAMETER;
+  }
+}
+
+Status MessageEndStorageList::GetIDs(std::vector<uint32_t>& IDs) const
+{
+  if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE) {
+    return READ_PAST_END;
+  }
+
+  // Read the size of the message from the Message base class.
+  uint32_t totalMessageSize;
+  Status status = GetTotalSize(totalMessageSize);
+  if (status != OKAY) {
+    return status;
+  }
+
+  // Read the IDs from the buffer from the offset of the parameters to the end of the message.
+  uint32_t numIDs = (totalMessageSize - MESSAGE_BASE_SIZE) / sizeof(uint32_t);
+  IDs.resize(numIDs);
+  memcpy(IDs.data(), m_buffer->data() + m_offset + MESSAGE_BASE_SIZE, numIDs * sizeof(uint32_t));
+  return OKAY;
+}
+
+std::string MessageEndStorageList::Test()
+{
+  {
+    // Construct a message and check its length, time and type.
+    StreamPacket packet;
+    if (packet.GetConstructorStatus() != OKAY) {
+      return "Error constructing stream packet for MessageEndStorageList test: " + ErrorMessage(packet.GetConstructorStatus());
+    }
+
+    // Add a message.
+    Time timeCode = { 1234, 5678 };
+    std::vector<uint32_t> IDs = { 1, 2, 3, 4, 5 };
+    MessagePartialStorageList message(packet, timeCode, IDs);
+    if (message.GetConstructorStatus() != OKAY) {
+      return "Error constructing MessageEndStorageList: " + ErrorMessage(message.GetConstructorStatus());
+    }
+
+    // Check the time and type of the message.
+    Time rTimeCode;
+    Status status = message.GetTime(rTimeCode);
+    if (status != OKAY) {
+      return "Error getting time code from MessageEndStorageList for MessageEndStorageList test: " + ErrorMessage(status);
+    }
+    if (rTimeCode != timeCode) {
+      return "Error getting time code from MessageEndStorageList for MessageEndStorageList test: time code is not " +
+        std::to_string(timeCode.seconds) + "." + std::to_string(timeCode.microseconds);
+    }
+    MessageID type;
+    status = message.GetType(type);
+    if (status != OKAY) {
+      return "Error getting type from MessageEndStorageList for MessageEndStorageList test: " + ErrorMessage(status);
+    }
+    if (type != LIST_STORED_PARTIAL) {
+      return "Error getting type from MessageEndStorageList";
+    }
+
+    // Check the values of the message
+    std::vector<uint32_t> rIDs;
+    status = message.GetIDs(rIDs);
+    if (status != OKAY) {
+      return "Error getting IDs from MessageEndStorageList for MessageEndStorageList test: " + ErrorMessage(status);
+    }
+    if (rIDs != IDs) {
+      return "Error getting IDs from MessageEndStorageList for MessageEndStorageList test: IDs are not { 1, 2, 3, 4, 5 }";
+    }
   }
   return "";
 }
@@ -5600,6 +5812,14 @@ std::string asdp::Test()
   ret = MessageFrameEnd::Test();
   if (ret.size() > 0) {
     return "Error testing MessageFrameEnd: " + ret;
+  }
+  ret = MessagePartialStorageList::Test();
+  if (ret.size() > 0) {
+    return "Error testing MessagePartialStorageList: " + ret;
+  }
+  ret = MessageEndStorageList::Test();
+  if (ret.size() > 0) {
+    return "Error testing MessageEndStorageList: " + ret;
   }
 
   //-------------------------------------------------------------------
