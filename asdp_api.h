@@ -1732,7 +1732,7 @@ public:
   SenderFile(std::string fileName);
 
   /// @brief Destructor.
-  virtual ~SenderFile();
+  ~SenderFile() override;
 
   /// @brief Send a UDP packet.
   /// @param [in] buffer Pointer to the buffer containing the packet to send.
@@ -1762,6 +1762,9 @@ public:
   /// @brief Construct a Receiver object.
   /// @param [in] maxLen Maximum length of a packet to receive (default of 1472 is the maximum for Ethernet).
   Receiver(uint32_t maxLen = 9000 - 28) : m_constructorStatus(OKAY), m_maxLen(maxLen) {};
+
+  /// @brief Virtual destructor so all derived class pointers will destroy properly.
+  virtual ~Receiver() {};
 
   /// @brief See if a packet is available to receive.
   /// 
@@ -1902,7 +1905,7 @@ public:
   Status ReceiveStreamPacket(double timeout_seconds, std::shared_ptr<StreamPacket>& packet) override;
 
   /// @brief Destructor.
-  virtual ~ReceiverFile();
+  ~ReceiverFile() override;
 
   /// @brief Test function for both this class and the SenderFile class.
   /// @return Empty string if successful, otherwise descriptive error message.
