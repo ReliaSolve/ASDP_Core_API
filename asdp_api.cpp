@@ -4383,13 +4383,17 @@ SenderUDP::SenderUDP(std::string host, uint16_t port)
   , m_IP(0)
   , m_port(0)
 {
-  // Map the host name to an IP address and set the port.
+  // Set up to bind to a local generic socket that can use any interface.
   struct addrinfo hints, * res;
   memset(&hints, 0, sizeof(hints));
   hints.ai_family = AF_INET;
   hints.ai_socktype = SOCK_DGRAM;
-  hints.ai_flags |= AI_CANONNAME;
-  if (0 != getaddrinfo(host.c_str(), std::to_string(port).c_str(), &hints, &res)) {
+  hints.ai_flags |= AI_PASSIVE;
+  if (0 != getaddrinfo(nullptr, "0", &hints, &res)) {
+    m_constructorStatus = BAD_PARAMETER;
+    return;
+  }
+  if (res == nullptr) {
     m_constructorStatus = BAD_PARAMETER;
     return;
   }
@@ -4402,18 +4406,42 @@ SenderUDP::SenderUDP(std::string host, uint16_t port)
     return;
   }
 
-  // Record our IP address and port.
-  struct sockaddr_in* addr = (struct sockaddr_in*)res->ai_addr;
-  m_IP = ntohl(addr->sin_addr.s_addr);
-  m_port = ntohs(addr->sin_port);
+  // Bind the socket to use any interface and any port.
+  if (0 != bind(m_socket->socket, res->ai_addr, res->ai_addrlen)) {
+    m_constructorStatus = SOCKET_FAILURE;
+    freeaddrinfo(res);
+    m_socket.reset();
+    return;
+  }
 
   // Connect the socket to the specified host and port.
+  memset(&hints, 0, sizeof(hints));
+  hints.ai_family = AF_INET;
+  hints.ai_socktype = SOCK_DGRAM;
+  hints.ai_flags |= AI_CANONNAME;
+  if (0 != getaddrinfo(host.c_str(), std::to_string(port).c_str(), &hints, &res)) {
+    m_constructorStatus = BAD_PARAMETER;
+    freeaddrinfo(res);
+    m_socket.reset();
+    return;
+  }
+  if (res == nullptr) {
+    m_constructorStatus = BAD_PARAMETER;
+    freeaddrinfo(res);
+    m_socket.reset();
+    return;
+  }
   if (0 != connect(m_socket->socket, res->ai_addr, res->ai_addrlen)) {
     m_constructorStatus = SOCKET_FAILURE;
     freeaddrinfo(res);
-    closesocket(m_socket->socket);
+    m_socket.reset();
     return;
   }
+
+  // Record the IP address and port of the remote host we're connected to.
+  struct sockaddr_in* addr = (struct sockaddr_in*)res->ai_addr;
+  m_IP = ntohl(addr->sin_addr.s_addr);
+  m_port = ntohs(addr->sin_port);
 
   // Free our resources
   freeaddrinfo(res);
