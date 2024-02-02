@@ -1019,6 +1019,8 @@ public:
   static std::string Test() { return CommandPacketCancelX::Test(CANCEL_POSES); }
 };
 
+class Message;   // Forward declaration
+
 //---------------------------------------------------------------------------
 /// @brief Stream packet, subclass constructed and sent by servers and received and parsed by clients.
 ///
@@ -1030,7 +1032,6 @@ public:
 ///
 /// Subclasses are listed below.
 
-class Message;   // Foreward declaration
 class StreamPacket : public BasicPacket {
 public:
 
