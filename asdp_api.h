@@ -399,7 +399,7 @@ protected:
 ///
 /// The command packet is a UDP packet sent by a client to a server.  It contains an operation code
 /// and optional parameters.  The server receives the packet, parses it, and executes the operation.
-/// These packets are sent using the SocketSender class and received using the SocketReceiver class.
+/// These packets are sent using the Sender class and received using the Receiver class.
 /// They are created on a client by constructing a subclass.  They are parsed on a server from a
 /// buffer by checking the operation code and then typecasting to the appropriate subclass.
 ///
@@ -1026,7 +1026,7 @@ class Message;   // Forward declaration
 ///
 /// The stream packet is a UDP packet sent by a server to a client.  It contains zero or more
 /// Messages.  The client receives the packet, parses it, and handles the messages.
-/// These packets are sent using the SocketSender class and received using the SocketReceiver class.
+/// These packets are sent using a Sender class and received using a Receiver class.
 /// They are created on a server by constructing a subclass.  They are parsed on a client from a
 /// buffer by getting each message from the buffer.
 ///
@@ -1685,7 +1685,7 @@ protected:
 
 class SenderUDP : public Sender {
 public:
-  /// @brief Construct a SocketSender object that will send to a specific endpoint.
+  /// @brief Construct a SenderUDP object that will send to a specific endpoint.
   /// @param [in] host Name of the host to send to.
   /// @param [in] port Port number to send to.
   SenderUDP(std::string host, uint16_t port);
@@ -1730,7 +1730,7 @@ protected:
 
 class SenderFile : public Sender {
 public:
-  /// @brief Construct a SocketSender object that will send to a specific endpoint.
+  /// @brief Construct a SenderFile object that will send to a specific endpoint.
   /// @param [in] fileName Name of the file to write to.
   SenderFile(std::string fileName);
 
@@ -1819,7 +1819,7 @@ public:
 
   /// @brief Get the port associated with this receiver.
   /// @return The port associated with this receiver, or 0 for failure.
-  uint16_t GetPort() const { return m_port; }
+  Status GetPort(uint16_t& port) const { port = m_port;  return OKAY; }
 
   /// @brief See if a packet is available to receive.
   /// 

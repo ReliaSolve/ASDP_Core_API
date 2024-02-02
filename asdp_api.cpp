@@ -44,7 +44,7 @@ std::string asdp::ErrorMessage(Status status)
   case WRITE_PAST_END:
     return "Attempt to write past end of buffer";
   case SOCKET_READ_FAILURE:
-    return "Read error on socket; perhaps client buffer too small";
+    return "Read error on socket or client buffer too small";
   case FILE_FAILURE:
     return "File error";
   case UNEXPECTED_INTERNAL_STATE:
@@ -4818,9 +4818,12 @@ std::string ReceiverUDP::Test()
   if (receiver.GetConstructorStatus() != OKAY) {
     return "Error constructing ReceiverUDP: " + ErrorMessage(receiver.GetConstructorStatus());
   }
-  uint16_t port;
-  port = receiver.GetPort();
-  SenderUDP sender("localhost", port);
+  uint16_t receiverPort;
+  status = receiver.GetPort(receiverPort);
+  if (status != OKAY) {
+    return "Error getting port from ReceiverUDP: " + ErrorMessage(status);
+  }
+  SenderUDP sender("localhost", receiverPort);
   if (sender.GetConstructorStatus() != OKAY) {
     return "Error constructing SenderUDP: " + ErrorMessage(sender.GetConstructorStatus());
   }
@@ -4834,12 +4837,13 @@ std::string ReceiverUDP::Test()
   if (IP != 0x7f000001) {
     return "Error getting IP address from SenderUDP: IP address is not Localhost";
   }
+  uint16_t port;
   status = sender.GetPort(port);
   if (status != OKAY) {
     return "Error getting port from SenderUDP: " + ErrorMessage(status);
   }
-  if (port != receiver.GetPort()) {
-    return "Error getting port from SenderUDP: port is not " + std::to_string(receiver.GetPort());
+  if (port != receiverPort) {
+    return "Error getting port from SenderUDP: port is not " + std::to_string(receiverPort);
   }
 
   // Send a packet.
@@ -5342,7 +5346,10 @@ std::string StreamWriter::Test()
     return "Error constructing ReceiverUDP: " + ErrorMessage(receiver.GetConstructorStatus());
   }
   uint16_t port;
-  port = receiver.GetPort();
+  status = receiver.GetPort(port);
+  if (status != OKAY) {
+    return "Error getting port from ReceiverUDP: " + ErrorMessage(status);
+  }
   std::shared_ptr<SenderUDP> sender = std::make_shared<SenderUDP>("localhost", port);
   if (sender->GetConstructorStatus() != OKAY) {
     return "Error constructing SenderUDP: " + ErrorMessage(sender->GetConstructorStatus());
