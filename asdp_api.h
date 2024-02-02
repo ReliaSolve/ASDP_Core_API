@@ -1690,9 +1690,6 @@ public:
   /// @param [in] port Port number to send to.
   SenderUDP(std::string host, uint16_t port);
 
-  /// @brief Destructor.
-  virtual ~SenderUDP();
-
   /// @brief Send a UDP packet.
   /// @param [in] buffer Pointer to the buffer containing the packet to send.
   /// @param [in] length Length of the packet to send.
@@ -1852,9 +1849,6 @@ public:
   /// @param [out] packet The received StreamPacket, nullptr if timeout or error.
   /// @return OKAY if successful, TIMEOUT on timeout, otherwise an error code.
   Status ReceiveStreamPacket(double timeout_seconds, std::shared_ptr<StreamPacket>& packet) override;
-
-  /// @brief Destructor.
-  virtual ~ReceiverUDP();
 
   /// @brief Test function for both this class and the SenderUDP class.
   /// @return Empty string if successful, otherwise descriptive error message.

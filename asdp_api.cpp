@@ -4447,10 +4447,6 @@ SenderUDP::SenderUDP(std::string host, uint16_t port)
   freeaddrinfo(res);
 }
 
-SenderUDP::~SenderUDP()
-{
-}
-
 Status SenderUDP::Send(const void* buffer, uint32_t length)
 {
   // Check our parameters
@@ -4683,10 +4679,6 @@ ReceiverUDP::ReceiverUDP(std::string host, uint16_t port, uint32_t maxLen)
 
   // Free our resources
   freeaddrinfo(res);
-}
-
-ReceiverUDP::~ReceiverUDP()
-{
 }
 
 Status ReceiverUDP::IsPacketAvailable(double timeout_seconds, bool& available)
