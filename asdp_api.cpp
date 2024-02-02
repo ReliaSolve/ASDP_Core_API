@@ -4371,7 +4371,14 @@ std::string MessagePose::Test()
 
 class asdp::Socket {
 public:
-  SOCKET socket;    ///< The socket to use
+  SOCKET socket = BAD_SOCKET;    ///< The socket to use, initially not open.
+  /// @brief Destructor closes the socket if it is open.
+  ~Socket() {
+    if (socket != BAD_SOCKET) {
+      closesocket(socket);
+      socket = BAD_SOCKET;
+    }
+  }
 };
 
 SenderUDP::SenderUDP(std::string host, uint16_t port)
@@ -4417,9 +4424,6 @@ SenderUDP::SenderUDP(std::string host, uint16_t port)
 
 SenderUDP::~SenderUDP()
 {
-  if ((m_socket != nullptr) && (m_socket->socket != BAD_SOCKET)) {
-    closesocket(m_socket->socket);
-  }
 }
 
 Status SenderUDP::Send(const void* buffer, uint32_t length)
@@ -4627,6 +4631,7 @@ ReceiverUDP::ReceiverUDP(std::string host, uint16_t port, uint32_t maxLen)
   if (m_socket->socket == BAD_SOCKET) {
     m_constructorStatus = BAD_PARAMETER;
     freeaddrinfo(res);
+    m_socket.reset();
     return;
   }
 
@@ -4634,7 +4639,7 @@ ReceiverUDP::ReceiverUDP(std::string host, uint16_t port, uint32_t maxLen)
   if (0 != bind(m_socket->socket, res->ai_addr, res->ai_addrlen)) {
     m_constructorStatus = SOCKET_FAILURE;
     freeaddrinfo(res);
-    closesocket(m_socket->socket);
+    m_socket.reset();
     return;
   }
 
@@ -4645,7 +4650,7 @@ ReceiverUDP::ReceiverUDP(std::string host, uint16_t port, uint32_t maxLen)
     if (getsockname(m_socket->socket, (struct sockaddr *)&sin, &len) == -1) {
       m_constructorStatus = SOCKET_FAILURE;
       freeaddrinfo(res);
-      closesocket(m_socket->socket);
+      m_socket.reset();
       return;
     }
     m_port = ntohs(sin.sin_port);
@@ -4657,9 +4662,6 @@ ReceiverUDP::ReceiverUDP(std::string host, uint16_t port, uint32_t maxLen)
 
 ReceiverUDP::~ReceiverUDP()
 {
-  if ((m_socket != nullptr) && (m_socket->socket != BAD_SOCKET)) {
-    closesocket(m_socket->socket);
-  }
 }
 
 Status ReceiverUDP::IsPacketAvailable(double timeout_seconds, bool& available)
