@@ -3570,16 +3570,13 @@ Status MessageFrameData::GetBottom(uint16_t& bottom) const
   return OKAY;
 }
 
-Status MessageFrameData::GetDataPointer(uint8_t** data) const
+Status MessageFrameData::GetDataPointer(uint8_t*& data) const
 {
-  if (data == nullptr) {
-    return BAD_PARAMETER;
-  }
   uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + sizeof(uint32_t) + 4 * sizeof(uint16_t);
   if (m_buffer->size() < myOffset) {
     return READ_PAST_END;
   }
-  *data = m_buffer->data() + myOffset;
+  data = m_buffer->data() + myOffset;
   return OKAY;
 }
 
@@ -3685,7 +3682,7 @@ std::string MessageFrameData::Test()
         std::to_string(bottom);
     }
     uint8_t* rData;
-    status = message.GetDataPointer(&rData);
+    status = message.GetDataPointer(rData);
     if (status != OKAY) {
       return "Error getting data pointer from message for MessageFrameData test: " + ErrorMessage(status);
     }
@@ -3726,7 +3723,7 @@ std::string MessageFrameData::Test()
       return "Error getting bottom from second message for MessageFrameData test: bottom is not " +
         std::to_string(bottom);
     }
-    status = message2.GetDataPointer(&rData);
+    status = message2.GetDataPointer(rData);
     if (status != OKAY) {
       return "Error getting data pointer from second message for MessageFrameData test: " + ErrorMessage(status);
     }

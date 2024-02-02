@@ -1476,7 +1476,7 @@ public:
   /// @param [out] data Pointer to the data for the frame.
   /// This pointer is valid only as long as the MessageFrameData is valid.
   /// @return OKAY if successful, otherwise an error code.
-  Status GetDataPointer(uint8_t** data) const;
+  Status GetDataPointer(uint8_t*& data) const;
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
