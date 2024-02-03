@@ -140,7 +140,7 @@ enum EventID : uint32_t {
 //---------------------------------------------------------------------------
 /// @brief feature IDs.
 enum FeatureID : uint16_t {
-  STORAGE_MODULE_AVAILABLE = 1,
+  STORAGE_API_AVAILABLE = 1,
   TEMPERATURE_API_AVAILBLE = 3,
   POSE_API_ORIENTATION_AVAILABLE = 4,
   POSE_API_POSITION_AVAILABLE = 5
@@ -1821,7 +1821,7 @@ protected:
 
 class ReceiverUDP : public Receiver {
 public:
-  /// @brief Construct a SocketReceiver object.
+  /// @brief Construct a ReceiverUDP object.
   /// @param [in] interfaceName Name of the interface to listen on.
   /// @param [in] port Port number to listen on (default of 0 means any available port).
   /// @param [in] maxLen Maximum length of a packet to receive (default of 1472 is the maximum for Ethernet).
@@ -1877,7 +1877,7 @@ protected:
 
 class ReceiverFile : public Receiver {
 public:
-  /// @brief Construct a SocketReceiver object.
+  /// @brief Construct a ReceiverFile object.
   /// @param [in] fileName Name of the file to write to.
   /// @param [in] maxLen Maximum length of a packet to receive (default of 1472 is the maximum for Ethernet).
   ReceiverFile(std::string fileName, uint32_t maxLen = 9000 - 28);

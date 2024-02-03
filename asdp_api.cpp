@@ -2863,7 +2863,7 @@ std::string MessageState::Test()
 
     // Add a message.
     Time timeCode = { 1234, 5678 };
-    std::vector<FeatureID> features = { STORAGE_MODULE_AVAILABLE, TEMPERATURE_API_AVAILBLE, POSE_API_ORIENTATION_AVAILABLE };
+    std::vector<FeatureID> features = { STORAGE_API_AVAILABLE, TEMPERATURE_API_AVAILBLE, POSE_API_ORIENTATION_AVAILABLE };
     std::vector<CameraInfo> cameras = { { 1, 2, 3, 4, 5, 6 }, { 7, 8, 9, 10, 11, 12 } };
     uint32_t numTempSensorsPerCamera = 13, numExternalTempSensors = 14;
     float keepAliveInterval = 15.0;
