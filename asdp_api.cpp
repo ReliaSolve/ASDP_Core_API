@@ -182,6 +182,11 @@ public:
 static WSAStart startUp;
 #endif
 
+#ifdef _WIN32
+#include <iphlpapi.h>
+#pragma comment(lib, "IPHLPAPI.lib")
+#endif
+
 //----------------------------------------------------------------------------
 // Helper functions.
 
@@ -4378,17 +4383,105 @@ public:
   }
 };
 
+/// @brief Get the local IP addresses of the machine.
+/// @return A vector of the local IP addresses of the machine.
+static std::vector<uint32_t> GetLocalIPs()
+{
+#ifdef _WIN32
+  std::vector<uint32_t> IPs;
+  PIP_ADAPTER_ADDRESSES pAddresses = NULL;
+  ULONG outBufLen = 0;
+  ULONG Iterations = 0;
+  ULONG family = AF_INET;
+  DWORD dwRetVal = 0;
+  ULONG flags = GAA_FLAG_INCLUDE_PREFIX;
+  ULONG familySize = sizeof(family);
+  PIP_ADAPTER_ADDRESSES pCurrAddresses = NULL;
+  PIP_ADAPTER_UNICAST_ADDRESS pUnicast = NULL;
+  PIP_ADAPTER_ANYCAST_ADDRESS pAnycast = NULL;
+  PIP_ADAPTER_MULTICAST_ADDRESS pMulticast = NULL;
+  IP_ADAPTER_DNS_SERVER_ADDRESS* pDnServer = NULL;
+  IP_ADAPTER_PREFIX* pPrefix = NULL;
+  outBufLen = 15000;
+  do {
+    pAddresses = (IP_ADAPTER_ADDRESSES*)malloc(outBufLen);
+    if (pAddresses == NULL) {
+      return IPs;
+    }
+    dwRetVal = GetAdaptersAddresses(family, flags, NULL, pAddresses, &outBufLen);
+    if (dwRetVal == ERROR_BUFFER_OVERFLOW) {
+      free(pAddresses);
+      pAddresses = NULL;
+    }
+    else {
+      break;
+    }
+    Iterations++;
+  } while ((dwRetVal == ERROR_BUFFER_OVERFLOW) && (Iterations < 3));
+  if (dwRetVal != NO_ERROR) {
+    free(pAddresses);
+    return IPs;
+  }
+  for (pCurrAddresses = pAddresses; pCurrAddresses != NULL; pCurrAddresses = pCurrAddresses->Next) {
+    for (pUnicast = pCurrAddresses->FirstUnicastAddress; pUnicast != NULL; pUnicast = pUnicast->Next) {
+      if (pUnicast->Address.lpSockaddr->sa_family == AF_INET) {
+        IPs.push_back(((struct sockaddr_in*)pUnicast->Address.lpSockaddr)->sin_addr.s_addr);
+      }
+    }
+  }
+  if (pAddresses) {
+    free(pAddresses);
+  }
+  return IPs;
+#else
+  /// @todo Make this work on Linux
+  struct ifaddrs* ifAddrStruct = NULL;
+  struct ifaddrs* ifa = NULL;
+  void* tmpAddrPtr = NULL;
+
+  getifaddrs(&ifAddrStruct);
+
+  for (ifa = ifAddrStruct; ifa != NULL; ifa = ifa->ifa_next) {
+    if (!ifa->ifa_addr) {
+      continue;
+    }
+    // check it is IP4
+    if (ifa->ifa_addr->sa_family == AF_INET) {
+      tmpAddrPtr = &((struct sockaddr_in*)ifa->ifa_addr)->sin_addr;
+      char addressBuffer[INET_ADDRSTRLEN];
+      inet_ntop(AF_INET, tmpAddrPtr, addressBuffer, INET_ADDRSTRLEN);
+      printf("%s IP Address %s\n", ifa->ifa_name, addressBuffer);
+    }
+    // check it is IP6
+    else if (ifa->ifa_addr->sa_family == AF_INET6) {
+      tmpAddrPtr = &((struct sockaddr_in6*)ifa->ifa_addr)->sin6_addr;
+      char addressBuffer[INET6_ADDRSTRLEN];
+      inet_ntop(AF_INET6, tmpAddrPtr, addressBuffer, INET6_ADDRSTRLEN);
+      printf("%s IP Address %s\n", ifa->ifa_name, addressBuffer);
+    }
+  }
+  if (ifAddrStruct != NULL) {
+    freeifaddrs(ifAddrStruct);
+  }
+#endif
+}
+
 SenderUDP::SenderUDP(std::string host, uint16_t port, bool broadcast)
   : m_socket(std::make_shared<Socket>())
   , m_IP(0)
   , m_port(0)
 {
-  // Set up to bind to a local socket that uses any available port on the requested interface.
+  // Set up to bind to a local socket that uses any available port on the interface that would be
+  // used to send to the requested address.  The assumption is that we're on the same sublan as the
+  // host we're sending to, so we can do a best match between all of our NIC addresses and the server
+  // address to determine which one we should use.
+
+  // Find the information about the host we're sending to.
   struct addrinfo hints, * res;
   memset(&hints, 0, sizeof(hints));
   hints.ai_family = AF_INET;
   hints.ai_socktype = SOCK_DGRAM;
-  hints.ai_flags |= AI_PASSIVE;
+  hints.ai_flags |= AI_CANONNAME;
   if (0 != getaddrinfo(host.c_str(), "0", &hints, &res)) {
     m_constructorStatus = BAD_PARAMETER;
     return;
@@ -4406,6 +4499,37 @@ SenderUDP::SenderUDP(std::string host, uint16_t port, bool broadcast)
     return;
   }
 
+  // Find the IP address of the host we're sending to.
+  uint32_t IP = ((struct sockaddr_in*)(res->ai_addr))->sin_addr.s_addr;
+
+  // Find the list of our NIC addresses.
+  std::vector<uint32_t> localIPs = GetLocalIPs();
+  if (localIPs.size() == 0) {
+    m_constructorStatus = SOCKET_FAILURE;
+    freeaddrinfo(res);
+    return;
+  }
+
+  // Find the entry from our list of addresses that most closely matches the address we're sending to.
+  uint32_t bestMatch = 0;
+  uint32_t bestMatchCount = 0;
+  for (uint32_t localIP : localIPs) {
+    uint32_t count = 0;
+    for (uint32_t mask = 0x80000000; mask != 0; mask >>= 1) {
+      if ((localIP & mask) == (IP & mask)) {
+        count++;
+      }
+    }
+    if (count > bestMatchCount) {
+      bestMatch = localIP;
+      bestMatchCount = count;
+    }
+  }
+
+  // Bind to the best match.
+  struct sockaddr_in* addr = (struct sockaddr_in*)res->ai_addr;
+  addr->sin_addr.s_addr = bestMatch;
+
   // Bind the socket to use the requested interface and any port.
   if (0 != bind(m_socket->socket, res->ai_addr, res->ai_addrlen)) {
     m_constructorStatus = SOCKET_FAILURE;
@@ -4415,7 +4539,6 @@ SenderUDP::SenderUDP(std::string host, uint16_t port, bool broadcast)
   }
 
   // Record the IP address of our NIC and the port we are using to send on.
-  struct sockaddr_in* addr = (struct sockaddr_in*)res->ai_addr;
   m_IP = ntohl(addr->sin_addr.s_addr);
   m_port = ntohs(addr->sin_port);
 
@@ -5834,12 +5957,22 @@ Status CoreClient::ConnectToServer(std::string serverURL)
 
   // Record our IP address.
   status = m_sender->GetIP(m_IP);
+  if (status != OKAY) {
+    return status;
+  }
+
+  // Convert the string IP address into a 32-bit unsigned.
+  struct in_addr ip_addr;
+  if (!inet_pton(AF_INET, IP.c_str(), &ip_addr)) {
+    return BAD_PARAMETER;
+  }
+  uint32_t IP32 = ntohl(ip_addr.s_addr);
 
   // Look up the server's serial number from our table based on the
   // IP address and port being connected to.
   bool found = false;
   for (size_t i = 0; i < m_servers.size(); i++) {
-    if ((m_servers[i].IP == m_IP) && (m_servers[i].port == port)) {
+    if ((m_servers[i].IP == IP32) && (m_servers[i].port == port)) {
       m_serial = m_servers[i].serial;
       found = true;
       break;
