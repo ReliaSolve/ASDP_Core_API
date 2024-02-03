@@ -75,7 +75,9 @@ enum Status {
   /// @brief Error: The object is not connected to a counterpart objects.
   NOT_CONNECTED                 = 1015,
   /// @brief Error: The size of a floating-point number is not what was expected.
-  INCORRECT_FLOAT_SIZE          = 1016
+  INCORRECT_FLOAT_SIZE          = 1016,
+  /// @brief Error: The size of an enumeration is not what was expected.
+  INCORRECT_ENUM_SIZE           = 1017
 };
 
 /// @brief Helper function to return a descriptive error message based on a status value.
@@ -1712,7 +1714,7 @@ public:
   /// @return OKAY if successful, otherwise an error code.
   Status GetIP(uint32_t& IP) const;
 
-  /// @brief Get the local port associated with this sender.
+  /// @brief Get the local port associated with this sender, which will be determined by the OS.
   /// @param [out] port Local port associated with this sender.
   /// @return OKAY if successful, otherwise an error code.
   Status GetPort(uint16_t& port) const;

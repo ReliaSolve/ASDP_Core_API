@@ -55,6 +55,8 @@ std::string asdp::ErrorMessage(Status status)
     return "Not connected";
   case INCORRECT_FLOAT_SIZE:
     return "This architecture does not have 32-bit floats";
+  case INCORRECT_ENUM_SIZE:
+    return "This architecture does not have 32-bit enums";
 
   default:
     return "Unrecognized error code: " + std::to_string(status);
@@ -4847,9 +4849,7 @@ std::string ReceiverUDP::Test()
   if (status != OKAY) {
     return "Error getting port from SenderUDP: " + ErrorMessage(status);
   }
-  if (port != receiverPort) {
-    return "Error getting port from SenderUDP: port is not " + std::to_string(receiverPort);
-  }
+  // We don't know what port it will be, because it gets any available port, so we can't check it.
 
   // Send a packet.
   std::vector<uint8_t> sendBuffer(1000, 0);
@@ -5496,6 +5496,12 @@ Core::Core(uint32_t maxPayloadSize)
     return;
   }
 
+  // Verify that the size of an enum (Status, for instance) is 4 bytes
+  if (sizeof(Status) != 4) {
+    m_constructorStatus = INCORRECT_ENUM_SIZE;
+    return;
+  }
+
   // Construct our timer.
   Timer *timerPtr = new Timer();
   m_timer.reset(timerPtr);
@@ -5883,11 +5889,7 @@ std::string CoreClient::Test()
   if (status != OKAY) {
     return "Error getting IP: " + ErrorMessage(status);
   }
-  uint16_t port;
-  status = sender.GetPort(port);
-  if (status != OKAY) {
-    return "Error getting port: " + ErrorMessage(status);
-  }
+  uint16_t port = 10102;
   uint32_t serial = 123456789;
   ServerInfo serverInfo(IP, port, serial);
   std::string URL = URLFromServerInfo(serverInfo);
