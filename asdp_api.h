@@ -1228,7 +1228,7 @@ public:
   /// @param [in] remainingDiskSpace Remaining disk space in bytes.
   /// @param [in] streamReplayTime Time code of the stream replay.
   /// @param [in] streams Vector of active streams.
-  MessageState::MessageState(StreamPacket& packet, Time timeCode,
+  MessageState(StreamPacket& packet, Time timeCode,
     std::vector<FeatureID> features, std::vector<CameraInfo> cameras,
     uint32_t numTempSensorsPerCamera, uint32_t numExternalTempSensors,
     float keepAliveInterval,
