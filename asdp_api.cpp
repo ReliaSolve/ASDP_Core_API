@@ -5556,6 +5556,8 @@ CoreServer::CoreServer(uint32_t serial, std::string NICName, uint16_t sendPort, 
 
   // Make a thread to send discovery packets on, sending them to the broadcast address.
   // Wait for the thread to start before returning.
+  m_stopThread = false;
+  m_threadStarted = false;
   m_discoveryThread = std::make_shared<std::thread>(&CoreServer::DiscoveryThread, this);
   while (!m_threadStarted) {
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -5650,6 +5652,8 @@ CoreClient::CoreClient(std::string NICName, uint32_t maxPayloadSize)
   }
 
   // Start the discovery thread to listen for servers and wait for it to start.
+  m_stopThread = false;
+  m_threadStarted = false;
   m_discoveryThread = std::make_shared<std::thread>(&CoreClient::DiscoveryThread, this);
   while (!m_threadStarted) {
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
