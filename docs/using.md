@@ -14,7 +14,9 @@ are warnings, and values above it are errors.  The helper function asdp::ErrorMe
 takes in an asdp::Status and provides a string description of the status.
 
 // List the example programs
-\example ASDP_Core_Speed_Measurements.cpp
-
 // List the test programs
+\example ASDP_Core_Speed_Measurements.cpp
+\example Basic_Server.cpp
+\example Basic_Client.cpp
+
 \example ASDP_Core_Test.cpp

@@ -337,7 +337,7 @@ protected:
 };
 
 //---------------------------------------------------------------------------
-/// @brief Base packet type, not used by client code, supports code common to CommandPacket and StreamPacket.
+/// @brief Base packet type, not used by calling program, supports code common to CommandPacket and StreamPacket.
 ///
 /// The GetConstructorStatus() function can be used to determine if the constructor was successful
 /// in this class and in derived classes.
@@ -468,7 +468,7 @@ protected:
 /// @brief Base class for command packets that start streaming some stort of data.
 ///
 /// This class is a base class for other command packets that start streaming of some sort of data.
-/// It should not be used directly by client code.
+/// It should not be used directly by the calling program.
 class CommandPacketStreamX : public CommandPacket {
 public:
   /// @brief Get the endpoint to stream to.
@@ -497,7 +497,7 @@ protected:
 /// @brief Base class for command packets that cancel streaming of some sort of data.
 ///
 /// This class is a base class for other command packets that cancel streaming of some sort of data.
-/// It should not be used directly by client code.
+/// It should not be used directly by the calling program.
 class CommandPacketCancelX : public CommandPacket {
 public:
   /// @brief Get the endpoint to stream to.
@@ -685,7 +685,7 @@ public:
 class CommandPacketKeepaliveInterval : public CommandPacket {
 public:
   /// @brief Construct a brand-new command buffer with the SET_KEEPALIVE_INTERVAL opcode.
-  /// @param [in] interval Interval to set the keepalive to in seconds.
+  /// @param [in] interval Interval to set the keepalive to in seconds.  0 means infinite.
   CommandPacketKeepaliveInterval(float interval);
 
   /// @brief Type-cast a base CommandPacket, re-using its buffer.
@@ -1688,7 +1688,8 @@ public:
   /// @brief Construct a SenderUDP object that will send to a specific endpoint.
   /// @param [in] host Name of the host to send to.
   /// @param [in] port Port number to send to.
-  SenderUDP(std::string host, uint16_t port);
+  /// @param [in] broadcast Whether to use the broadcast address from the specified address.
+  SenderUDP(std::string host, uint16_t port, bool broadcast = false);
 
   /// @brief Send a UDP packet.
   /// @param [in] buffer Pointer to the buffer containing the packet to send.
@@ -1706,13 +1707,13 @@ public:
   /// @return OKAY if successful, otherwise an error code.
   Status SendStreamPacket(const StreamPacket& packet) override;
 
-  /// @brief Get the IP address associated with this sender.
-  /// @param [out] IP IP address associated with this sender.
+  /// @brief Get the local IP address associated with this sender.
+  /// @param [out] IP local IP address associated with this sender.
   /// @return OKAY if successful, otherwise an error code.
   Status GetIP(uint32_t& IP) const;
 
-  /// @brief Get the port associated with this sender.
-  /// @param [out] port Port associated with this sender.
+  /// @brief Get the local port associated with this sender.
+  /// @param [out] port Local port associated with this sender.
   /// @return OKAY if successful, otherwise an error code.
   Status GetPort(uint16_t& port) const;
 
@@ -1768,7 +1769,7 @@ public:
 
   /// @brief See if a packet is available to receive.
   /// 
-  /// This is not usually called by client code, which will call one of the ReceivePacket() functions
+  /// This is not usually called by the calling program, which will call one of the ReceivePacket() functions
   /// for CommandPacket or StreamPacket instead.
   /// @param [in] timeout_seconds Timeout in seconds to wait for a packet.
   /// @param [out] available True if a packet is available, false if not.
@@ -1777,7 +1778,7 @@ public:
 
   /// @brief Receive a packet, hanging until one is available.
   /// 
-  /// This is not usually called by client code, which will call one of the ReceivePacket() functions
+  /// This is not usually called by the calling program, which will call one of the ReceivePacket() functions
   /// for CommandPacket or StreamPacket instead.
   /// Use IsPacketAvailable() to see if a packet is available before calling this function.
   /// @param [inout] buffer A buffer to fill in with the incoming packet.  It must be large enough
@@ -1823,7 +1824,7 @@ public:
 
   /// @brief See if a packet is available to receive.
   /// 
-  /// This is not usually called by client code, which will call one of the ReceivePacket() functions
+  /// This is not usually called by the calling program, which will call one of the ReceivePacket() functions
   /// for CommandPacket or StreamPacket instead.
   /// @param [in] timeout_seconds Timeout in seconds to wait for a packet.
   /// @param [out] available True if a packet is available, false if not.
@@ -1832,7 +1833,7 @@ public:
 
   /// @brief Receive a packet, hanging until one is available.
   /// 
-  /// This is not usually called by client code, which will call one of the ReceivePacket() functions
+  /// This is not usually called by the calling program, which will call one of the ReceivePacket() functions
   /// for CommandPacket or StreamPacket instead.
   /// Use IsPacketAvailable() to see if a packet is available before calling this function.
   /// @param [inout] buffer A buffer to fill in with the incoming packet.  It must be large enough
@@ -1874,7 +1875,7 @@ public:
 
   /// @brief See if a packet is available to receive.
   /// 
-  /// This is not usually called by client code, which will call one of the ReceivePacket() functions
+  /// This is not usually called by the calling program, which will call one of the ReceivePacket() functions
   /// for CommandPacket or StreamPacket instead.
   /// @param [in] timeout_seconds Timeout in seconds to wait for a packet.
   /// @param [out] available True if a packet is available, false if not.
@@ -1883,7 +1884,7 @@ public:
 
   /// @brief Receive a packet, hanging until one is available.
   /// 
-  /// This is not usually called by client code, which will call one of the ReceivePacket() functions
+  /// This is not usually called by the calling program, which will call one of the ReceivePacket() functions
   /// for CommandPacket or StreamPacket instead.
   /// Use IsPacketAvailable() to see if a packet is available before calling this function.
   /// @param [inout] buffer A buffer to fill in with the incoming packet.  It must be large enough
@@ -2008,10 +2009,15 @@ protected:
 class CoreServer : public Core {
 public:
   /// @brief Construct a CoreServer object.
+  /// 
+  /// This constructor creates a CoreServer object that will send discovery packets
+  /// to clients and listen for command packets from clients.  The calling program
+  /// must construct and use its own StreamWriter objects to send messages to clients
+  /// and handle their creation and shutdown in response commands from the client.
   /// @param [in] serial Serial number of the server.
   /// @param [in] NICName Name of the network interface to use.
-  /// @param [in] sendPort Port number to send packets to.
-  /// @param [in] listenPort Port number to listen for packets on.
+  /// @param [in] sendPort Port number to send Discovery packets to.
+  /// @param [in] listenPort Port number to listen for Command packets on.
   /// @param [in] maxPayloadSize Maximum size of a packet payload to send.
   CoreServer(uint32_t serial, std::string NICName, uint16_t sendPort = 10102, uint16_t listenPort = 10101,
     uint32_t maxPayloadSize = 9000 - 28);
@@ -2038,11 +2044,11 @@ protected:
 
   std::shared_ptr<std::thread> m_discoveryThread; ///< Thread that sends discovery packets.
   void DiscoveryThread();           ///< Thread that sends discovery packets.
+  std::atomic_bool m_threadStarted; ///< Thread uses to let us know that has started running.
   std::atomic_bool m_stopThread;    ///< Flag to tell the thread to stop.
   Status m_threadStatus;            ///< Status of the thread.
 
-  Status m_constructorStatus;                     ///< Reports any errors during construction
-  std::shared_ptr<SenderUDP> m_sender;            ///< Sender object to use to send packets.
+  std::shared_ptr<SenderUDP> m_sender;            ///< Sender object to use to send Discovery packets.
   std::shared_ptr<ReceiverUDP> m_receiver;        ///< Receiver object to use to receive packets.
 
   uint32_t m_IP;                                  ///< IP address for the client to send commands to.
@@ -2107,10 +2113,9 @@ protected:
   CoreClient(CoreServer&&) = delete;
   CoreClient& operator=(CoreClient&&) = delete;
 
-  Status m_constructorStatus;                     ///< Reports any errors during construction
-
   std::shared_ptr<std::thread> m_discoveryThread; ///< Thread that listens for discovery packets.
   void DiscoveryThread();                         ///< Thread that listens for discovery packets.
+  std::atomic_bool m_threadStarted; ///< Thread uses to let us know that has started running.
   std::atomic_bool m_stopThread;                  ///< Flag to tell the thread to stop.
   Status m_threadStatus;                          ///< Status of the thread.
 

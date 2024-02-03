@@ -4378,18 +4378,18 @@ public:
   }
 };
 
-SenderUDP::SenderUDP(std::string host, uint16_t port)
+SenderUDP::SenderUDP(std::string host, uint16_t port, bool broadcast)
   : m_socket(std::make_shared<Socket>())
   , m_IP(0)
   , m_port(0)
 {
-  // Set up to bind to a local generic socket that can use any interface.
+  // Set up to bind to a local socket that uses any available port on the requested interface.
   struct addrinfo hints, * res;
   memset(&hints, 0, sizeof(hints));
   hints.ai_family = AF_INET;
   hints.ai_socktype = SOCK_DGRAM;
   hints.ai_flags |= AI_PASSIVE;
-  if (0 != getaddrinfo(nullptr, "0", &hints, &res)) {
+  if (0 != getaddrinfo(host.c_str(), "0", &hints, &res)) {
     m_constructorStatus = BAD_PARAMETER;
     return;
   }
@@ -4406,12 +4406,30 @@ SenderUDP::SenderUDP(std::string host, uint16_t port)
     return;
   }
 
-  // Bind the socket to use any interface and any port.
+  // Bind the socket to use the requested interface and any port.
   if (0 != bind(m_socket->socket, res->ai_addr, res->ai_addrlen)) {
     m_constructorStatus = SOCKET_FAILURE;
     freeaddrinfo(res);
     m_socket.reset();
     return;
+  }
+
+  // Record the IP address of our NIC and the port we are using to send on.
+  struct sockaddr_in* addr = (struct sockaddr_in*)res->ai_addr;
+  m_IP = ntohl(addr->sin_addr.s_addr);
+  m_port = ntohs(addr->sin_port);
+
+  // If we're doing broadcast, set the socket to allow broadcast and set the
+  // host name the broadcast address.
+  if (broadcast) {
+    host = "255.255.255.255";
+    int broadcastEnable = 1;
+    if (0 != setsockopt(m_socket->socket, SOL_SOCKET, SO_BROADCAST, (char*)&broadcastEnable, sizeof(broadcastEnable))) {
+      m_constructorStatus = SOCKET_FAILURE;
+      freeaddrinfo(res);
+      m_socket.reset();
+      return;
+    }
   }
 
   // Connect the socket to the specified host and port.
@@ -4437,11 +4455,6 @@ SenderUDP::SenderUDP(std::string host, uint16_t port)
     m_socket.reset();
     return;
   }
-
-  // Record the IP address and port of the remote host we're connected to.
-  struct sockaddr_in* addr = (struct sockaddr_in*)res->ai_addr;
-  m_IP = ntohl(addr->sin_addr.s_addr);
-  m_port = ntohs(addr->sin_port);
 
   // Free our resources
   freeaddrinfo(res);
@@ -5510,8 +5523,7 @@ Core::~Core() {}
 
 CoreServer::CoreServer(uint32_t serial, std::string NICName, uint16_t sendPort, uint16_t listenPort, uint32_t maxPayloadSize)
   : Core(maxPayloadSize)
-  , m_constructorStatus(OKAY)
-  , m_sender(std::make_shared<SenderUDP>(NICName, sendPort))
+  , m_sender(std::make_shared<SenderUDP>(NICName, sendPort, true))
   , m_receiver(std::make_shared<ReceiverUDP>(NICName, listenPort))
   , m_stopThread(false)
   , m_threadStatus(OKAY)
@@ -5545,11 +5557,17 @@ CoreServer::CoreServer(uint32_t serial, std::string NICName, uint16_t sendPort, 
   }
 
   // Make a thread to send discovery packets on, sending them to the broadcast address.
+  // Wait for the thread to start before returning.
   m_discoveryThread = std::make_shared<std::thread>(&CoreServer::DiscoveryThread, this);
+  while (!m_threadStarted) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
 }
 
 void CoreServer::DiscoveryThread()
 {
+  m_threadStarted = true;
+
   /// Store a status to notify the caller if this thread fails.
   m_threadStatus = OKAY;
 
@@ -5622,7 +5640,6 @@ CoreServer::~CoreServer()
 
 CoreClient::CoreClient(std::string NICName, uint32_t maxPayloadSize)
   : Core(maxPayloadSize)
-  , m_constructorStatus(OKAY)
   , m_threadStatus(OKAY)
   , m_IP(0)
   , m_serial(0)
@@ -5634,12 +5651,18 @@ CoreClient::CoreClient(std::string NICName, uint32_t maxPayloadSize)
     return;
   }
 
-  // Start the discovery thread to listen for servers.
+  // Start the discovery thread to listen for servers and wait for it to start.
   m_discoveryThread = std::make_shared<std::thread>(&CoreClient::DiscoveryThread, this);
+  while (!m_threadStarted) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
 }
 
 void CoreClient::DiscoveryThread()
 {
+  // Let the constructor know that the thread has started.
+  m_threadStarted = true;
+
   /// Store a status to notify the caller if this thread fails.
   m_threadStatus = OKAY;
 

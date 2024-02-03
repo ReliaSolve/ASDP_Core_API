@@ -110,6 +110,8 @@ install(FILES ${PROJECT_BINARY_DIR}/ASDP_EXPORT.h
 if(BUILD_EXAMPLES)
   set (EXAMPLES
     ASDP_Core_Speed_Measurements
+    Basic_Server
+    Basic_Client
   )
   foreach (BASE ${EXAMPLES})
     # C++ example
