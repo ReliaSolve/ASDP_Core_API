@@ -31,7 +31,7 @@ namespace asdp {
 
 //---------------------------------------------------------------------------
 /// @brief Status enumeration, returned by API functions.
-enum Status {
+enum Status : uint32_t {
   /// @brief All is okay.
   OKAY                          = 0,
 
@@ -75,9 +75,7 @@ enum Status {
   /// @brief Error: The object is not connected to a counterpart objects.
   NOT_CONNECTED                 = 1015,
   /// @brief Error: The size of a floating-point number is not what was expected.
-  INCORRECT_FLOAT_SIZE          = 1016,
-  /// @brief Error: The size of an enumeration is not what was expected.
-  INCORRECT_ENUM_SIZE           = 1017
+  INCORRECT_FLOAT_SIZE          = 1016
 };
 
 /// @brief Helper function to return a descriptive error message based on a status value.
@@ -87,7 +85,7 @@ std::string ErrorMessage(Status status);
 
 //---------------------------------------------------------------------------
 /// @brief Operation codes for command packets.
-enum OpCode {
+enum OpCode : uint32_t {
   RESET                         = 0,
   CANCEL_ALL_STREAMS            = 1,
   START_RECORDING               = 2,
@@ -117,7 +115,7 @@ enum OpCode {
 
 //---------------------------------------------------------------------------
 /// @brief Message IDs for stream packets.
-enum MessageID {
+enum MessageID : uint32_t {
   DISCOVERY                     = 0,
   STATE                         = 1,
   EVENT                         = 10000,
@@ -132,11 +130,20 @@ enum MessageID {
 
 //---------------------------------------------------------------------------
 /// @brief Event IDs.
-enum EventID {
+enum EventID : uint32_t {
   INVALID_OPERATION             = 256,
   CLOCK_SYNC                    = 768,
   START_OF_REPLAY               = 769,
   END_OF_REPLAY                 = 770
+};
+
+//---------------------------------------------------------------------------
+/// @brief feature IDs.
+enum FeatureID : uint16_t {
+  STORAGE_MODULE_AVAILABLE = 1,
+  TEMPERATURE_API_AVAILBLE = 3,
+  POSE_API_ORIENTATION_AVAILABLE = 4,
+  POSE_API_POSITION_AVAILABLE = 5
 };
 
 //---------------------------------------------------------------------------
@@ -1222,7 +1229,7 @@ public:
   /// @param [in] streamReplayTime Time code of the stream replay.
   /// @param [in] streams Vector of active streams.
   MessageState::MessageState(StreamPacket& packet, Time timeCode,
-    std::vector<uint16_t> features, std::vector<CameraInfo> cameras,
+    std::vector<FeatureID> features, std::vector<CameraInfo> cameras,
     uint32_t numTempSensorsPerCamera, uint32_t numExternalTempSensors,
     float keepAliveInterval,
     uint8_t storing, uint8_t camerasStreaming, uint8_t replaying, uint8_t replayAtEnd,
@@ -1238,7 +1245,7 @@ public:
   /// @brief Get the features supported by the system.
   /// @param [out] features Vector of features supported by the system.
   /// @return OKAY if successful, otherwise an error code.
-  Status GetFeatures(std::vector<uint16_t>& features) const;
+  Status GetFeatures(std::vector<FeatureID>& features) const;
 
   /// @brief Get the cameras installed on the system.
   /// @param [out] cameras Vector of cameras installed on the system.

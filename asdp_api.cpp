@@ -55,8 +55,6 @@ std::string asdp::ErrorMessage(Status status)
     return "Not connected";
   case INCORRECT_FLOAT_SIZE:
     return "This architecture does not have 32-bit floats";
-  case INCORRECT_ENUM_SIZE:
-    return "This architecture does not have 32-bit enums";
 
   default:
     return "Unrecognized error code: " + std::to_string(status);
@@ -2513,7 +2511,7 @@ std::string MessageDiscovery::Test()
 }
 
 MessageState::MessageState(StreamPacket& packet, Time timeCode,
-    std::vector<uint16_t> features, std::vector<CameraInfo> cameras,
+    std::vector<FeatureID> features, std::vector<CameraInfo> cameras,
     uint32_t numTempSensorsPerCamera, uint32_t numExternalTempSensors,
     float keepAliveInterval,
     uint8_t storing, uint8_t camerasStreaming, uint8_t replaying, uint8_t replayAtEnd,
@@ -2600,7 +2598,7 @@ MessageState::MessageState(Message& baseMessage)
   }
 }
 
-Status MessageState::GetFeatures(std::vector<uint16_t>& features) const
+Status MessageState::GetFeatures(std::vector<FeatureID>& features) const
 {
   if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE + sizeof(uint32_t)) {
     return READ_PAST_END;
@@ -2865,7 +2863,7 @@ std::string MessageState::Test()
 
     // Add a message.
     Time timeCode = { 1234, 5678 };
-    std::vector<uint16_t> features = { 1, 2, 3, 4, 5 };
+    std::vector<FeatureID> features = { STORAGE_MODULE_AVAILABLE, TEMPERATURE_API_AVAILBLE, POSE_API_ORIENTATION_AVAILABLE };
     std::vector<CameraInfo> cameras = { { 1, 2, 3, 4, 5, 6 }, { 7, 8, 9, 10, 11, 12 } };
     uint32_t numTempSensorsPerCamera = 13, numExternalTempSensors = 14;
     float keepAliveInterval = 15.0;
@@ -2921,7 +2919,7 @@ std::string MessageState::Test()
     }
 
     // Check the values of the message
-    std::vector<uint16_t> rFeatures;
+    std::vector<FeatureID> rFeatures;
     status = message.GetFeatures(rFeatures);
     if (status != OKAY) {
       return "Error getting features from MessageState for MessageState test: " + ErrorMessage(status);
@@ -5493,12 +5491,6 @@ Core::Core(uint32_t maxPayloadSize)
   // Verify that the size of a float is 4 bytes.
   if (sizeof(float) != 4) {
     m_constructorStatus = INCORRECT_FLOAT_SIZE;
-    return;
-  }
-
-  // Verify that the size of an enum (Status, for instance) is 4 bytes
-  if (sizeof(Status) != 4) {
-    m_constructorStatus = INCORRECT_ENUM_SIZE;
     return;
   }
 
