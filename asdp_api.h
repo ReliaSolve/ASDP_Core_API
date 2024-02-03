@@ -1185,7 +1185,7 @@ public:
   /// @param [in] timeCode Time code for the message.
   /// @param [in] endpoint Endpoint for the client to connect to on the server.
   /// @param [in] serial Serial number of the system.
-  MessageDiscovery::MessageDiscovery(StreamPacket& packet, Time timeCode,
+  MessageDiscovery(StreamPacket& packet, Time timeCode,
     StreamEndpoint endpoint, uint32_t serial);
 
   /// @brief Type-cast a base Message into a MessageDiscovery packet, re-using its buffer.
