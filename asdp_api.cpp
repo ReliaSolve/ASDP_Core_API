@@ -185,7 +185,7 @@ public:
 static WSAStart startUp;
 #endif
 
-#ifdef _WIN32
+#ifdef ASDP_USE_WINSOCK_SOCKETS
 #include <iphlpapi.h>
 #pragma comment(lib, "IPHLPAPI.lib")
 #endif
@@ -4391,7 +4391,7 @@ public:
 static std::vector<uint32_t> GetLocalIPs()
 {
   std::vector<uint32_t> IPs;
-#ifdef _WIN32
+#ifdef ASDP_USE_WINSOCK_SOCKETS
   PIP_ADAPTER_ADDRESSES pAddresses = NULL;
   ULONG outBufLen = 0;
   ULONG Iterations = 0;
