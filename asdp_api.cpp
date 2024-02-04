@@ -5760,7 +5760,13 @@ CoreClient::CoreClient(std::string NICName, uint32_t maxPayloadSize)
   , m_serial(0)
 {
   // Open a socket on our NICName to receive Discovery packets.
+#ifdef ASDP_USE_WINSOCK_SOCKETS
+  // On Windows, we cannot listen on all addresses, and we don't have to.
   m_receiver = std::make_shared<ReceiverUDP>(NICName, 10102);
+#else
+  // On Linux, we need to listen on all addresses to receive broadcast packets.
+  m_receiver = std::make_shared<ReceiverUDP>("255.255.255.255", 10102);
+#endif
   if (m_receiver->GetConstructorStatus() != OKAY) {
     m_constructorStatus = m_receiver->GetConstructorStatus();
     return;
