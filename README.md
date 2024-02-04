@@ -3,7 +3,8 @@
 This repository contains the source code for the core communications protocol library
 for the Apache Strap-Down Pilotage program.
 
-It implements the protocol described in the [ASDP Protocol](./TR-006v12_Software_Architecture.pdf) document.
+It implements the protocol described in the [ASDP Software Architecture](./TR-006v12_Software_Architecture.pdf) document
+using the approach described in the [ASDP API Implementation](TR-009v05_Core_API_Implementations.pdf) document.
 
 ## Getting Started
 
