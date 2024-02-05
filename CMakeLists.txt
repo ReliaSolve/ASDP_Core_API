@@ -100,9 +100,9 @@ install(TARGETS ASDP_Core EXPORT ${PROJECT_NAME}
   INCLUDES DESTINATION include
   PUBLIC_HEADER DESTINATION include
 )
-install(FILES ${PROJECT_BINARY_DIR}/ASDP_EXPORT.h
-  DESTINATION include COMPONENT headers
-)
+#install(FILES ${PROJECT_BINARY_DIR}/ASDP_EXPORT.h
+#  DESTINATION include COMPONENT headers
+#)
 
 #-----------------------------------------------------------------------------
 # Build examples if we've been asked to.
@@ -119,9 +119,9 @@ if(BUILD_EXAMPLES)
     add_executable (${APP} examples/${BASE}.cpp)
     set_target_properties(${APP} PROPERTIES FOLDER examples/C++)
     target_link_libraries(${APP} ASDP_Core)
-    install(TARGETS ${APP} EXPORT ${PROJECT_NAME}
-      RUNTIME DESTINATION bin
-    )
+    #install(TARGETS ${APP} EXPORT ${PROJECT_NAME}
+    #  RUNTIME DESTINATION bin
+    #)
   endforeach (BASE)
 
 endif(BUILD_EXAMPLES)
