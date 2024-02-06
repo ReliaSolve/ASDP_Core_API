@@ -29,8 +29,19 @@ by running `make test` in the build directory.
 
 ### Compiling C++ programs against the installed library
 
-Compiling a C++ program consists of including the header files (which are installed
-in /usr/local/include on Linux) and linking against the asdl library (installed in /usr/local/lib).
-The C++ programs use C++-11.  An example compilation for the ASDP_Core_Test.cpp program follows:
+When using CMake, the following lines in the CMakeLists.txt file will set the include directory
+and link the program against the installed library:
 
-``c++ -std=c++11 ASDP_Core_Test.cpp -ASDP_Core -o ASDP_Core_Test``
+```
+find_package(ASDP_Core REQUIRED)
+
+add_executable(ASDP_Core_Test ASDP_Core_Test.cpp)
+target_link_libraries(test ASDP_Core::ASDP_Core)
+```
+
+Compiling a C++ program by hand consists of including the header files (which are installed
+in /usr/local/include on Linux) and linking against the ASDP_Core library (installed in /usr/local/lib)
+and its dependencies.  The C++ programs use C++-11.  An example compilation for the
+ASDP_Core_Test.cpp program follows:
+
+``c++ --std=c++11 ASDP_Core_Test.cpp -lASDP_Core -o ASDP_Core_Test -lpthread``
