@@ -2075,8 +2075,9 @@ class CoreClient : public Core {
 public:
   /// @brief Construct a CoreServer object.
   /// @param [in] NICName Name of the network interface to use.
+  /// @param [in] listenPort Port number to listen for Discovery packets on.
   /// @param [in] maxPayloadSize Maximum size of a packet payload to send.
-  CoreClient(std::string NICName, uint32_t maxPayloadSize = 9000 - 28);
+  CoreClient(std::string NICName, uint16_t listenPort = 10102, uint32_t maxPayloadSize = 9000 - 28);
 
   /// @brief Get the status of the discovery thread.
   /// @param [out] threadStatus Stores the thread status.

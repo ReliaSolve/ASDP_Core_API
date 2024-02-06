@@ -5753,7 +5753,7 @@ CoreServer::~CoreServer()
   }
 }
 
-CoreClient::CoreClient(std::string NICName, uint32_t maxPayloadSize)
+CoreClient::CoreClient(std::string NICName, uint16_t listenPort, uint32_t maxPayloadSize)
   : Core(maxPayloadSize)
   , m_threadStatus(OKAY)
   , m_IP(0)
@@ -5762,10 +5762,10 @@ CoreClient::CoreClient(std::string NICName, uint32_t maxPayloadSize)
   // Open a socket on our NICName to receive Discovery packets.
 #ifdef ASDP_USE_WINSOCK_SOCKETS
   // On Windows, we cannot listen on all addresses, and we don't have to.
-  m_receiver = std::make_shared<ReceiverUDP>(NICName, 10102);
+  m_receiver = std::make_shared<ReceiverUDP>(NICName, listenPort);
 #else
   // On Linux, we need to listen on all addresses to receive broadcast packets.
-  m_receiver = std::make_shared<ReceiverUDP>("255.255.255.255", 10102);
+  m_receiver = std::make_shared<ReceiverUDP>("255.255.255.255", listenPort);
 #endif
   if (m_receiver->GetConstructorStatus() != OKAY) {
     m_constructorStatus = m_receiver->GetConstructorStatus();
