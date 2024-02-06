@@ -25,7 +25,7 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 # Export libraries along with our DLLs if we want to build shared
 # Allow the developer to select if Dynamic or Static libraries are built
 
-include (GenerateExportHeader)
+# include (GenerateExportHeader)
 
 #-----------------------------------------------------------------------------
 # Checking for optional and required packages
@@ -83,15 +83,15 @@ set_target_properties(ASDP_Core PROPERTIES C_VISIBILITY_PRESET hidden)
 set_target_properties(ASDP_Core PROPERTIES CXX_VISIBILITY_PRESET hidden)
 set_target_properties(ASDP_Core PROPERTIES VISIBILITY_INLINES_HIDDEN 1)
 target_include_directories(ASDP_Core PUBLIC
-  ${CMAKE_CURRENT_SOURCE_DIR}
-  ${CMAKE_BINARY_DIR}
+  #${CMAKE_CURRENT_SOURCE_DIR}
+  #${CMAKE_BINARY_DIR}
   ${CMAKE_INSTALL_PREFIX}/include
 )
 if(UNIX)
     target_link_libraries(ASDP_Core PUBLIC pthread)
 endif(UNIX)
 set_target_properties(ASDP_Core PROPERTIES PUBLIC_HEADER "${asdp_HEADERS}")
-generate_export_header(ASDP_Core)
+# generate_export_header(ASDP_Core)
 
 install(TARGETS ASDP_Core EXPORT ${PROJECT_NAME}
   RUNTIME DESTINATION bin COMPONENT lib
@@ -117,6 +117,9 @@ if(BUILD_EXAMPLES)
     # C++ example
     set (APP ${BASE})
     add_executable (${APP} examples/${BASE}.cpp)
+    target_include_directories(${APP} PUBLIC
+      ${CMAKE_CURRENT_SOURCE_DIR}
+    )
     set_target_properties(${APP} PROPERTIES FOLDER examples/C++)
     target_link_libraries(${APP} ASDP_Core)
     #install(TARGETS ${APP} EXPORT ${PROJECT_NAME}
@@ -140,6 +143,9 @@ if(BUILD_TESTS)
     set (APP ${BASE})
     add_executable (${APP} tests_cpp/${BASE}.cpp)
     set_target_properties(${APP} PROPERTIES FOLDER tests/C++)
+    target_include_directories(${APP} PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}
+    )
     target_link_libraries(${APP}
       ASDP_Core
     )
@@ -150,3 +156,32 @@ if(BUILD_TESTS)
   endforeach (BASE)
 
 endif(BUILD_TESTS)
+
+# Configure the project for use by client projects using CMake
+# This makes the project available as a package for use with find_package()
+# and provides the configuration for the build tree.
+include(CMakePackageConfigHelpers)
+write_basic_package_version_file(
+  "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake"
+  VERSION 1.0
+  COMPATIBILITY AnyNewerVersion
+)
+configure_package_config_file(
+  "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Config.cmake.in"
+  "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
+  INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}"
+)
+install(EXPORT ${PROJECT_NAME}
+  FILE ${PROJECT_NAME}Targets.cmake
+  NAMESPACE ${PROJECT_NAME}::
+  DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}"
+)
+install(FILES
+  "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake"
+  "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
+  DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}"
+)
+install(FILES
+  "${CMAKE_CURRENT_BINARY_DIR}/ASDP_Core_EXPORT.h"
+  DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
+)
