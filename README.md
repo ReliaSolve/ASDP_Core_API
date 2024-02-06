@@ -44,4 +44,4 @@ in /usr/local/include on Linux) and linking against the ASDP_Core library (insta
 and its dependencies.  The C++ programs use C++-11.  An example compilation for the
 ASDP_Core_Test.cpp program follows:
 
-``c++ --std=c++11 ASDP_Core_Test.cpp -lASDP_Core -o ASDP_Core_Test -lpthread``
+``c++ --std=c++11 ASDP_Core_Test.cpp -o ASDP_Core_Test -lASDP_Core -lpthread``
