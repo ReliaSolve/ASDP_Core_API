@@ -65,7 +65,7 @@ std::string asdp::ErrorMessage(Status status)
 // Definitions of static constants used below.
 
 static const unsigned char MAGIC_COOKIE[4] = { 'A', 'S', 'D', 'P' };
-static const unsigned char VERSION[4] = { 1, 0, 0, 0 };
+static const unsigned char VERSION[4] = { 1, 1, 0, 0 };
 
 static const uint32_t PACKET_BASIC_HEADER_SIZE = 4 * sizeof(uint32_t);
 static const uint32_t PACKET_HEADER_MAGIC_COOKIE_OFFSET = 0;
@@ -5812,6 +5812,10 @@ void CoreClient::DiscoveryThread()
     if (status != OKAY) {
       m_threadStatus = status;
       return;
+    }
+    if (message == nullptr) {
+      // We got a packet with no messages in it.  This is not an error.
+      continue;
     }
     MessageDiscovery discovery(*message);
 

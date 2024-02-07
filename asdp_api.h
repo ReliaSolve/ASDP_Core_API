@@ -596,6 +596,27 @@ public:
   static std::string Test();
 };
 
+/// @brief Command packet to set the start-up recording state
+class CommandPacketSetStartUpRecordingState : public CommandPacket {
+public:
+  /// @brief Construct a brand-new command buffer with the SET_START_UP_RECORDING_STATE opcode.
+  /// @param [in] state State to set the start-up recording to (0 = not recording, 1 = recording).
+  CommandPacketSetStartUpRecordingState(uint32_t state);
+
+  /// @brief Type-cast a base CommandPacket, re-using its buffer.
+  /// @param [in] basePacket The base packet to convert from.
+  CommandPacketSetStartUpRecordingState(CommandPacket& basePacket);
+
+  /// @brief Get the state to set the start-up recording to.
+  /// @param [out] state State to set the start-up recording to (0 = not recording, 1 = recording).
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetState(uint32_t& state) const;
+
+  /// @brief Test function.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
+};
+
 /// @brief Command packet to start replay.
 class CommandPacketStartReplay : public CommandPacket {
 public:
@@ -663,27 +684,6 @@ public:
   /// @brief Type-cast a base CommandPacket, re-using its buffer.
   /// @param [in] basePacket The base packet to convert from.
   CommandPacketStopReplay(CommandPacket& basePacket);
-
-  /// @brief Test function.
-  /// @return Empty string if successful, otherwise descriptive error message.
-  static std::string Test();
-};
-
-/// @brief Command packet to set the start-up recording state
-class CommandPacketSetStartUpRecordingState : public CommandPacket {
-public:
-  /// @brief Construct a brand-new command buffer with the SET_START_UP_RECORDING_STATE opcode.
-  /// @param [in] state State to set the start-up recording to (0 = not recording, 1 = recording).
-  CommandPacketSetStartUpRecordingState(uint32_t state);
-
-  /// @brief Type-cast a base CommandPacket, re-using its buffer.
-  /// @param [in] basePacket The base packet to convert from.
-  CommandPacketSetStartUpRecordingState(CommandPacket& basePacket);
-
-  /// @brief Get the state to set the start-up recording to.
-  /// @param [out] state State to set the start-up recording to (0 = not recording, 1 = recording).
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetState(uint32_t& state) const;
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
