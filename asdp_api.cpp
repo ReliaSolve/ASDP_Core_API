@@ -4578,8 +4578,9 @@ SenderUDP::SenderUDP(const StreamEndpoint& endpoint, bool broadcast)
 
   // If we're doing broadcast, set the socket to allow broadcast and set the
   // host name the broadcast address.
+  uint32_t addressToUse = addr.sin_addr.s_addr;
   if (broadcast) {
-    addr.sin_addr.s_addr = INADDR_BROADCAST;
+    addressToUse = INADDR_BROADCAST;
     int broadcastEnable = 1;
     if (0 != setsockopt(m_socket->socket, SOL_SOCKET, SO_BROADCAST, (char*)&broadcastEnable, sizeof(broadcastEnable))) {
       m_constructorStatus = SOCKET_FAILURE;
@@ -4592,7 +4593,7 @@ SenderUDP::SenderUDP(const StreamEndpoint& endpoint, bool broadcast)
   // The address is already in network byte order, just convert the port.
   memset(&addr, 0, sizeof(addr));
   addr.sin_family = AF_INET;
-  addr.sin_addr.s_addr = htonl(endpoint.IP);
+  addr.sin_addr.s_addr = addressToUse;
   addr.sin_port = htons(endpoint.port);
   if (0 != connect(m_socket->socket, (struct sockaddr*)&addr, sizeof(addr))) {
     m_constructorStatus = SOCKET_FAILURE;

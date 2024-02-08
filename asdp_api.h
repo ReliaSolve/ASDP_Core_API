@@ -1741,12 +1741,12 @@ public:
   Status SendStreamPacket(const StreamPacket& packet) override;
 
   /// @brief Get the local IP address associated with this sender.
-  /// @param [out] IP local IP address associated with this sender.
+  /// @param [out] IP local IP address associated with this sender in host byte order.
   /// @return OKAY if successful, otherwise an error code.
   Status GetIP(uint32_t& IP) const;
 
   /// @brief Get the local port associated with this sender, which will be determined by the OS.
-  /// @param [out] port Local port associated with this sender.
+  /// @param [out] port Local port associated with this sender in host byte order.
   /// @return OKAY if successful, otherwise an error code.
   Status GetPort(uint16_t& port) const;
 
