@@ -1959,8 +1959,8 @@ public:
   /// @param [in] sender Pointer to the sender object to use to send the packets.
   /// @param [in] timer Pointer to the timer object to use to get the time code.
   /// @param [in] maxPayloadSize Maximum size of a packet payload to send.
-  StreamWriter(std::shared_ptr<asdp::Sender> sender,
-    std::shared_ptr<asdp::Timer> timer,
+  StreamWriter(std::shared_ptr<Sender> sender,
+    std::shared_ptr<Timer> timer,
     uint32_t maxPayloadSize = 9000 - 28);
 
   /// @brief Virtual destructor so all derived class pointers will destroy properly.
@@ -1975,7 +1975,7 @@ public:
   /// @brief Get the current packet being used.
   /// @param [out] packet The current packet being used.
   /// @return OKAY if successful, otherwise an error code.
-  Status GetCurrentPacket(std::shared_ptr<asdp::StreamPacket>& packet) const;
+  Status GetCurrentPacket(std::shared_ptr<StreamPacket>& packet) const;
 
   /// @brief Flush the current packet, sending it and getting a new one.
   ///
@@ -1990,12 +1990,12 @@ public:
   static std::string Test();
 
 protected:
-  Status m_constructorStatus;       ///< Reports any errors during construction
-  std::shared_ptr<asdp::Sender> m_sender;  ///< Pointer to the sender object to use to send the packets.
-  std::shared_ptr<asdp::Timer> m_timer;    ///< Pointer to the timer object to use to get the time code.
-  uint32_t m_maxPayloadSize;        ///< Maximum size of the packet payload to send.
-  uint32_t m_sequenceNumber;        ///< Sequence number for the next packet to send.
-  std::shared_ptr<asdp::StreamPacket> m_currentPacket; ///< Current packet being built.
+  Status m_constructorStatus;         ///< Reports any errors during construction
+  std::shared_ptr<Sender> m_sender;   ///< Pointer to the sender object to use to send the packets.
+  std::shared_ptr<Timer> m_timer;     ///< Pointer to the timer object to use to get the time code.
+  uint32_t m_maxPayloadSize;          ///< Maximum size of the packet payload to send.
+  uint32_t m_sequenceNumber;          ///< Sequence number for the next packet to send.
+  std::shared_ptr<StreamPacket> m_currentPacket; ///< Current packet being built.
 };
 
 //---------------------------------------------------------------------------

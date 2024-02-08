@@ -65,7 +65,7 @@ std::string asdp::ErrorMessage(Status status)
 // Definitions of static constants used below.
 
 static const unsigned char MAGIC_COOKIE[4] = { 'A', 'S', 'D', 'P' };
-static const unsigned char VERSION[4] = { 1, 1, 0, 0 };
+static const unsigned char VERSION[4] = { 1, 1, 0, 1 };
 
 static const uint32_t PACKET_BASIC_HEADER_SIZE = 4 * sizeof(uint32_t);
 static const uint32_t PACKET_HEADER_MAGIC_COOKIE_OFFSET = 0;
@@ -5367,8 +5367,8 @@ std::string ReceiverFile::Test()
   return "";
 }
 
-StreamWriter::StreamWriter(std::shared_ptr<asdp::Sender> sender,
-    std::shared_ptr<asdp::Timer> timer,
+StreamWriter::StreamWriter(std::shared_ptr<Sender> sender,
+    std::shared_ptr<Timer> timer,
     uint32_t maxPayloadSize)
   : m_constructorStatus(OKAY)
   , m_sender(sender)
@@ -5412,7 +5412,7 @@ StreamWriter::~StreamWriter()
   Flush();
 }
 
-Status StreamWriter::GetCurrentPacket(std::shared_ptr<asdp::StreamPacket>& packet) const
+Status StreamWriter::GetCurrentPacket(std::shared_ptr<StreamPacket>& packet) const
 {
   if (m_currentPacket == nullptr) {
     if (m_constructorStatus != OKAY) {
@@ -5545,7 +5545,7 @@ std::string StreamWriter::Test()
     std::this_thread::sleep_for(std::chrono::microseconds(20));
 
       // Pack a message into the StreamWriter.
-    std::shared_ptr<asdp::StreamPacket> packet;
+    std::shared_ptr<StreamPacket> packet;
     status = streamWriter->GetCurrentPacket(packet);
     if (status != OKAY) {
       return "Error getting current packet: " + ErrorMessage(status);
@@ -5617,7 +5617,7 @@ std::string StreamWriter::Test()
     if (streamWriter2.GetConstructorStatus() != OKAY) {
       return "Error constructing large StreamWriter: " + ErrorMessage(streamWriter2.GetConstructorStatus());
     }
-    std::shared_ptr<asdp::StreamPacket> packet;
+    std::shared_ptr<StreamPacket> packet;
     Status status = streamWriter2.GetCurrentPacket(packet);
     if (status != OKAY) {
       return "Error getting current packet for large StreamWriter: " + ErrorMessage(status);
@@ -5738,7 +5738,7 @@ void CoreServer::DiscoveryThread()
   // Twice a second, send Discovery packets to the broadcast address.
   while (!m_stopThread) {
     // Pack a message into the StreamWriter.
-    std::shared_ptr<asdp::StreamPacket> packet;
+    std::shared_ptr<StreamPacket> packet;
     Status status = streamWriter.GetCurrentPacket(packet);
     if (status != OKAY) {
       m_threadStatus = status;
