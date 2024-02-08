@@ -226,6 +226,38 @@ static void UnpackVersion(const uint8_t *version, uint16_t& major, uint16_t& min
 //----------------------------------------------------------------------------
 // API functions
 
+StreamEndpoint::StreamEndpoint(const std::string& host, uint16_t port)
+  : IP(0)
+  , port(0)
+{
+  // Look up the IPV4 address of the host.
+  struct addrinfo* result = nullptr;
+  struct addrinfo hints;
+  memset(&hints, 0, sizeof(hints));
+  hints.ai_family = AF_INET;
+  hints.ai_socktype = SOCK_DGRAM;
+  hints.ai_flags |= AI_CANONNAME;
+  int status = getaddrinfo(host.c_str(), nullptr, &hints, &result);
+  if (status != 0) {
+    return;
+  }
+  struct sockaddr_in* address = (struct sockaddr_in*)result->ai_addr;
+  IP = ntohl(address->sin_addr.s_addr);
+  StreamEndpoint::port = port;
+}
+
+std::string StreamEndpoint::Test()
+{
+  // Construct a StreamEndpoint and verify that it has the expected IP and port.
+  StreamEndpoint endpoint("localhost", 1234);
+  uint32_t expectedIP = (127 << 24) + 1;
+  if (endpoint.IP != expectedIP || endpoint.port != 1234) {
+    return "Error constructing StreamEndpoint: IP is " + std::to_string(endpoint.IP) + " and port is " + std::to_string(endpoint.port);
+  }
+
+  return "";
+}
+
 Timer::Timer()
   : m_coreOffset({0, 0})
 {
@@ -6168,6 +6200,13 @@ std::string asdp::Test()
   }
   if (ErrorMessage(HIGHEST_WARNING) != "Unrecognized error code: 1000") {
     return "Error message for HIGHEST_WARNING is incorrect: " + ErrorMessage(HIGHEST_WARNING);
+  }
+
+  //-------------------------------------------------------------------
+  // Tests for StreamEndpoint.
+  ret = StreamEndpoint::Test();
+  if (ret.size() > 0) {
+    return "Error testing StreamEndpoint: " + ret;
   }
 
   //-------------------------------------------------------------------

@@ -207,6 +207,20 @@ public:
 
 class StreamEndpoint {
 public:
+  /// @brief Construct a stream endpoint from an IP address and port.
+  /// @param [in] IP IP address being streamed to.
+  /// @param [in] port Port being streamed to.
+  StreamEndpoint(uint32_t IP, uint16_t port) : IP(IP), port(port) { };
+
+  /// @brief Construct a stream endpoint from a host name/IP and port.
+  /// @param [in] host Host name or IP address being streamed to. Sets
+  /// the IP to 0 if the host name is not a valid name or IP address.
+  /// @param [in] port Port being streamed to.
+  StreamEndpoint(const std::string &host, uint16_t port);
+
+  /// @brief default constructor
+  StreamEndpoint() : IP(0), port(0) { };
+
   uint32_t IP;    ///< IP being streamed to
   uint16_t port;  ///< Port being streamed to
 
@@ -219,6 +233,10 @@ public:
   bool operator !=(const StreamEndpoint& other) const {
     return !(*this == other);
   }
+
+  /// @brief Test function.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
 };
 
 //---------------------------------------------------------------------------
@@ -483,7 +501,7 @@ public:
   /// @brief Get the endpoint to stream to.
   /// @param [out] endpoint Endpoint to stream to.
   /// @return OKAY if successful, otherwise an error code.
-  Status GetEndpoint(StreamEndpoint& endpoint) const;
+  virtual Status GetEndpoint(StreamEndpoint& endpoint) const;
 
 protected:
   /// @brief Construct a brand-new command buffer with the STREAM_EVENTS opcode.
