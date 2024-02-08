@@ -204,6 +204,7 @@ public:
 
 //---------------------------------------------------------------------------
 /// @brief Class to store information about a stream endpoint.
+/// @brief Class to store information about a stream endpoint.
 
 class StreamEndpoint {
 public:
@@ -1717,6 +1718,11 @@ public:
   /// @param [in] port Port number to send to.
   /// @param [in] broadcast Whether to use the broadcast address from the specified address.
   SenderUDP(std::string host, uint16_t port, bool broadcast = false);
+
+  /// @brief Construct a SenderUDP object that will send to a specific endpoint.
+  /// @param [in] endpoint Endpoint to send to.
+  /// @param [in] broadcast Whether to use the broadcast address from the specified address.
+  SenderUDP(const StreamEndpoint& endpoint, bool broadcast = false);
 
   /// @brief Send a UDP packet.
   /// @param [in] buffer Pointer to the buffer containing the packet to send.

@@ -65,7 +65,7 @@ std::string asdp::ErrorMessage(Status status)
 // Definitions of static constants used below.
 
 static const unsigned char MAGIC_COOKIE[4] = { 'A', 'S', 'D', 'P' };
-static const unsigned char VERSION[4] = { 1, 1, 0, 1 };
+static const unsigned char VERSION[4] = { 1, 2, 0, 0 };
 
 static const uint32_t PACKET_BASIC_HEADER_SIZE = 4 * sizeof(uint32_t);
 static const uint32_t PACKET_HEADER_MAGIC_COOKIE_OFFSET = 0;
@@ -242,16 +242,19 @@ StreamEndpoint::StreamEndpoint(const std::string& host, uint16_t port)
     return;
   }
   struct sockaddr_in* address = (struct sockaddr_in*)result->ai_addr;
-  IP = ntohl(address->sin_addr.s_addr);
+  IP = address->sin_addr.s_addr;
   StreamEndpoint::port = port;
+
+  freeaddrinfo(result);
 }
 
 std::string StreamEndpoint::Test()
 {
   // Construct a StreamEndpoint and verify that it has the expected IP and port.
+  // We expect it to be 127.0.0.1 when converted from network byte order
   StreamEndpoint endpoint("localhost", 1234);
   uint32_t expectedIP = (127 << 24) + 1;
-  if (endpoint.IP != expectedIP || endpoint.port != 1234) {
+  if (ntohl(endpoint.IP) != expectedIP || endpoint.port != 1234) {
     return "Error constructing StreamEndpoint: IP is " + std::to_string(endpoint.IP) + " and port is " + std::to_string(endpoint.port);
   }
 
@@ -4491,46 +4494,37 @@ static std::vector<uint32_t> GetLocalIPs()
 }
 
 SenderUDP::SenderUDP(std::string host, uint16_t port, bool broadcast)
+  : SenderUDP(StreamEndpoint(host, port), broadcast)
+{
+}
+
+SenderUDP::SenderUDP(const StreamEndpoint& endpoint, bool broadcast)
   : m_socket(std::make_shared<Socket>())
   , m_IP(0)
   , m_port(0)
 {
+  // Problem if the enpoint has been set to all zeros.
+  if (endpoint.IP == 0) {
+    m_constructorStatus = BAD_PARAMETER;
+    return;
+  }
+
   // Set up to bind to a local socket that uses any available port on the interface that would be
   // used to send to the requested address.  The assumption is that we're on the same sublan as the
   // host we're sending to, so we can do a best match between all of our NIC addresses and the server
   // address to determine which one we should use.
 
-  // Find the information about the host we're sending to.
-  struct addrinfo hints, * res;
-  memset(&hints, 0, sizeof(hints));
-  hints.ai_family = AF_INET;
-  hints.ai_socktype = SOCK_DGRAM;
-  hints.ai_flags |= AI_CANONNAME;
-  if (0 != getaddrinfo(host.c_str(), "0", &hints, &res)) {
-    m_constructorStatus = BAD_PARAMETER;
-    return;
-  }
-  if (res == nullptr) {
-    m_constructorStatus = BAD_PARAMETER;
-    return;
-  }
-
   // Open the socket to use for sending UDP packets.
-  m_socket->socket = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+  m_socket->socket = socket(AF_INET, SOCK_DGRAM, 0);
   if (m_socket->socket == BAD_SOCKET) {
     m_constructorStatus = BAD_PARAMETER;
-    freeaddrinfo(res);
     return;
   }
-
-  // Find the IP address of the host we're sending to.
-  uint32_t IP = ((struct sockaddr_in*)(res->ai_addr))->sin_addr.s_addr;
 
   // Find the list of our NIC addresses.
   std::vector<uint32_t> localIPs = GetLocalIPs();
   if (localIPs.size() == 0) {
     m_constructorStatus = SOCKET_FAILURE;
-    freeaddrinfo(res);
     return;
   }
 
@@ -4540,7 +4534,7 @@ SenderUDP::SenderUDP(std::string host, uint16_t port, bool broadcast)
   for (uint32_t localIP : localIPs) {
     uint32_t count = 0;
     for (uint32_t mask = 0x80000000; mask != 0; mask >>= 1) {
-      if ((localIP & mask) == (IP & mask)) {
+      if ((localIP & mask) == (endpoint.IP & mask)) {
         count++;
       }
     }
@@ -4551,60 +4545,54 @@ SenderUDP::SenderUDP(std::string host, uint16_t port, bool broadcast)
   }
 
   // Bind to the best match.
-  struct sockaddr_in* addr = (struct sockaddr_in*)res->ai_addr;
-  addr->sin_addr.s_addr = bestMatch;
+  struct sockaddr_in addr;
+  memset(&addr, 0, sizeof(addr));
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = bestMatch;
+  addr.sin_port = 0;
 
-  // Bind the socket to use the requested interface and any port.
-  if (0 != bind(m_socket->socket, res->ai_addr, res->ai_addrlen)) {
+  // Bind the socket to use the requested interface and any port.  Then find out
+  // what port we are using.
+  if (0 != bind(m_socket->socket, (struct sockaddr*)&addr, sizeof(addr))) {
     m_constructorStatus = SOCKET_FAILURE;
-    freeaddrinfo(res);
+    m_socket.reset();
+    return;
+  }
+  socklen_t sockLen = sizeof(addr);
+  if (0 != getsockname(m_socket->socket, (struct sockaddr*)&addr, &sockLen)) {
+    m_constructorStatus = SOCKET_FAILURE;
     m_socket.reset();
     return;
   }
 
   // Record the IP address of our NIC and the port we are using to send on.
-  m_IP = ntohl(addr->sin_addr.s_addr);
-  m_port = ntohs(addr->sin_port);
+  // Convert the IP address and port to host byte order.
+  m_IP = ntohl(addr.sin_addr.s_addr);
+  m_port = ntohs(addr.sin_port);
 
   // If we're doing broadcast, set the socket to allow broadcast and set the
   // host name the broadcast address.
   if (broadcast) {
-    host = "255.255.255.255";
+    addr.sin_addr.s_addr = MAXINT32;
     int broadcastEnable = 1;
     if (0 != setsockopt(m_socket->socket, SOL_SOCKET, SO_BROADCAST, (char*)&broadcastEnable, sizeof(broadcastEnable))) {
       m_constructorStatus = SOCKET_FAILURE;
-      freeaddrinfo(res);
       m_socket.reset();
       return;
     }
   }
 
-  // Connect the socket to the specified host and port.
-  memset(&hints, 0, sizeof(hints));
-  hints.ai_family = AF_INET;
-  hints.ai_socktype = SOCK_DGRAM;
-  hints.ai_flags |= AI_CANONNAME;
-  if (0 != getaddrinfo(host.c_str(), std::to_string(port).c_str(), &hints, &res)) {
-    m_constructorStatus = BAD_PARAMETER;
-    freeaddrinfo(res);
-    m_socket.reset();
-    return;
-  }
-  if (res == nullptr) {
-    m_constructorStatus = BAD_PARAMETER;
-    freeaddrinfo(res);
-    m_socket.reset();
-    return;
-  }
-  if (0 != connect(m_socket->socket, res->ai_addr, res->ai_addrlen)) {
+  // Connect the socket to the specified host and to the port we want to use.
+  // The address is already in network byte order, just convert the port.
+  memset(&addr, 0, sizeof(addr));
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = endpoint.IP;
+  addr.sin_port = htons(endpoint.port);
+  if (0 != connect(m_socket->socket, (struct sockaddr*)&addr, sizeof(addr))) {
     m_constructorStatus = SOCKET_FAILURE;
-    freeaddrinfo(res);
     m_socket.reset();
     return;
   }
-
-  // Free our resources
-  freeaddrinfo(res);
 }
 
 Status SenderUDP::Send(const void* buffer, uint32_t length)
