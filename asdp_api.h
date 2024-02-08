@@ -209,21 +209,21 @@ public:
 class StreamEndpoint {
 public:
   /// @brief Construct a stream endpoint from an IP address and port.
-  /// @param [in] IP IP address being streamed to.
-  /// @param [in] port Port being streamed to.
+  /// @param [in] IP IP address being streamed to in host byte order.
+  /// @param [in] port Port being streamed to in host byte order.
   StreamEndpoint(uint32_t IP, uint16_t port) : IP(IP), port(port) { };
 
   /// @brief Construct a stream endpoint from a host name/IP and port.
   /// @param [in] host Host name or IP address being streamed to. Sets
   /// the IP to 0 if the host name is not a valid name or IP address.
-  /// @param [in] port Port being streamed to.
+  /// @param [in] port Port being streamed to in host byte order.
   StreamEndpoint(const std::string &host, uint16_t port);
 
   /// @brief default constructor
   StreamEndpoint() : IP(0), port(0) { };
 
-  uint32_t IP;    ///< IP being streamed to
-  uint16_t port;  ///< Port being streamed to
+  uint32_t IP;    ///< IP being streamed to in host byte order
+  uint16_t port;  ///< Port being streamed to in host byte order
 
   /// @brief Equality operator.
   bool operator ==(const StreamEndpoint& other) const {
@@ -1845,13 +1845,18 @@ protected:
 
 class ReceiverUDP : public Receiver {
 public:
-  /// @brief Construct a ReceiverUDP object.
+  /// @brief Construct a ReceiverUDP object given a name and port.
   /// @param [in] interfaceName Name of the interface to listen on.
   /// @param [in] port Port number to listen on (default of 0 means any available port).
   /// @param [in] maxLen Maximum length of a packet to receive (default of 1472 is the maximum for Ethernet).
   ReceiverUDP(std::string interfaceName = "localhost", uint16_t port = 0, uint32_t maxLen = 9000 - 28);
 
-  /// @brief Get the port associated with this receiver.
+  /// @brief Construct a ReceiverUDP object given and endpoint.
+  /// @param [in] endpoint Endpoint to listen on.
+  /// @param [in] maxLen Maximum length of a packet to receive (default of 1472 is the maximum for Ethernet).
+  ReceiverUDP(const StreamEndpoint& endpoint, uint32_t maxLen = 9000 - 28);
+
+  /// @brief Get the port associated with this receiver in host byte order.
   /// @return The port associated with this receiver, or 0 for failure.
   Status GetPort(uint16_t& port) const { port = m_port;  return OKAY; }
 
@@ -1893,7 +1898,7 @@ public:
 
 protected:
   std::shared_ptr<Socket> m_socket; ///< Pointer to the socket object to use to do our work.
-  uint16_t m_port;                  ///< Port number we are listening on.
+  uint16_t m_port;                  ///< Port number we are listening on in host byte order.
 };
 
 //---------------------------------------------------------------------------
@@ -2159,8 +2164,8 @@ protected:
 
   /// @brief Struct to describe the information about a server we've found.
   struct ServerInfo {
-    uint32_t IP;                                  ///< IP address of the server.
-    uint16_t port;                                ///< Port number of the server.
+    uint32_t IP;                                  ///< IP address of the server in host byte order.
+    uint16_t port;                                ///< Port number of the server in host byte order.
     uint32_t serial;                              ///< Serial number of the server.
 
     ServerInfo(uint32_t pIP, uint32_t pPort, uint32_t pSerial) : IP(pIP), port(pPort), serial(pSerial) {}

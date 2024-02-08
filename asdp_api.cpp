@@ -230,22 +230,28 @@ StreamEndpoint::StreamEndpoint(const std::string& host, uint16_t port)
   : IP(0)
   , port(0)
 {
-  // Look up the IPV4 address of the host.
-  struct addrinfo* result = nullptr;
-  struct addrinfo hints;
-  memset(&hints, 0, sizeof(hints));
-  hints.ai_family = AF_INET;
-  hints.ai_socktype = SOCK_DGRAM;
-  hints.ai_flags |= AI_CANONNAME;
-  int status = getaddrinfo(host.c_str(), nullptr, &hints, &result);
-  if (status != 0) {
-    return;
+  if (host == "") {
+    IP = INADDR_ANY;
+  } else {
+    // Look up the IPV4 address of the host.
+    struct addrinfo* result = nullptr;
+    struct addrinfo hints;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_DGRAM;
+    hints.ai_flags |= AI_CANONNAME;
+    const char* hostName = host.c_str();
+    int status = getaddrinfo(hostName, nullptr, &hints, &result);
+    if (status != 0) {
+      return;
+    }
+    struct sockaddr_in* address = (struct sockaddr_in*)result->ai_addr;
+    // Convert to host byte order
+    IP = ntohl(address->sin_addr.s_addr);
+    freeaddrinfo(result);
   }
-  struct sockaddr_in* address = (struct sockaddr_in*)result->ai_addr;
-  IP = address->sin_addr.s_addr;
-  StreamEndpoint::port = port;
 
-  freeaddrinfo(result);
+  StreamEndpoint::port = port;
 }
 
 std::string StreamEndpoint::Test()
@@ -254,7 +260,7 @@ std::string StreamEndpoint::Test()
   // We expect it to be 127.0.0.1 when converted from network byte order
   StreamEndpoint endpoint("localhost", 1234);
   uint32_t expectedIP = (127 << 24) + 1;
-  if (ntohl(endpoint.IP) != expectedIP || endpoint.port != 1234) {
+  if (endpoint.IP != expectedIP || endpoint.port != 1234) {
     return "Error constructing StreamEndpoint: IP is " + std::to_string(endpoint.IP) + " and port is " + std::to_string(endpoint.port);
   }
 
@@ -4534,7 +4540,7 @@ SenderUDP::SenderUDP(const StreamEndpoint& endpoint, bool broadcast)
   for (uint32_t localIP : localIPs) {
     uint32_t count = 0;
     for (uint32_t mask = 0x80000000; mask != 0; mask >>= 1) {
-      if ((localIP & mask) == (endpoint.IP & mask)) {
+      if ((localIP & mask) == (htonl(endpoint.IP) & mask)) {
         count++;
       }
     }
@@ -4586,7 +4592,7 @@ SenderUDP::SenderUDP(const StreamEndpoint& endpoint, bool broadcast)
   // The address is already in network byte order, just convert the port.
   memset(&addr, 0, sizeof(addr));
   addr.sin_family = AF_INET;
-  addr.sin_addr.s_addr = endpoint.IP;
+  addr.sin_addr.s_addr = htonl(endpoint.IP);
   addr.sin_port = htons(endpoint.port);
   if (0 != connect(m_socket->socket, (struct sockaddr*)&addr, sizeof(addr))) {
     m_constructorStatus = SOCKET_FAILURE;
@@ -4773,41 +4779,31 @@ Status SenderFile::SendStreamPacket(const StreamPacket& packet)
 }
 
 ReceiverUDP::ReceiverUDP(std::string host, uint16_t port, uint32_t maxLen)
+  : ReceiverUDP(StreamEndpoint(host, port), maxLen)
+{
+}
+
+ReceiverUDP::ReceiverUDP(const StreamEndpoint& endpoint, uint32_t maxLen)
   : Receiver(maxLen)
   , m_socket(std::make_shared<Socket>())
-  , m_port(port)
+  , m_port(endpoint.port)
 {
-  // Map the host name to an IP address and set the port.
-  struct addrinfo hints, * res;
-  memset(&hints, 0, sizeof(hints));
-  hints.ai_family = AF_INET;
-  hints.ai_socktype = SOCK_DGRAM;
-  hints.ai_flags |= AI_CANONNAME;
-  const char *hostName = host.c_str();
-  if (host == "") {
-    hostName = nullptr;
-    hints.ai_flags |= AI_PASSIVE;         ///< Make the socket available for binding across multiple NICs.
-  }
-  std::string portString = std::to_string(m_port);
-  const char *portName = portString.c_str();
-  if (0 != getaddrinfo(hostName, portName, &hints, &res)) {
-    m_constructorStatus = BAD_PARAMETER;
-    return;
-  }
-
   // Open the socket to use for receiving UDP packets.
-  m_socket->socket = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+  m_socket->socket = socket(AF_INET, SOCK_DGRAM, 0);
   if (m_socket->socket == BAD_SOCKET) {
     m_constructorStatus = BAD_PARAMETER;
-    freeaddrinfo(res);
     m_socket.reset();
     return;
   }
 
   // Bind the socket to the specified NIC and port.
-  if (0 != bind(m_socket->socket, res->ai_addr, res->ai_addrlen)) {
+  struct sockaddr_in addr;
+  memset(&addr, 0, sizeof(addr));
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = htonl(endpoint.IP);
+  addr.sin_port = htons(endpoint.port);
+  if (0 != bind(m_socket->socket, (struct sockaddr*)&addr, sizeof(addr))) {
     m_constructorStatus = SOCKET_FAILURE;
-    freeaddrinfo(res);
     m_socket.reset();
     return;
   }
@@ -4818,15 +4814,11 @@ ReceiverUDP::ReceiverUDP(std::string host, uint16_t port, uint32_t maxLen)
     socklen_t len = sizeof(sin);
     if (getsockname(m_socket->socket, (struct sockaddr *)&sin, &len) == -1) {
       m_constructorStatus = SOCKET_FAILURE;
-      freeaddrinfo(res);
       m_socket.reset();
       return;
     }
     m_port = ntohs(sin.sin_port);
   }
-
-  // Free our resources
-  freeaddrinfo(res);
 }
 
 Status ReceiverUDP::IsPacketAvailable(double timeout_seconds, bool& available)
