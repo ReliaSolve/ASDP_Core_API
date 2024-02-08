@@ -26,6 +26,7 @@
 #include <atomic>
 #include <mutex>
 #include <array>
+#include <ostream>
 
 namespace asdp {
 
@@ -2208,3 +2209,6 @@ protected:
 std::string Test();
 
 } // namespace asdp
+
+/// @brief Operator to send a StreamEndpoint to an ostream.
+std::ostream& operator<<(std::ostream& os, const asdp::StreamEndpoint& endpoint);

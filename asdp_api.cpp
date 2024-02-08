@@ -6,6 +6,16 @@
 #include <string.h>   // For memcpy
 #include <iostream>
 
+// Must be defined outside of the namespace.
+std::ostream& ::operator<<(std::ostream& os, const asdp::StreamEndpoint& endpoint) {
+  os << ((endpoint.IP & (0xff << 24)) >> 24) << "."
+    << ((endpoint.IP & (0xff << 16)) >> 16) << "."
+    << ((endpoint.IP & (0xff << 8)) >> 8) << "."
+    << (endpoint.IP & 0xff)
+    << ":" << endpoint.port;
+  return os;
+}
+
 using namespace asdp;
 
 //----------------------------------------------------------------------------
@@ -5525,7 +5535,7 @@ std::string StreamWriter::Test()
     // Make sure the time advances, so the new time will be larger than lastTimeCode.
     std::this_thread::sleep_for(std::chrono::microseconds(20));
 
-      // Pack a message into the StreamWriter.
+    // Pack a message into the StreamWriter.
     std::shared_ptr<StreamPacket> packet;
     status = streamWriter->GetCurrentPacket(packet);
     if (status != OKAY) {
