@@ -5,7 +5,6 @@
 #include "asdp_api.h"
 #include <string.h>   // For memcpy
 #include <iostream>
-#include <limits>
 
 using namespace asdp;
 
@@ -4580,7 +4579,7 @@ SenderUDP::SenderUDP(const StreamEndpoint& endpoint, bool broadcast)
   // If we're doing broadcast, set the socket to allow broadcast and set the
   // host name the broadcast address.
   if (broadcast) {
-    addr.sin_addr.s_addr = std::numeric_limits<int32_t>::max();
+    addr.sin_addr.s_addr = INADDR_BROADCAST;
     int broadcastEnable = 1;
     if (0 != setsockopt(m_socket->socket, SOL_SOCKET, SO_BROADCAST, (char*)&broadcastEnable, sizeof(broadcastEnable))) {
       m_constructorStatus = SOCKET_FAILURE;
