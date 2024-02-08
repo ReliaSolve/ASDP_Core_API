@@ -235,6 +235,11 @@ public:
     return !(*this == other);
   }
 
+  /// @brief less-than operator.
+  bool operator <(const StreamEndpoint& other) const {
+    return IP < other.IP || (IP == other.IP && port < other.port);
+  }
+
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
   static std::string Test();
