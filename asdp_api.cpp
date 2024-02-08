@@ -5420,9 +5420,19 @@ Status StreamWriter::Flush()
     return UNEXPECTED_INTERNAL_STATE;
   }
 
+  // If we haven't written anything to the packet, don't send it.
+  std::shared_ptr<Message> firstMessage;
+  Status status = m_currentPacket->GetNextMessage(firstMessage);
+  if (status != OKAY) {
+    return status;
+  }
+  if (firstMessage == nullptr) {
+    return OKAY;
+  }
+
   // Set the time code in the current packet.
   Time timeCode;
-  Status status = m_timer->GetCoreTime(timeCode);
+  status = m_timer->GetCoreTime(timeCode);
   if (status != OKAY) {
     return status;
   }

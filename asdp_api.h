@@ -1960,6 +1960,10 @@ public:
   Status GetCurrentPacket(std::shared_ptr<asdp::StreamPacket>& packet) const;
 
   /// @brief Flush the current packet, sending it and getting a new one.
+  ///
+  /// The current packet is sent and a new one is created.  The sequence number
+  /// is incremented and the time code is updated.  If there are no messages in
+  /// the current packet, nothing is done.
   /// @return OKAY if successful, otherwise an error code.
   Status Flush();
 
