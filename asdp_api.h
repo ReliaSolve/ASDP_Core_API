@@ -2273,16 +2273,24 @@ protected:
     std::shared_ptr<StreamWriter> writer;   ///< The StreamWriter for the stream.
     Time                          timeOut;  ///< When the stream will time out.
 
-    // Stream-specific things
-    uint32_t                      verbosity; ///< The verbosity level for event stream.
+    // Stream-type specific things that are filled in by the partcular command function.
+    uint32_t                      verbosity;  ///< For event stream.
+
+    float                         period;     ///< For state, temperature, pose streams.
+    Time                          lastSent;   ///< Time last report sent
   };
 
-  /// @todo implement period of streaming for those that have it
+  /// @todo Implement state streaming within run() using period and lastSent
+  /// @todo Implement temperature streaming within run() using period and lastSent
+  /// @todo Implement pose streaming within run() using period and lastSent
   /// @todo Implement KeepAlive by looking through the lists of writers and removing any that have timed out.
 
   std::list<WriterInfo> m_stateWriters;       ///< The StreamWriters for state, if any.
   std::list<WriterInfo> m_eventWriters;       ///< The StreamWriters for events, if any.
   std::list<WriterInfo> m_subregionWriters;   ///< The StreamWriters for subregions, if any.
+  std::list<WriterInfo> m_listWriters;        ///< The StreamWriters for stored stream lists, if any.
+  std::list<WriterInfo> m_temperatureWriters; ///< The StreamWriters for temperatures, if any.
+  std::list<WriterInfo> m_poseWriters;        ///< The StreamWriters for poses, if any.
 
   /// @brief Determine the new timeout for a stream based on the current time and
   /// the keep-alive interval.
@@ -2304,9 +2312,10 @@ protected:
   /// @param endpoint The endpoint for the sender.
   /// @param baseList The list that the writer will be added to.  If the writer is
   /// already in this particular list, it is not added again.
-  /// @return The StreamWriter for the endpoint in the specified list, so that its
-  /// specific entries can be filled in.
-  virtual WriterInfo& getWriter(const StreamEndpoint& endpoint, std::list<WriterInfo>& baseList);
+  /// @return A pointer to the StreamWriter for the endpoint in the specified list, so that its
+  /// specific entries can be filled in. If there is an error, nullptr is returned.
+  /// The pointer cannot be used after the mutex is released because the list may be changed.
+  virtual WriterInfo *getWriter(const StreamEndpoint& endpoint, std::list<WriterInfo>& baseList);
 
   /// @brief Helper method to send an invalid-command event to the event stream.
   /// 
@@ -2366,14 +2375,10 @@ protected:
   virtual void doSetKeepAliveInterval(const CommandPacketKeepaliveInterval&);
 
   /// @brief Implement the specified command.
-  virtual void doStreamState(const CommandPacketStreamState&) {
-    sendInvalidCommandMessage(STREAM_STATE);
-  }
+  virtual void doStreamState(const CommandPacketStreamState&);
 
   /// @brief Implement the specified command.
-  virtual void doCancelState(const CommandPacketCancelState&) {
-    sendInvalidCommandMessage(CANCEL_STATE);
-  }
+  virtual void doCancelState(const CommandPacketCancelState&);
 
   /// @brief Implement the specified command.
   virtual void doConfigureTrigger(const CommandPacketConfigureTrigger&) {
@@ -2407,9 +2412,7 @@ protected:
   }
 
   /// @brief Implement the specified command.
-  virtual void doListStoredStreams(const CommandPacketStreamStoredList&) {
-    sendInvalidCommandMessage(STREAM_STORED_LIST);
-  }
+  virtual void doStreamStoredList(const CommandPacketStreamStoredList&);
 
   /// @brief Implement the specified command.
   virtual void doEraseStoredStream(const CommandPacketEraseStoredStream&) {
@@ -2417,24 +2420,16 @@ protected:
   }
 
   /// @brief Implement the specified command.
-  virtual void doStreamTemperatures(const CommandPacketStreamTemperatures&) {
-    sendInvalidCommandMessage(STREAM_TEMPERATURES);
-  }
+  virtual void doStreamTemperatures(const CommandPacketStreamTemperatures&);
 
   /// @brief Implement the specified command.
-  virtual void doCancelTemperatures(const CommandPacketCancelTemperatures&) {
-    sendInvalidCommandMessage(CANCEL_TEMPERATURES);
-  }
+  virtual void doCancelTemperatures(const CommandPacketCancelTemperatures&);
 
   /// @brief Implement the specified command.
-  virtual void doStreamPoses(const CommandPacketStreamPoses&) {
-    sendInvalidCommandMessage(STREAM_POSES);
-  }
+  virtual void doStreamPoses(const CommandPacketStreamPoses&);
 
   /// @brief Implement the specified command.
-  virtual void doCancelPoses(const CommandPacketCancelPoses&) {
-    sendInvalidCommandMessage(CANCEL_POSES);
-  }
+  virtual void doCancelPoses(const CommandPacketCancelPoses&);
 };
 
 //---------------------------------------------------------------------------

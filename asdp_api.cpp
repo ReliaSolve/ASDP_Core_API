@@ -6238,7 +6238,7 @@ asdp::Time CoreServerBase::getNewTimeout()
   return time + increase;
 }
 
-asdp::CoreServerBase::WriterInfo& CoreServerBase::getWriter(
+asdp::CoreServerBase::WriterInfo *CoreServerBase::getWriter(
   const StreamEndpoint& endpoint, std::list<WriterInfo>& baseList)
 {
   std::lock_guard<std::recursive_mutex> lock(m_mutex);
@@ -6249,7 +6249,7 @@ asdp::CoreServerBase::WriterInfo& CoreServerBase::getWriter(
     [&endpoint](const WriterInfo& info) { return info.endpoint == endpoint; });
   if (it != baseList.end()) {
     it->timeOut = getNewTimeout();
-    return *it;
+    return &*it;
   }
 
   // See if there is already an entry for this endpoint in the other lists.  If there is,
@@ -6260,7 +6260,7 @@ asdp::CoreServerBase::WriterInfo& CoreServerBase::getWriter(
     if (it != m_stateWriters.end()) {
       baseList.push_back(*it);
       it->timeOut = getNewTimeout();
-      return *it;
+      return &*it;
     }
   }
   if (&baseList != &m_eventWriters) if (m_eventWriters.size() > 0) {
@@ -6269,7 +6269,7 @@ asdp::CoreServerBase::WriterInfo& CoreServerBase::getWriter(
     if (it != m_eventWriters.end()) {
       baseList.push_back(*it);
       it->timeOut = getNewTimeout();
-      return *it;
+      return &*it;
     }
   }
   if (&baseList != &m_subregionWriters) if (m_subregionWriters.size() > 0) {
@@ -6278,7 +6278,34 @@ asdp::CoreServerBase::WriterInfo& CoreServerBase::getWriter(
     if (it != m_subregionWriters.end()) {
       baseList.push_back(*it);
       it->timeOut = getNewTimeout();
-      return *it;
+      return &*it;
+    }
+  }
+  if (&baseList != &m_listWriters) if (m_listWriters.size() > 0) {
+    it = std::find_if(m_listWriters.begin(), m_listWriters.end(),
+           [&endpoint](const WriterInfo& info) { return info.endpoint == endpoint; });
+    if (it != m_listWriters.end()) {
+      baseList.push_back(*it);
+      it->timeOut = getNewTimeout();
+      return &*it;
+    }
+  }
+  if (&baseList != &m_temperatureWriters) if (m_temperatureWriters.size() > 0) {
+    it = std::find_if(m_temperatureWriters.begin(), m_temperatureWriters.end(),
+      [&endpoint](const WriterInfo& info) { return info.endpoint == endpoint; });
+    if (it != m_temperatureWriters.end()) {
+      baseList.push_back(*it);
+      it->timeOut = getNewTimeout();
+      return &*it;
+    }
+  }
+  if (&baseList != &m_poseWriters) if (m_poseWriters.size() > 0) {
+    it = std::find_if(m_poseWriters.begin(), m_poseWriters.end(),
+      [&endpoint](const WriterInfo& info) { return info.endpoint == endpoint; });
+    if (it != m_poseWriters.end()) {
+      baseList.push_back(*it);
+      it->timeOut = getNewTimeout();
+      return &*it;
     }
   }
 
@@ -6302,7 +6329,7 @@ asdp::CoreServerBase::WriterInfo& CoreServerBase::getWriter(
   }
   baseList.push_back(wi);
   wi.timeOut = getNewTimeout();
-  return baseList.back();
+  return &baseList.back();
 }
 
 void CoreServerBase::sendInvalidCommandMessage(OpCode opCode)
@@ -6566,12 +6593,12 @@ std::string CoreServerBase::run()
     break;
     case STREAM_STORED_LIST:
     {
-      CommandPacketStreamStoredList listStoredStreamsCommand(*command);
-      status = listStoredStreamsCommand.GetConstructorStatus();
+      CommandPacketStreamStoredList streamStoredListCommand(*command);
+      status = streamStoredListCommand.GetConstructorStatus();
       if (status != OKAY) {
         return "Failed to construct list stored streams command: " + ErrorMessage(status);
       }
-      doListStoredStreams(listStoredStreamsCommand);
+      doStreamStoredList(streamStoredListCommand);
     }
     break;
     case ERASE_STORED_STREAM:
@@ -6662,10 +6689,14 @@ void CoreServerBase::doStreamEvents(const CommandPacketStreamEvents& command)
   std::lock_guard<std::recursive_mutex> lock(m_mutex);
 
   // Create or get the basic writer for the endpoint.
-  WriterInfo& wi = getWriter(endpoint, m_eventWriters);
+  WriterInfo *wi = getWriter(endpoint, m_eventWriters);
+  if (wi == nullptr) {
+    m_error = "Failed to create or get writer for endpoint: " + ErrorMessage(status);
+    return;
+  }
 
   // Fill in the specific entries for streaming events.
-  wi.verbosity = verbosity;
+  wi->verbosity = verbosity;
 }
 
 void CoreServerBase::doCancelEvents(const CommandPacketCancelEvents& command)
@@ -6682,6 +6713,204 @@ void CoreServerBase::doCancelEvents(const CommandPacketCancelEvents& command)
   std::lock_guard<std::recursive_mutex> lock(m_mutex);
   auto it = std::find_if(m_eventWriters.begin(), m_eventWriters.end(),
     [&endpoint](const WriterInfo& info) { return info.endpoint == endpoint; });
+  if (it != m_eventWriters.end()) {
+    m_eventWriters.erase(it);
+  }
+}
+
+void CoreServerBase::doStreamState(const CommandPacketStreamState& command)
+{
+  StreamEndpoint endpoint;
+  Status status = command.GetEndpoint(endpoint);
+  if (status != OKAY) {
+    m_error = "Failed to get endpoint: " + ErrorMessage(status);
+    return;
+  }
+
+  float period;
+  status = command.GetInterval(period);
+  if (status != OKAY) {
+    m_error = "Failed to get period: " + ErrorMessage(status);
+    return;
+  }
+
+  std::lock_guard<std::recursive_mutex> lock(m_mutex);
+
+  // Create or get the basic writer for the endpoint.
+  WriterInfo *wi = getWriter(endpoint, m_stateWriters);
+  if (wi == nullptr) {
+    m_error = "Failed to create or get writer for endpoint: " + ErrorMessage(status);
+    return;
+  }
+
+  // Fill in the specific entries for streaming state.
+  wi->period = period;
+}
+
+void CoreServerBase::doCancelState(const CommandPacketCancelState& command)
+{
+  // Get the endpoint to cancel.
+  StreamEndpoint endpoint;
+  Status status = command.GetEndpoint(endpoint);
+  if (status != OKAY) {
+    m_error = "Failed to get endpoint: " + ErrorMessage(status);
+    return;
+  }
+
+  // Remove it from the list if it is there.
+  std::lock_guard<std::recursive_mutex> lock(m_mutex);
+  auto it = std::find_if(m_stateWriters.begin(), m_stateWriters.end(),
+    [&endpoint](const WriterInfo& info) { return info.endpoint == endpoint; });
+  if (it != m_stateWriters.end()) {
+    m_stateWriters.erase(it);
+  }
+}
+
+void CoreServerBase::doStreamStoredList(const CommandPacketStreamStoredList& command)
+{
+  // If we don't have the storage feature, this command is in error.
+  if (find(m_features.begin(), m_features.end(), STORAGE_API_AVAILABLE) == m_features.end()) {
+    sendInvalidCommandMessage(STREAM_STORED_LIST);
+    return;
+  }
+
+  StreamEndpoint endpoint;
+  Status status = command.GetEndpoint(endpoint);
+  if (status != OKAY) {
+    m_error = "Failed to get endpoint: " + ErrorMessage(status);
+    return;
+  }
+
+  std::lock_guard<std::recursive_mutex> lock(m_mutex);
+
+  // Create or get the basic writer for the endpoint.
+  WriterInfo* wi = getWriter(endpoint, m_listWriters);
+  if (wi == nullptr) {
+    m_error = "Failed to create or get writer for endpoint: " + ErrorMessage(status);
+    return;
+  }
+}
+
+void CoreServerBase::doStreamTemperatures(const CommandPacketStreamTemperatures& command)
+{
+  // If we don't have the temperature feature, this command is in error.
+  if (find(m_features.begin(), m_features.end(), TEMPERATURE_API_AVAILBLE) == m_features.end()) {
+    sendInvalidCommandMessage(STREAM_TEMPERATURES);
+    return;
+  }
+
+  StreamEndpoint endpoint;
+  Status status = command.GetEndpoint(endpoint);
+  if (status != OKAY) {
+    m_error = "Failed to get endpoint: " + ErrorMessage(status);
+    return;
+  }
+
+  float period;
+  status = command.GetInterval(period);
+  if (status != OKAY) {
+    m_error = "Failed to get period: " + ErrorMessage(status);
+    return;
+  }
+
+  std::lock_guard<std::recursive_mutex> lock(m_mutex);
+
+  // Create or get the basic writer for the endpoint.
+  WriterInfo* wi = getWriter(endpoint, m_temperatureWriters);
+  if (wi == nullptr) {
+    m_error = "Failed to create or get writer for endpoint: " + ErrorMessage(status);
+    return;
+  }
+
+  // Fill in the specific entries for streaming state.
+  wi->period = period;
+}
+
+void CoreServerBase::doCancelTemperatures(const CommandPacketCancelTemperatures& command)
+{
+  // If we don't have the temperature feature, this command is in error.
+  if (find(m_features.begin(), m_features.end(), TEMPERATURE_API_AVAILBLE) == m_features.end()) {
+    sendInvalidCommandMessage(STREAM_TEMPERATURES);
+    return;
+  }
+
+  // Get the endpoint to cancel.
+  StreamEndpoint endpoint;
+  Status status = command.GetEndpoint(endpoint);
+  if (status != OKAY) {
+    m_error = "Failed to get endpoint: " + ErrorMessage(status);
+    return;
+  }
+
+  // Remove it from the list if it is there.
+  std::lock_guard<std::recursive_mutex> lock(m_mutex);
+  auto it = std::find_if(m_temperatureWriters.begin(), m_temperatureWriters.end(),
+    [&endpoint](const WriterInfo& info) { return info.endpoint == endpoint; });
+  if (it != m_temperatureWriters.end()) {
+    m_temperatureWriters.erase(it);
+  }
+}
+
+void CoreServerBase::doStreamPoses(const CommandPacketStreamPoses& command)
+{
+  // If we don't have the pose features, this command is in error.
+  if ((find(m_features.begin(), m_features.end(), POSE_API_ORIENTATION_AVAILABLE) == m_features.end()
+      && find(m_features.begin(), m_features.end(), POSE_API_POSITION_AVAILABLE) == m_features.end())) {
+    sendInvalidCommandMessage(STREAM_POSES);
+    return;
+  }
+
+  StreamEndpoint endpoint;
+  Status status = command.GetEndpoint(endpoint);
+  if (status != OKAY) {
+    m_error = "Failed to get endpoint: " + ErrorMessage(status);
+    return;
+  }
+
+  float period;
+  status = command.GetInterval(period);
+  if (status != OKAY) {
+    m_error = "Failed to get period: " + ErrorMessage(status);
+    return;
+  }
+
+  std::lock_guard<std::recursive_mutex> lock(m_mutex);
+
+  // Create or get the basic writer for the endpoint.
+  WriterInfo* wi = getWriter(endpoint, m_poseWriters);
+  if (wi == nullptr) {
+    m_error = "Failed to create or get writer for endpoint: " + ErrorMessage(status);
+    return;
+  }
+
+  // Fill in the specific entries for streaming state.
+  wi->period = period;
+}
+
+void CoreServerBase::doCancelPoses(const CommandPacketCancelPoses& command)
+{
+  // If we don't have the pose features, this command is in error.
+  if ((find(m_features.begin(), m_features.end(), POSE_API_ORIENTATION_AVAILABLE) == m_features.end()
+    && find(m_features.begin(), m_features.end(), POSE_API_POSITION_AVAILABLE) == m_features.end())) {
+    sendInvalidCommandMessage(STREAM_POSES);
+    return;
+  }
+
+  // Get the endpoint to cancel.
+  StreamEndpoint endpoint;
+  Status status = command.GetEndpoint(endpoint);
+  if (status != OKAY) {
+    m_error = "Failed to get endpoint: " + ErrorMessage(status);
+    return;
+  }
+
+  // Remove it from the list if it is there.
+  std::lock_guard<std::recursive_mutex> lock(m_mutex);
+  auto it = std::find_if(m_poseWriters.begin(), m_poseWriters.end(),
+    [&endpoint](const WriterInfo& info) { return info.endpoint == endpoint; });
+  if (it != m_poseWriters.end()) {
+    m_poseWriters.erase(it);
+  }
 }
 
 std::string asdp::Test()
