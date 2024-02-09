@@ -7,7 +7,7 @@
 #include <iostream>
 
 // Must be defined outside of the namespace.
-std::ostream& ::operator<<(std::ostream& os, const asdp::StreamEndpoint& endpoint) {
+std::ostream& operator<<(std::ostream& os, const asdp::StreamEndpoint& endpoint) {
   os << ((endpoint.IP & (0xff << 24)) >> 24) << "."
     << ((endpoint.IP & (0xff << 16)) >> 16) << "."
     << ((endpoint.IP & (0xff << 8)) >> 8) << "."
