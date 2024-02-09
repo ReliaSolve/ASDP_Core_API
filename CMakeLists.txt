@@ -112,6 +112,7 @@ if(BUILD_EXAMPLES)
     ASDP_Core_Speed_Measurements
     Basic_Server
     Basic_Client
+    Base_Server
   )
   foreach (BASE ${EXAMPLES})
     # C++ example

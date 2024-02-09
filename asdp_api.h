@@ -26,6 +26,7 @@
 #include <atomic>
 #include <mutex>
 #include <array>
+#include <list>
 #include <ostream>
 
 namespace asdp {
@@ -106,7 +107,7 @@ enum OpCode : uint32_t {
   STREAM_SUBREGIONS             = 20000,
   CANCEL_SUBREGIONS             = 20001,
   ERASE_ALL_STORED_STREAMS      = 30000,
-  LIST_STORED_STREAMS           = 30001,
+  STREAM_STORED_LIST           = 30001,
   ERASE_STORED_STREAM           = 30002,
   STREAM_TEMPERATURES           = 40000,
   CANCEL_TEMPERATURES           = 40001,
@@ -720,6 +721,7 @@ class CommandPacketKeepaliveInterval : public CommandPacket {
 public:
   /// @brief Construct a brand-new command buffer with the SET_KEEPALIVE_INTERVAL opcode.
   /// @param [in] interval Interval to set the keepalive to in seconds.  0 means infinite.
+  /// This sets the interval for future streams.  It does not affect existing streams.
   CommandPacketKeepaliveInterval(float interval);
 
   /// @brief Type-cast a base CommandPacket, re-using its buffer.
@@ -2080,8 +2082,8 @@ public:
   /// @return OKAY if successful, otherwise an error code.
   Status GetDiscoveryThreadStatus(Status& threadStatus) const;
 
-  /// @brief Destructor.
-  ~CoreServer();
+  /// @brief Virtual destructor to enable subclases to be detroyed properly.
+  virtual ~CoreServer();
 
 protected:
   CoreServer() = delete;
@@ -2201,6 +2203,238 @@ protected:
   std::shared_ptr<ReceiverUDP> m_receiver;        ///< Receiver object to use to receive Discovery packets.
   uint32_t m_IP;                                  ///< Our IP address where we're listening for packets.
   uint32_t m_serial;                              ///< Serial number of the server we're connected to.
+};
+
+//---------------------------------------------------------------------------
+/// @brief Base class for servers, adding command parsing and helper function to CoreServer.
+///
+/// This is a virtual base class that can be used to implement a server.
+/// It handles the bookkeeping for the command packets and provides a
+/// number of helper functions to handle the commands.
+/// 
+/// It should be tested by running the Base_Server example program and then running
+/// the Validating_Client example program.
+
+class CoreServerBase : public CoreServer {
+public:
+  /// @brief Constructor
+  /// @param serialNumber The serial number of the server
+  /// @param IP The IP address of the server
+  /// @param verbosity The verbosity level of the server, 0 for no verbosity, higher for more verbosity.
+  /// Verbosity above 0 will print messages to std::cout.
+  CoreServerBase(uint32_t serialNumber, const std::string& IP,
+    int verbosity = 0);
+
+  ~CoreServerBase() override {};
+
+  /// @brief Run the server, not returning unless an error occurs.
+  ///
+  /// This function runs the server, handling all incoming commands and
+  /// returning only when an error occurs.  The error message is returned.
+  /// A derived class can override this function, but it will then need
+  /// to poll for and parse incoming commands itself.  It is better to
+  /// override the command functions below to handle the commands.
+  /// @return Error message when the server stops running.
+  virtual std::string run();
+
+protected:
+  /// @brief Can be used to indicate an error state by internal methods.
+  ///
+  /// The run() method can watch this and return an error message if it is set.
+  /// Subclasses can set this to indicate an error state and their run() method
+  /// can handle it, or this can be ignored.  Note that some of the helper classes
+  /// and methods below will set this if they encounter an error.
+  std::string m_error;
+
+  int m_verbosity; ///< The verbosity level of the server, 0 for no verbosity, higher for more verbosity.
+
+  // State variables
+  float m_keepAliveInterval;        ///< The keep alive interval in seconds.
+  std::vector<uint16_t> m_features; ///< The features of the server (filled in when added)
+
+  //=============================================================================
+  // There are a number of sets of StreamWriters that are created and managed by the server.
+  // These are the StreamWriters for the various types of streams.  There can be more
+  // than one writer for each type of stream.  This set of structures and associated
+  // methods manage these streams.  They can be used as is by a derived class, or
+  // ignored (and virtual functions overridden) to provide a different implementation.
+
+  std::recursive_mutex m_mutex;     ///< Mutex to protect operations on internal structures.
+
+  /// @brief Information about a writer for a stream.
+  ///
+  /// This structure contains the endpoint for the writer and the StreamWriter for the stream.
+  /// It also contains entries specific to each time of stream, with only the ones that are
+  /// relevant to the stream being used.  This enables us to use common code to handle the
+  /// different types of streams.
+  struct WriterInfo {
+    // Common things
+    StreamEndpoint                endpoint; ///< The endpoint for the writer.
+    std::shared_ptr<StreamWriter> writer;   ///< The StreamWriter for the stream.
+    Time                          timeOut;  ///< When the stream will time out.
+
+    // Stream-specific things
+    uint32_t                      verbosity; ///< The verbosity level for event stream.
+  };
+
+  /// @todo implement period of streaming for those that have it
+  /// @todo Implement KeepAlive by looking through the lists of writers and removing any that have timed out.
+
+  std::list<WriterInfo> m_stateWriters;       ///< The StreamWriters for state, if any.
+  std::list<WriterInfo> m_eventWriters;       ///< The StreamWriters for events, if any.
+  std::list<WriterInfo> m_subregionWriters;   ///< The StreamWriters for subregions, if any.
+
+  /// @brief Determine the new timeout for a stream based on the current time and
+  /// the keep-alive interval.
+  /// @return The new timeout for the stream.
+  /// This function returns the current time plus
+  /// the keep-alive interval, unless the keep-alive interval is zero or negative, in
+  /// which case it is set to end end of time.
+  virtual Time getNewTimeout();
+
+  /// @brief Create or get an existing StreamWriter for the specified endpoint.
+  /// 
+  /// This function looks through all of the existing StreamWriters to see if there is
+  /// one for the specified endpoint.  If there is, it re-uses it.  If not, it creates
+  /// a new one and adds it to the list.
+  /// 
+  /// This function also sets the timeout for the StreamWriter to the current time plus
+  /// the keep-alive interval, unless the keep-alive interval is zero or negative, in
+  /// which case it is set to end end of time.
+  /// @param endpoint The endpoint for the sender.
+  /// @param baseList The list that the writer will be added to.  If the writer is
+  /// already in this particular list, it is not added again.
+  /// @return The StreamWriter for the endpoint in the specified list, so that its
+  /// specific entries can be filled in.
+  virtual WriterInfo& getWriter(const StreamEndpoint& endpoint, std::list<WriterInfo>& baseList);
+
+  /// @brief Helper method to send an invalid-command event to the event stream.
+  /// 
+  /// This base-class implementation uses the m_eventWriters list to send the event.
+  /// A derived class that does not use the above list will need to override this
+  /// method to send the event message in a different way.
+  /// @param opCode The invalid command opcode.
+  virtual void sendInvalidCommandMessage(OpCode opCode);
+
+  //=============================================================================
+  // Methods to implement the commands. NOTE: These are each implemented to send
+  // an invalid-command event message.  A derived class will need to override these
+  // methods to implement the actual command.  It can leave the ones as is for
+  // commands supporting features that it does not have.
+
+  /// @brief Implement the specified command.
+  virtual void doReset(const CommandPacketReset&) {
+    sendInvalidCommandMessage(RESET);
+  }
+
+  /// @brief Implement the specified command.
+  virtual void doCancelAllStreams(const CommandPacketCancelAllStreams&) {
+    sendInvalidCommandMessage(CANCEL_ALL_STREAMS);
+  }
+
+  /// @brief Implement the specified command.
+  virtual void doStartRecording(const CommandPacketStartRecording&) {
+    sendInvalidCommandMessage(START_RECORDING);
+  }
+
+  /// @brief Implement the specified command.
+  virtual void doStopRecording(const CommandPacketStopRecording&) {
+    sendInvalidCommandMessage(STOP_RECORDING);
+  }
+
+  /// @brief Implement the specified command.
+  virtual void doSetStartUpRecordingState(const CommandPacketSetStartUpRecordingState&) {
+    sendInvalidCommandMessage(SET_START_UP_RECORDING_STATE);
+  }
+
+  /// @brief Implement the specified command.
+  virtual void doStartReplay(const CommandPacketStartReplay&) {
+    sendInvalidCommandMessage(START_REPLAY);
+  }
+
+  /// @brief Implement the specified command.
+  virtual void doPauseReplay(const CommandPacketPauseReplay&) {
+    sendInvalidCommandMessage(PAUSE_REPLAY);
+  }
+
+  /// @brief Implement the specified command.
+  virtual void doStopReplay(const CommandPacketStopReplay&) {
+    sendInvalidCommandMessage(STOP_REPLAY);
+  }
+
+  /// @brief Implement the specified command.
+  virtual void doSetKeepAliveInterval(const CommandPacketKeepaliveInterval&);
+
+  /// @brief Implement the specified command.
+  virtual void doStreamState(const CommandPacketStreamState&) {
+    sendInvalidCommandMessage(STREAM_STATE);
+  }
+
+  /// @brief Implement the specified command.
+  virtual void doCancelState(const CommandPacketCancelState&) {
+    sendInvalidCommandMessage(CANCEL_STATE);
+  }
+
+  /// @brief Implement the specified command.
+  virtual void doConfigureTrigger(const CommandPacketConfigureTrigger&) {
+    sendInvalidCommandMessage(CONFIGURE_TRIGGER);
+  }
+
+  /// @brief Implement the specified command.
+  virtual void doSoftwareTrigger(const CommandPacketSoftwareTrigger&) {
+    sendInvalidCommandMessage(SOFTWARE_TRIGGER);
+  }
+
+  /// @brief Implement the specified command.
+  virtual void doStreamEvents(const CommandPacketStreamEvents&);
+
+  /// @brief Implement the specified command.
+  virtual void doCancelEvents(const CommandPacketCancelEvents&);
+
+  /// @brief Implement the specified command.
+  virtual void doStreamSubregions(const CommandPacketStreamSubregions&) {
+    sendInvalidCommandMessage(STREAM_SUBREGIONS);
+  }
+
+  /// @brief Implement the specified command.
+  virtual void doCancelSubregions(const CommandPacketCancelSubregions&) {
+    sendInvalidCommandMessage(CANCEL_SUBREGIONS);
+  }
+
+  /// @brief Implement the specified command.
+  virtual void doEraseAllStoredStreams(const CommandPacketEraseAllStoredStreams&) {
+    sendInvalidCommandMessage(ERASE_ALL_STORED_STREAMS);
+  }
+
+  /// @brief Implement the specified command.
+  virtual void doListStoredStreams(const CommandPacketStreamStoredList&) {
+    sendInvalidCommandMessage(STREAM_STORED_LIST);
+  }
+
+  /// @brief Implement the specified command.
+  virtual void doEraseStoredStream(const CommandPacketEraseStoredStream&) {
+    sendInvalidCommandMessage(ERASE_STORED_STREAM);
+  }
+
+  /// @brief Implement the specified command.
+  virtual void doStreamTemperatures(const CommandPacketStreamTemperatures&) {
+    sendInvalidCommandMessage(STREAM_TEMPERATURES);
+  }
+
+  /// @brief Implement the specified command.
+  virtual void doCancelTemperatures(const CommandPacketCancelTemperatures&) {
+    sendInvalidCommandMessage(CANCEL_TEMPERATURES);
+  }
+
+  /// @brief Implement the specified command.
+  virtual void doStreamPoses(const CommandPacketStreamPoses&) {
+    sendInvalidCommandMessage(STREAM_POSES);
+  }
+
+  /// @brief Implement the specified command.
+  virtual void doCancelPoses(const CommandPacketCancelPoses&) {
+    sendInvalidCommandMessage(CANCEL_POSES);
+  }
 };
 
 //---------------------------------------------------------------------------
