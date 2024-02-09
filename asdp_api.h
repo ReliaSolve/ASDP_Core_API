@@ -2238,6 +2238,18 @@ public:
   virtual std::string run();
 
 protected:
+  /// @brief Function to be called every time through the run loop.
+  ///
+  /// This function is called every time through the run loop.  It can be used
+  /// to service devices, implement periodic tasks that are not handled by
+  /// the base class (streaming subregions, temperatures or poses), or to do other things
+  /// that need to be done every time through the run loop.
+  /// The default implementation does nothing.
+  /// 
+  /// The function should set m_error to non empty to indicate an error, which
+  /// will cause the run() function to exit.
+  virtual void doEveryLoop() {};
+
   /// @brief Can be used to indicate an error state by internal methods.
   ///
   /// The run() method can watch this and return an error message if it is set.
@@ -2280,10 +2292,8 @@ protected:
     Time                          lastSent;   ///< Time last report sent
   };
 
-  /// @todo Implement state streaming within run() using period and lastSent
-  /// @todo Implement temperature streaming within run() using period and lastSent
-  /// @todo Implement pose streaming within run() using period and lastSent
   /// @todo Implement KeepAlive by looking through the lists of writers and removing any that have timed out.
+  /// @todo Implement state streaming within run() using period and lastSent
 
   std::list<WriterInfo> m_stateWriters;       ///< The StreamWriters for state, if any.
   std::list<WriterInfo> m_eventWriters;       ///< The StreamWriters for events, if any.
@@ -2299,6 +2309,11 @@ protected:
   /// the keep-alive interval, unless the keep-alive interval is zero or negative, in
   /// which case it is set to end end of time.
   virtual Time getNewTimeout();
+
+  /// @brief Check for timeouts on all entries in a Writer list and remove them.
+  /// @param writerList The list to check for timeouts.
+  /// @param now Time to check against.
+  void checkForTimeouts(std::list<WriterInfo>& writerList, Time now);
 
   /// @brief Create or get an existing StreamWriter for the specified endpoint.
   /// 

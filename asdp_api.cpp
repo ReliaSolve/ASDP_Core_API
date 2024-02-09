@@ -6238,6 +6238,14 @@ asdp::Time CoreServerBase::getNewTimeout()
   return time + increase;
 }
 
+void CoreServerBase::checkForTimeouts(std::list<WriterInfo>& writerList, Time now)
+{
+  std::lock_guard<std::recursive_mutex> lock(m_mutex);
+
+  // Go through the list and remove any whose timeout has is before now.
+  writerList.remove_if([&now](const WriterInfo& info) { return info.timeOut < now; });
+}
+
 asdp::CoreServerBase::WriterInfo *CoreServerBase::getWriter(
   const StreamEndpoint& endpoint, std::list<WriterInfo>& baseList)
 {
@@ -6377,7 +6385,8 @@ std::string CoreServerBase::run()
     return "Failed to get receiver: " + ErrorMessage(status);
   }
 
-  // Loop forever, getting Commands from the client and acting on them.
+  // Loop forever checking periodic tasks, getting Commands from the client
+  // and acting on them.
   while (true) {
 
     // If the discovery thread fails, we should stop.
@@ -6654,6 +6663,22 @@ std::string CoreServerBase::run()
     default:
       return "Unrecognized OpCode: " + std::to_string(opCode);
     }
+
+    // Check for timeouts on all the streams.
+    Time now;
+    Status status = m_timer->GetCoreTime(now);
+    if (status != OKAY) {
+      return "Timer failed to get time: " + ErrorMessage(status);
+    }
+    checkForTimeouts(m_stateWriters, now);
+    checkForTimeouts(m_eventWriters, now);
+    checkForTimeouts(m_subregionWriters, now);
+    checkForTimeouts(m_listWriters, now);
+    checkForTimeouts(m_temperatureWriters, now);
+    checkForTimeouts(m_poseWriters, now);
+
+    // Run the per-loop call that derived objects use to do their thing.
+    doEveryLoop();
 
     // If we have an error, return it.
     if (!m_error.empty()) {
