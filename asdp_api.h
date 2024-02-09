@@ -107,7 +107,7 @@ enum OpCode : uint32_t {
   STREAM_SUBREGIONS             = 20000,
   CANCEL_SUBREGIONS             = 20001,
   ERASE_ALL_STORED_STREAMS      = 30000,
-  STREAM_STORED_LIST           = 30001,
+  STREAM_STORED_LIST            = 30001,
   ERASE_STORED_STREAM           = 30002,
   STREAM_TEMPERATURES           = 40000,
   CANCEL_TEMPERATURES           = 40001,
