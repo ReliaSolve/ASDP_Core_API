@@ -5,6 +5,7 @@
 #include "asdp_api.h"
 #include <string.h>   // For memcpy
 #include <iostream>
+#include <algorithm>
 
 // Must be defined outside of the namespace.
 std::ostream& operator<<(std::ostream& os, const asdp::StreamEndpoint& endpoint) {
