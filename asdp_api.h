@@ -1057,16 +1057,6 @@ public:
   /// @return OKAY if successful, otherwise an error code.
   Status SetSequenceNumber(uint32_t sequenceNumber);
 
-  /// @brief Get the time code.
-  /// @param [out] timeCode The time code.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetTimeCode(Time& timeCode) const;
-
-  /// @brief Set the time code.
-  /// @param [in] timeCode The time code.
-  /// @return OKAY if successful, otherwise an error code.
-  Status SetTimeCode(Time timeCode);
-
   /// @brief Get the next message from the buffer
   /// @param [inout] message Pointer to the next message in the buffer. Client
   /// initially sets this to nullptr, which asks for the first message in
@@ -1092,8 +1082,7 @@ protected:
   /// The default is the standard Ethernet MTU minus the standard IP header size.
   /// For jumbo frames, this should be set to 9000 - 28 = 8972.
   /// @param [in] sequenceNumber Sequence number for the packet.
-  /// @param [in] timeCode Time code for the packet.
-  StreamPacket(uint32_t bufferMaxSize = 9000 - 28, uint32_t sequenceNumber = 0, Time timeCode = { 0, 0 });
+  StreamPacket(uint32_t bufferMaxSize = 9000 - 28, uint32_t sequenceNumber = 0);
 
   /// @brief Construct a StreamPacket that shares a buffer with another packet.
   ///
@@ -1154,6 +1143,11 @@ public:
   /// @param [out] size Total size of the message a packed into the message itself.
   /// @return OKAY if successful, otherwise an error code.
   Status GetTotalSize(uint32_t& size) const;
+
+  /// @brief Get the header size of the message a packed into the message itself.
+  /// @param [out] size Number of bytes in the header before the Message Type is encoded.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetHeaderSize(uint32_t& size) const;
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.

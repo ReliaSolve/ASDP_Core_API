@@ -51,7 +51,7 @@ std::string asdp::ErrorMessage(Status status)
   case READ_PAST_END:
     return "Attempt to read past end of buffer";
   case BAD_COOKIE:
-    return "Bad magic cookie in packet";
+    return "Bad magic cookie";
   case WRITE_PAST_END:
     return "Attempt to write past end of buffer";
   case SOCKET_READ_FAILURE:
@@ -111,19 +111,18 @@ static std::string OpCodeName(OpCode opCode)
 static const unsigned char MAGIC_COOKIE[4] = { 'A', 'S', 'D', 'P' };
 static const unsigned char VERSION[4] = { 1, 2, 0, 0 };
 
-static const uint32_t PACKET_BASIC_HEADER_SIZE = 4 * sizeof(uint32_t);
-static const uint32_t PACKET_HEADER_MAGIC_COOKIE_OFFSET = 0;
-static const uint32_t PACKET_HEADER_VERSION_OFFSET = 4;
-static const uint32_t PACKET_HEADER_TOTAL_SIZE_OFFSET = 8;
-static const uint32_t PACKET_HEADER_HEADER_SIZE_OFFSET = 12;
+static const uint32_t PACKET_BASIC_HEADER_SIZE = 3 * sizeof(uint32_t);
+static const uint32_t PACKET_HEADER_TOTAL_SIZE_OFFSET = 0;
+static const uint32_t PACKET_HEADER_HEADER_SIZE_OFFSET = 4;
+static const uint32_t PACKET_HEADER_VERSION_OFFSET = 8;
 static const uint32_t COMMAND_PACKET_BASE_SIZE = PACKET_BASIC_HEADER_SIZE + sizeof(uint32_t);
 static const uint32_t COMMAND_PACKET_START_STREAM_SIZE = COMMAND_PACKET_BASE_SIZE + 2 * sizeof(uint32_t);
-static const uint32_t STREAM_PACKET_BASE_SIZE = PACKET_BASIC_HEADER_SIZE + 3 * sizeof(uint32_t);
+static const uint32_t STREAM_PACKET_BASE_SIZE = PACKET_BASIC_HEADER_SIZE + sizeof(uint32_t);
 
 static const uint32_t MESSAGE_BASE_SIZE = 6 * sizeof(uint32_t);
-static const uint32_t MESSAGE_HEADER_VERSION_OFFSET = 0;
-static const uint32_t MESSAGE_HEADER_MESSAGE_TOTAL_SIZE_OFFSET = 4;
-static const uint32_t MESSAGE_HEADER_MESSAGE_HEADER_SIZE_OFFSET = 8;
+static const uint32_t MESSAGE_HEADER_MESSAGE_TOTAL_SIZE_OFFSET = 0;
+static const uint32_t MESSAGE_HEADER_MESSAGE_HEADER_SIZE_OFFSET = 4;
+static const uint32_t MESSAGE_HEADER_VERSION_OFFSET = 8;
 static const uint32_t MESSAGE_HEADER_MESSAGE_TIME_SECONDS_OFFSET = 12;
 static const uint32_t MESSAGE_HEADER_MESSAGE_TIME_MICROSECONDS_SIZE_OFFSET = 16;
 static const uint32_t MESSAGE_HEADER_MESSAGE_TYPE_OFFSET = 20;
@@ -441,17 +440,16 @@ std::string Timer::Test()
 }
 
 BasicPacket::BasicPacket(uint32_t extraHeaderSize, uint32_t parameterSize)
-  : m_buffer(std::make_shared<std::vector<uint8_t>>(COMMAND_PACKET_BASE_SIZE + extraHeaderSize + parameterSize))
+  : m_buffer(std::make_shared<std::vector<uint8_t>>(PACKET_BASIC_HEADER_SIZE + extraHeaderSize + parameterSize))
   , m_constructorStatus(OKAY)
 {
   // Pack our header.
   unsigned char* bufPtr = m_buffer->data();
-  memcpy(bufPtr, MAGIC_COOKIE, sizeof(MAGIC_COOKIE)); bufPtr += sizeof(MAGIC_COOKIE);
-  memcpy(bufPtr, VERSION, sizeof(VERSION)); bufPtr += sizeof(VERSION);
   uint32_t totalSize = PACKET_BASIC_HEADER_SIZE + extraHeaderSize + parameterSize;
   memcpy(bufPtr, &totalSize, sizeof(totalSize)); bufPtr += sizeof(totalSize);
   const uint32_t header_size = PACKET_BASIC_HEADER_SIZE + extraHeaderSize;
   memcpy(bufPtr, &header_size, sizeof(header_size)); bufPtr += sizeof(header_size);
+  memcpy(bufPtr, VERSION, sizeof(VERSION)); bufPtr += sizeof(VERSION);
 }
 
 BasicPacket::BasicPacket(std::shared_ptr<std::vector<uint8_t>> existingBuffer)
@@ -461,11 +459,6 @@ BasicPacket::BasicPacket(std::shared_ptr<std::vector<uint8_t>> existingBuffer)
   // Make sure the buffer is large enough.
   if (m_buffer->size() < PACKET_BASIC_HEADER_SIZE) {
     m_constructorStatus = BAD_PARAMETER;
-    return;
-  }
-  // Check the magic cookie.
-  if (!std::equal(m_buffer->begin(), m_buffer->begin() + 4, "ASDP")) {
-    m_constructorStatus = BAD_COOKIE;
     return;
   }
 }
@@ -545,17 +538,6 @@ std::string BasicPacket::Test()
     Status status = packet.GetConstructorStatus();
     if (status != BAD_PARAMETER) {
       return "Unexpected return code from empty packet construction: " + ErrorMessage(status);
-    }
-  }
-
-  {
-    // Try to construct a basic packet from a buffer that has a bad cookie and make
-    // sure that it fails.
-    std::shared_ptr<std::vector<uint8_t>> noCookie = std::make_shared<std::vector<uint8_t>>(COMMAND_PACKET_BASE_SIZE);
-    BasicPacket packet(noCookie);
-    Status status = packet.GetConstructorStatus();
-    if (status != BAD_COOKIE) {
-      return "Unexpected return code from no-cookie packet construction: " + ErrorMessage(status);
     }
   }
 
@@ -642,17 +624,6 @@ std::string CommandPacket::Test()
     status = packet.GetOpCode(opCode);
     if (status != READ_PAST_END) {
       return "Unexpected return code from empty packet opcode read: " + ErrorMessage(status);
-    }
-  }
-
-  {
-    // Try to construct a CommandPacket from a buffer that has a bad cookie and make
-    // sure that it fails.
-    std::shared_ptr<std::vector<uint8_t>> noCookie = std::make_shared<std::vector<uint8_t>>(COMMAND_PACKET_BASE_SIZE);
-    CommandPacket packet(noCookie);
-    Status status = packet.GetConstructorStatus();
-    if (status != BAD_COOKIE) {
-      return "Unexpected return code from no-cookie packet construction: " + ErrorMessage(status);
     }
   }
 
@@ -1920,19 +1891,17 @@ std::string CommandPacketStreamPoses::Test()
   return "";
 }
 
-StreamPacket::StreamPacket(uint32_t bufferMaxSize, uint32_t sequenceNumber, Time timeCode)
-  : BasicPacket(3 * sizeof(uint32_t), bufferMaxSize - COMMAND_PACKET_BASE_SIZE - 3 * sizeof(uint32_t))
+StreamPacket::StreamPacket(uint32_t bufferMaxSize, uint32_t sequenceNumber)
+  : BasicPacket(sizeof(uint32_t), bufferMaxSize - STREAM_PACKET_BASE_SIZE)
 {
   // Overwrite the stored total size with the actually filled-in size, leaving room in the buffer.
   uint32_t usedSize = STREAM_PACKET_BASE_SIZE;
   unsigned char* bufPtr = m_buffer->data() + PACKET_HEADER_TOTAL_SIZE_OFFSET;
   memcpy(bufPtr, &usedSize, sizeof(usedSize)); bufPtr += sizeof(usedSize);
 
-  // Set the sequence number and time sent.
+  // Set the sequence number.
   bufPtr = m_buffer->data() + PACKET_BASIC_HEADER_SIZE;
   memcpy(bufPtr, &sequenceNumber, sizeof(sequenceNumber)); bufPtr += sizeof(sequenceNumber);
-  memcpy(bufPtr, &timeCode.seconds, sizeof(timeCode.seconds)); bufPtr += sizeof(timeCode.seconds);
-  memcpy(bufPtr, &timeCode.microseconds, sizeof(timeCode.microseconds)); bufPtr += sizeof(timeCode.microseconds);
 }
 
 StreamPacket::StreamPacket(std::shared_ptr<std::vector<uint8_t>> existingBuffer)
@@ -1954,7 +1923,7 @@ Status StreamPacket::GetSequenceNumber(uint32_t& sequenceNumber) const
   // This is done to allow future versions to have more information in the header.
   uint32_t firstMessageOffset;
   memcpy(&firstMessageOffset, m_buffer->data() + PACKET_HEADER_HEADER_SIZE_OFFSET, sizeof(firstMessageOffset));
-  uint32_t sequenceNumberOffset = firstMessageOffset - 3 * sizeof(uint32_t);
+  uint32_t sequenceNumberOffset = firstMessageOffset - sizeof(uint32_t);
   if (sequenceNumberOffset + sizeof(sequenceNumber) > m_buffer->size()) {
     return READ_PAST_END;
   }
@@ -1973,51 +1942,11 @@ Status StreamPacket::SetSequenceNumber(uint32_t sequenceNumber)
   // This is done to allow future versions to have more information in the header.
   uint32_t firstMessageOffset;
   memcpy(&firstMessageOffset, m_buffer->data() + PACKET_HEADER_HEADER_SIZE_OFFSET, sizeof(firstMessageOffset));
-  uint32_t sequenceNumberOffset = firstMessageOffset - 3 * sizeof(uint32_t);
+  uint32_t sequenceNumberOffset = firstMessageOffset - sizeof(uint32_t);
   if (sequenceNumberOffset + sizeof(sequenceNumber) > m_buffer->size()) {
     return WRITE_PAST_END;
   }
   memcpy(m_buffer->data() + sequenceNumberOffset, &sequenceNumber, sizeof(sequenceNumber));
-  return OKAY;
-}
-
-Status StreamPacket::GetTimeCode(Time& timeCode) const
-{
-  // Make sure we have enough data to hold the header.
-  if (m_buffer->size() < STREAM_PACKET_BASE_SIZE) {
-    return READ_PAST_END;
-  }
-
-  // Read the offset from the beginning of the buffer to the first message from the header.
-  // This is done to allow future versions to have more information in the header.
-  uint32_t firstMessageOffset;
-  memcpy(&firstMessageOffset, m_buffer->data() + PACKET_HEADER_HEADER_SIZE_OFFSET, sizeof(firstMessageOffset));
-  uint32_t timeCodeOffset = firstMessageOffset - 2 * sizeof(uint32_t);
-  if (timeCodeOffset + 2 * sizeof(uint32_t) > m_buffer->size()) {
-    return READ_PAST_END;
-  }
-  memcpy(&timeCode.seconds, m_buffer->data() + timeCodeOffset, sizeof(timeCode.seconds));
-  memcpy(&timeCode.microseconds, m_buffer->data() + timeCodeOffset + sizeof(timeCode.seconds), sizeof(timeCode.microseconds));
-  return OKAY;
-}
-
-Status StreamPacket::SetTimeCode(Time timeCode)
-{
-  // Make sure we have enough data to hold the header.
-  if (m_buffer->size() < STREAM_PACKET_BASE_SIZE) {
-    return WRITE_PAST_END;
-  }
-
-  // Read the offset from the beginning of the buffer to the first message from the header.
-  // This is done to allow future versions to have more information in the header.
-  uint32_t firstMessageOffset;
-  memcpy(&firstMessageOffset, m_buffer->data() + PACKET_HEADER_HEADER_SIZE_OFFSET, sizeof(firstMessageOffset));
-  uint32_t timeCodeOffset = firstMessageOffset - 2 * sizeof(uint32_t);
-  if (timeCodeOffset + 2 * sizeof(uint32_t) > m_buffer->size()) {
-    return WRITE_PAST_END;
-  }
-  memcpy(m_buffer->data() + timeCodeOffset, &timeCode.seconds, sizeof(timeCode.seconds));
-  memcpy(m_buffer->data() + timeCodeOffset + sizeof(timeCode.seconds), &timeCode.microseconds, sizeof(timeCode.microseconds));
   return OKAY;
 }
 
@@ -2112,9 +2041,10 @@ std::string StreamPacket::Test()
     if (status != OKAY) {
       return "Error increasing stream packet size: " + ErrorMessage(status);
     }
+    status = packet.GetTotalLength(totalLength);
     if (totalLength != STREAM_PACKET_BASE_SIZE + 100) {
       return "Error increasing stream packet size: packet length is not " +
-        std::to_string(STREAM_PACKET_BASE_SIZE) + " but " + std::to_string(totalLength);
+        std::to_string(STREAM_PACKET_BASE_SIZE + 100) + " but " + std::to_string(totalLength);
     }
 
     // Try to increase its length too much and ensure that it fails.
@@ -2125,10 +2055,9 @@ std::string StreamPacket::Test()
   }
 
   {
-    // Construct a StreamPacket with a specified sequence number and time.
+    // Construct a StreamPacket with a specified sequence number.
     uint32_t sequenceNumber = 1234;
-    Time timeCode = { 5678, 9012 };
-    StreamPacket packet(1200, sequenceNumber, timeCode);
+    StreamPacket packet(1200, sequenceNumber);
     if (packet.GetConstructorStatus() != OKAY) {
       return "Error constructing stream packet: " + ErrorMessage(packet.GetConstructorStatus());
     }
@@ -2141,28 +2070,14 @@ std::string StreamPacket::Test()
     }
     if (rSequenceNumber != sequenceNumber) {
       return "Error getting sequence number from stream packet: sequence number is not " +
-        std::to_string(sequenceNumber);
-    }
-    Time rTimeCode;
-    status = packet.GetTimeCode(rTimeCode);
-    if (status != OKAY) {
-      return "Error getting time code from stream packet: " + ErrorMessage(status);
-    }
-    if (rTimeCode != timeCode) {
-      return "Error getting time code from stream packet: time code is not " +
-        std::to_string(timeCode.seconds) + "." + std::to_string(timeCode.microseconds);
+        std::to_string(sequenceNumber) + " but " + std::to_string(rSequenceNumber);
     }
 
-    // Set a new sequence number and time code and check that they are set correctly.
+    // Set a new sequence number code and check that it is set correctly.
     sequenceNumber = 4321;
-    timeCode = { 8765, 4321 };
     status = packet.SetSequenceNumber(sequenceNumber);
     if (status != OKAY) {
       return "Error setting sequence number in stream packet: " + ErrorMessage(status);
-    }
-    status = packet.SetTimeCode(timeCode);
-    if (status != OKAY) {
-      return "Error setting time code in stream packet: " + ErrorMessage(status);
     }
     status = packet.GetSequenceNumber(rSequenceNumber);
     if (status != OKAY) {
@@ -2171,14 +2086,6 @@ std::string StreamPacket::Test()
     if (rSequenceNumber != sequenceNumber) {
       return "Error getting set sequence number from stream packet: sequence number is not " +
         std::to_string(sequenceNumber);
-    }
-    status = packet.GetTimeCode(rTimeCode);
-    if (status != OKAY) {
-      return "Error getting set time code from stream packet: " + ErrorMessage(status);
-    }
-    if (rTimeCode != timeCode) {
-      return "Error getting set time code from stream packet: time code is not " +
-        std::to_string(timeCode.seconds) + "." + std::to_string(timeCode.microseconds);
     }
   }
   // Everything worked.
@@ -2206,10 +2113,10 @@ Message::Message(StreamPacket& packet, uint32_t parameterSize, Time timeCode, Me
 
   // Pack our header.
   uint8_t *bufPtr = m_buffer->data() + m_offset;
-  memcpy(bufPtr, VERSION, sizeof(VERSION)); bufPtr += sizeof(VERSION);
   memcpy(bufPtr, &totalSize, sizeof(totalSize)); bufPtr += sizeof(totalSize);
-  const uint32_t header_size = MESSAGE_BASE_SIZE;
+  const uint32_t header_size = MESSAGE_HEADER_MESSAGE_TYPE_OFFSET;
   memcpy(bufPtr, &header_size, sizeof(header_size)); bufPtr += sizeof(header_size);
+  memcpy(bufPtr, VERSION, sizeof(VERSION)); bufPtr += sizeof(VERSION);
   memcpy(bufPtr, &timeCode.seconds, sizeof(timeCode.seconds)); bufPtr += sizeof(timeCode.seconds);
   memcpy(bufPtr, &timeCode.microseconds, sizeof(timeCode.microseconds)); bufPtr += sizeof(timeCode.microseconds);
   uint32_t myType = type;
@@ -2259,6 +2166,15 @@ Status Message::GetTotalSize(uint32_t& size) const
   return OKAY;
 }
 
+Status Message::GetHeaderSize(uint32_t& size) const
+{
+  if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE) {
+    return READ_PAST_END;
+  }
+  memcpy(&size, m_buffer->data() + m_offset + MESSAGE_HEADER_MESSAGE_HEADER_SIZE_OFFSET, sizeof(size));
+  return OKAY;
+}
+
 Message::~Message()
 {
 }
@@ -2285,6 +2201,15 @@ std::string Message::Test()
   if (totalSize != MESSAGE_BASE_SIZE) {
     return "Error constructing message from buffer for message test: message length is not " +
       std::to_string(MESSAGE_BASE_SIZE) + " but " + std::to_string(totalSize);
+  }
+  uint32_t headerSize;
+  status = message.GetHeaderSize(headerSize);
+  if (status != OKAY) {
+    return "Error checking message size for message test: " + ErrorMessage(status);
+  }
+  if (headerSize != MESSAGE_HEADER_MESSAGE_TYPE_OFFSET) {
+    return "Error constructing message from buffer for message test: header size is not " +
+      std::to_string(MESSAGE_HEADER_MESSAGE_TYPE_OFFSET) + " but " + std::to_string(headerSize);
   }
 
   // Check the length of the packet including the message to make sure it matches expectation.
@@ -5412,10 +5337,6 @@ Status StreamWriter::Flush()
   if (status != OKAY) {
     return status;
   }
-  status = m_currentPacket->SetTimeCode(timeCode);
-  if (status != OKAY) {
-    return status;
-  }
 
   // Send the packet.
   status = m_sender->SendStreamPacket(*m_currentPacket);
@@ -5471,22 +5392,7 @@ std::string StreamWriter::Test()
   }
 
   // Try sending ten packets to make sure this works repeatedly
-  Time lastTimeCode;
-  status = timer->GetCoreTime(lastTimeCode);
-  if (status != OKAY) {
-    return "Error getting timecode: " + ErrorMessage(status);
-  }
-  status = timer->SetCoreOffset(lastTimeCode);
-  if (status != OKAY) {
-    return "Error setting timecode: " + ErrorMessage(status);
-  }
-  status = timer->GetCoreTime(lastTimeCode);
-  if (status != OKAY) {
-    return "Error getting timecode after setting it: " + ErrorMessage(status);
-  }
   for (size_t i = 0; i < 10; i++) {
-    // Make sure the time advances, so the new time will be larger than lastTimeCode.
-    std::this_thread::sleep_for(std::chrono::microseconds(20));
 
     // Pack a message into the StreamWriter.
     std::shared_ptr<StreamPacket> packet;
@@ -5532,19 +5438,6 @@ std::string StreamWriter::Test()
     if (sequenceNumber != i) {
       return "Unexpected sequence number: " + std::to_string(sequenceNumber);
     }
-
-    // Make sure that the timecode is updating.
-    Time receiveTimeCode;
-    status = receiveStreamPacket->GetTimeCode(receiveTimeCode);
-    if (status != OKAY) {
-      return "Error getting timecode: " + ErrorMessage(status);
-    }
-    if (receiveTimeCode <= lastTimeCode) {
-      return "Unexpected timecode: "
-        + std::to_string(receiveTimeCode.seconds) + ":" + std::to_string(receiveTimeCode.microseconds)
-        + " vs. " + std::to_string(lastTimeCode.seconds) + ":" + std::to_string(lastTimeCode.microseconds);
-    }
-    lastTimeCode = receiveTimeCode;
   }
 
   // Make sure we cannot receive another packet.
@@ -6821,21 +6714,14 @@ std::string asdp::Test()
   }
 
   //-------------------------------------------------------------------
-  // Tests for Sender and Receiver subclasses.
-  ret = ReceiverUDP::Test();
-  if (ret.size() > 0) {
-    return "Error testing Socket send/receive: " + ret;
-  }
-  ret = ReceiverFile::Test();
-  if (ret.size() > 0) {
-    return "Error testing File send/receive: " + ret;
-  }
-
-  //-------------------------------------------------------------------
   // Tests for BasicPacket and its derived classes.
   ret = BasicPacket::Test();
   if (ret.size() > 0) {
     return "Error testing BasicPacket: " + ret;
+  }
+  ret = StreamPacket::Test();
+  if (ret.size() > 0) {
+    return "Error testing StreamPacket: " + ret;
   }
   ret = CommandPacket::Test();
   if (ret.size() > 0) {
@@ -6983,6 +6869,17 @@ std::string asdp::Test()
   ret = MessagePose::Test();
   if (ret.size() > 0) {
     return "Error testing MessagePose: " + ret;
+  }
+
+  //-------------------------------------------------------------------
+  // Tests for Sender and Receiver subclasses.
+  ret = ReceiverUDP::Test();
+  if (ret.size() > 0) {
+    return "Error testing Socket send/receive: " + ret;
+  }
+  ret = ReceiverFile::Test();
+  if (ret.size() > 0) {
+    return "Error testing File send/receive: " + ret;
   }
 
   //-------------------------------------------------------------------
