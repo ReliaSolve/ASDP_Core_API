@@ -5237,11 +5237,9 @@ std::string ReceiverFile::Test()
 }
 
 StreamWriter::StreamWriter(std::shared_ptr<Sender> sender,
-    std::shared_ptr<Timer> timer,
     uint32_t maxPayloadSize)
   : m_constructorStatus(OKAY)
   , m_sender(sender)
-  , m_timer(timer)
   , m_maxPayloadSize(maxPayloadSize)
   , m_sequenceNumber(0)
 {
@@ -5252,12 +5250,6 @@ StreamWriter::StreamWriter(std::shared_ptr<Sender> sender,
   }
   if (m_sender->GetConstructorStatus() != OKAY) {
     m_constructorStatus = m_sender->GetConstructorStatus();
-    return;
-  }
-
-  // Make sure we have a valid timer.
-  if (m_timer == nullptr) {
-    m_constructorStatus = BAD_PARAMETER;
     return;
   }
 
@@ -5303,11 +5295,6 @@ Status StreamWriter::Flush()
     return m_sender->GetConstructorStatus();
   }
 
-  // Make sure we have a valid timer.
-  if (m_timer == nullptr) {
-    return UNEXPECTED_INTERNAL_STATE;
-  }
-
   // Make sure we have a valid maximum packet size.
   if (m_maxPayloadSize == 0) {
     return UNEXPECTED_INTERNAL_STATE;
@@ -5329,13 +5316,6 @@ Status StreamWriter::Flush()
   }
   if (firstMessage == nullptr) {
     return OKAY;
-  }
-
-  // Set the time code in the current packet.
-  Time timeCode;
-  status = m_timer->GetCoreTime(timeCode);
-  if (status != OKAY) {
-    return status;
   }
 
   // Send the packet.
@@ -5386,7 +5366,7 @@ std::string StreamWriter::Test()
   timer.reset(timerPtr);
 
   // Create a StreamWriter.
-  std::shared_ptr<StreamWriter> streamWriter = std::make_shared<StreamWriter>(sender, timer);
+  std::shared_ptr<StreamWriter> streamWriter = std::make_shared<StreamWriter>(sender);
   if (streamWriter->GetConstructorStatus() != OKAY) {
     return "Error constructing StreamWriter: " + ErrorMessage(streamWriter->GetConstructorStatus());
   }
@@ -5450,7 +5430,7 @@ std::string StreamWriter::Test()
   // Make sure we can set the maximum packet size in the constructor.
   {
     uint32_t maxPayloadSize = 1500 - 28;
-    StreamWriter streamWriter2(sender, timer, maxPayloadSize);
+    StreamWriter streamWriter2(sender, maxPayloadSize);
     if (streamWriter2.GetConstructorStatus() != OKAY) {
       return "Error constructing large StreamWriter: " + ErrorMessage(streamWriter2.GetConstructorStatus());
     }
@@ -5570,7 +5550,7 @@ void CoreServer::DiscoveryThread()
     m_threadStatus = UNEXPECTED_INTERNAL_STATE;
     return;
   }
-  StreamWriter streamWriter(m_sender, m_timer, m_maxPayloadSize);
+  StreamWriter streamWriter(m_sender, m_maxPayloadSize);
 
   // Twice a second, send Discovery packets to the broadcast address.
   while (!m_stopThread) {
@@ -6097,7 +6077,7 @@ asdp::CoreServerBase::WriterInfo *CoreServerBase::getWriter(
   if (status != OKAY) {
     m_error = "Failed to create SenderUDP: " + ErrorMessage(status);
   }
-  std::shared_ptr<StreamWriter> writer(new StreamWriter(sender, m_timer));
+  std::shared_ptr<StreamWriter> writer(new StreamWriter(sender));
   status = writer->GetConstructorStatus();
   if (status != OKAY) {
     m_error = "Failed to create StreamWriter: " + ErrorMessage(status);

@@ -1939,10 +1939,8 @@ class StreamWriter {
 public:
   /// @brief Construct a StreamWriter object.
   /// @param [in] sender Pointer to the sender object to use to send the packets.
-  /// @param [in] timer Pointer to the timer object to use to get the time code.
   /// @param [in] maxPayloadSize Maximum size of a packet payload to send.
   StreamWriter(std::shared_ptr<Sender> sender,
-    std::shared_ptr<Timer> timer,
     uint32_t maxPayloadSize = 9000 - 28);
 
   /// @brief Virtual destructor so all derived class pointers will destroy properly.
@@ -1974,7 +1972,6 @@ public:
 protected:
   Status m_constructorStatus;         ///< Reports any errors during construction
   std::shared_ptr<Sender> m_sender;   ///< Pointer to the sender object to use to send the packets.
-  std::shared_ptr<Timer> m_timer;     ///< Pointer to the timer object to use to get the time code.
   uint32_t m_maxPayloadSize;          ///< Maximum size of the packet payload to send.
   uint32_t m_sequenceNumber;          ///< Sequence number for the next packet to send.
   std::shared_ptr<StreamPacket> m_currentPacket; ///< Current packet being built.
