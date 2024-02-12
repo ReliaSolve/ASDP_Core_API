@@ -97,7 +97,6 @@ enum OpCode : uint32_t {
   RESUME_REPLAY                 = 6,
   STOP_REPLAY                   = 7,
   SET_START_UP_RECORDING_STATE  = 8,
-  SET_KEEPALIVE_INTERVAL        = 9,
   STREAM_STATE                  = 10,
   CANCEL_STATE                  = 11,
   CONFIGURE_TRIGGER             = 10000,
@@ -493,7 +492,6 @@ protected:
   friend class CommandPacketResumeReplay;
   friend class CommandPacketStopReplay;
   friend class CommandPacketSetStartUpRecordingState;
-  friend class CommandPacketKeepaliveInterval;
   friend class CommandPacketConfigureTrigger;
   friend class CommandPacketSoftwareTrigger;
   friend class CommandPacketEraseAllStoredStreams;
@@ -710,28 +708,6 @@ public:
   /// @brief Type-cast a base CommandPacket, re-using its buffer.
   /// @param [in] basePacket The base packet to convert from.
   CommandPacketStopReplay(CommandPacket& basePacket);
-
-  /// @brief Test function.
-  /// @return Empty string if successful, otherwise descriptive error message.
-  static std::string Test();
-};
-
-/// @brief Command packet to set the keepalive interval
-class CommandPacketKeepaliveInterval : public CommandPacket {
-public:
-  /// @brief Construct a brand-new command buffer with the SET_KEEPALIVE_INTERVAL opcode.
-  /// @param [in] interval Interval to set the keepalive to in seconds.  0 means infinite.
-  /// This sets the interval for future streams.  It does not affect existing streams.
-  CommandPacketKeepaliveInterval(float interval);
-
-  /// @brief Type-cast a base CommandPacket, re-using its buffer.
-  /// @param [in] basePacket The base packet to convert from.
-  CommandPacketKeepaliveInterval(CommandPacket& basePacket);
-
-  /// @brief Get the keepalive interval.
-  /// @param [out] interval Interval to set the keepalive to in seconds.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetInterval(float& interval) const;
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
@@ -1244,7 +1220,6 @@ public:
   /// @param [in] cameras Vector of cameras installed on the system.
   /// @param [in] numTempSensorsPerCamera Number of temperature sensors per camera.
   /// @param [in] numExternalTempSensors Number of external temperature sensors.
-  /// @param [in] keepAliveInterval Interval that keepalive messages must be sent at in seconds.
   /// @param [in] storing Whether the system is storing data to disk.
   /// @param [in] camerasStreaming Whether the system is streaming data from its cameras.
   /// @param [in] replaying Whether the system is replaying data from disk.
@@ -1258,7 +1233,6 @@ public:
   MessageState(StreamPacket& packet, Time timeCode,
     std::vector<FeatureID> features, std::vector<CameraInfo> cameras,
     uint32_t numTempSensorsPerCamera, uint32_t numExternalTempSensors,
-    float keepAliveInterval,
     uint8_t storing, uint8_t camerasStreaming, uint8_t replaying, uint8_t replayAtEnd,
     uint8_t recordOnReset,
     std::vector<TriggerInfo> triggerConfigs,
@@ -1288,11 +1262,6 @@ public:
   /// @param [out] numExternalTempSensors Number of external temperature sensors.
   /// @return OKAY if successful, otherwise an error code.
   Status GetNumExternalTempSensors(uint32_t& numExternalTempSensors) const;
-
-  /// @brief Get the interval that keepalive messages must be sent at.
-  /// @param [out] keepAliveInterval Interval that keepalive messages must be sent at in seconds.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetKeepAliveInterval(float& keepAliveInterval) const;
 
   /// @brief Get whether the system is storing data to disk.
   /// @param [out] storing Whether the system is storing data to disk.
@@ -2261,7 +2230,6 @@ protected:
   int m_verbosity; ///< The verbosity level of the server, 0 for no verbosity, higher for more verbosity.
 
   // State variables
-  float m_keepAliveInterval;        ///< The keep alive interval in seconds.
   std::vector<uint16_t> m_features; ///< The features of the server (filled in when added)
 
   //=============================================================================
@@ -2283,7 +2251,6 @@ protected:
     // Common things
     StreamEndpoint                endpoint; ///< The endpoint for the writer.
     std::shared_ptr<StreamWriter> writer;   ///< The StreamWriter for the stream.
-    Time                          timeOut;  ///< When the stream will time out.
 
     // Stream-type specific things that are filled in by the partcular command function.
     uint32_t                      verbosity;  ///< For event stream.
@@ -2292,7 +2259,6 @@ protected:
     Time                          lastSent;   ///< Time last report sent
   };
 
-  /// @todo Implement KeepAlive by looking through the lists of writers and removing any that have timed out.
   /// @todo Implement state streaming within run() using period and lastSent
 
   std::list<WriterInfo> m_stateWriters;       ///< The StreamWriters for state, if any.
@@ -2301,19 +2267,6 @@ protected:
   std::list<WriterInfo> m_listWriters;        ///< The StreamWriters for stored stream lists, if any.
   std::list<WriterInfo> m_temperatureWriters; ///< The StreamWriters for temperatures, if any.
   std::list<WriterInfo> m_poseWriters;        ///< The StreamWriters for poses, if any.
-
-  /// @brief Determine the new timeout for a stream based on the current time and
-  /// the keep-alive interval.
-  /// @return The new timeout for the stream.
-  /// This function returns the current time plus
-  /// the keep-alive interval, unless the keep-alive interval is zero or negative, in
-  /// which case it is set to end end of time.
-  virtual Time getNewTimeout();
-
-  /// @brief Check for timeouts on all entries in a Writer list and remove them.
-  /// @param writerList The list to check for timeouts.
-  /// @param now Time to check against.
-  void checkForTimeouts(std::list<WriterInfo>& writerList, Time now);
 
   /// @brief Create or get an existing StreamWriter for the specified endpoint.
   /// 
@@ -2385,9 +2338,6 @@ protected:
   virtual void doStopReplay(const CommandPacketStopReplay&) {
     sendInvalidCommandMessage(STOP_REPLAY);
   }
-
-  /// @brief Implement the specified command.
-  virtual void doSetKeepAliveInterval(const CommandPacketKeepaliveInterval&);
 
   /// @brief Implement the specified command.
   virtual void doStreamState(const CommandPacketStreamState&);

@@ -86,7 +86,6 @@ static std::string OpCodeName(OpCode opCode)
   case START_REPLAY: return "START_REPLAY";
   case PAUSE_REPLAY: return "PAUSE_REPLAY";
   case STOP_REPLAY: return "STOP_REPLAY";
-  case SET_KEEPALIVE_INTERVAL: return "SET_KEEPALIVE_INTERVAL";
   case STREAM_STATE: return "STREAM_STATE";
   case CANCEL_STATE: return "CANCEL_STATE";
   case CONFIGURE_TRIGGER: return "CONFIGURE_TRIGGER";
@@ -1282,62 +1281,6 @@ std::string CommandPacketSetStartUpRecordingState::Test()
     }
     if (state != 1) {
       return "Error getting state from packet: state is not 1";
-    }
-  }
-
-  return "";
-}
-
-CommandPacketKeepaliveInterval::CommandPacketKeepaliveInterval(float interval)
-  : CommandPacket(sizeof(interval), SET_KEEPALIVE_INTERVAL)
-{
-  memcpy(m_buffer->data() + COMMAND_PACKET_BASE_SIZE, &interval, sizeof(interval));
-}
-
-CommandPacketKeepaliveInterval::CommandPacketKeepaliveInterval(CommandPacket& basePacket)
-  : CommandPacket(basePacket.m_buffer)
-{
-  OpCode opCode;
-  basePacket.GetOpCode(opCode);
-  if (opCode != SET_KEEPALIVE_INTERVAL) {
-    m_constructorStatus = BAD_PARAMETER;
-  }
-}
-
-Status CommandPacketKeepaliveInterval::GetInterval(float& interval) const
-{
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + sizeof(interval)) {
-    return READ_PAST_END;
-  }
-  memcpy(&interval, m_buffer->data() + COMMAND_PACKET_BASE_SIZE, sizeof(interval));
-  return OKAY;
-}
-
-std::string CommandPacketKeepaliveInterval::Test()
-{
-  {
-    // Construct a CommandPacketKeepaliveInterval command packet and verify that we can read its opcode.
-    CommandPacketKeepaliveInterval packet(1);
-    if (packet.GetConstructorStatus() != OKAY) {
-      return "Error constructing packet: " + ErrorMessage(packet.GetConstructorStatus());
-    }
-    OpCode opCode;
-    Status status = packet.GetOpCode(opCode);
-    if (status != OKAY) {
-      return "Error getting opcode from packet: " + ErrorMessage(status);
-    }
-    if (opCode != SET_KEEPALIVE_INTERVAL) {
-      return "Error getting opcode from packet: opcode is not SET_KEEPALIVE_INTERVAL";
-    }
-
-    // Also be sure we can read the interval.
-    float interval;
-    status = packet.GetInterval(interval);
-    if (status != OKAY) {
-      return "Error getting state from packet: " + ErrorMessage(status);
-    }
-    if (interval != 1) {
-      return "Error getting interval from packet: interval is not 1";
     }
   }
 
@@ -2607,7 +2550,6 @@ std::string MessageDiscovery::Test()
 MessageState::MessageState(StreamPacket& packet, Time timeCode,
     std::vector<FeatureID> features, std::vector<CameraInfo> cameras,
     uint32_t numTempSensorsPerCamera, uint32_t numExternalTempSensors,
-    float keepAliveInterval,
     uint8_t storing, uint8_t camerasStreaming, uint8_t replaying, uint8_t replayAtEnd,
     uint8_t recordOnReset,
     std::vector<TriggerInfo> triggerConfigs,
@@ -2617,7 +2559,7 @@ MessageState::MessageState(StreamPacket& packet, Time timeCode,
       sizeof(uint32_t) + features.size() * sizeof(uint16_t) + (features.size() % 2) * sizeof(uint16_t)
         + cameras.size() * sizeof(CameraInfo)
         + sizeof(numTempSensorsPerCamera) + sizeof(numExternalTempSensors)
-        + sizeof(keepAliveInterval) + 8 /* The byte-sized ones and padding */
+        + 8 /* The byte-sized ones and padding */
         + sizeof(uint32_t) + triggerConfigs.size() * sizeof(TriggerInfo)
         + sizeof(totalDiskSpace) + sizeof(remainingDiskSpace)
         + 2 * sizeof(uint32_t) /* Time */
@@ -2652,7 +2594,6 @@ MessageState::MessageState(StreamPacket& packet, Time timeCode,
   }
   memcpy(bufPtr, &numTempSensorsPerCamera, sizeof(numTempSensorsPerCamera)); bufPtr += sizeof(numTempSensorsPerCamera);
   memcpy(bufPtr, &numExternalTempSensors, sizeof(numExternalTempSensors)); bufPtr += sizeof(numExternalTempSensors);
-  memcpy(bufPtr, &keepAliveInterval, sizeof(keepAliveInterval)); bufPtr += sizeof(keepAliveInterval);
   *bufPtr = storing; bufPtr++;
   *bufPtr = camerasStreaming; bufPtr++;
   *bufPtr = replaying; bufPtr++;
@@ -2755,20 +2696,6 @@ Status MessageState::GetNumExternalTempSensors(uint32_t& numExternalTempSensors)
   return OKAY;
 }
 
-Status MessageState::GetKeepAliveInterval(float& keepAliveInterval) const
-{
-  uint32_t afterCamerasOffset;
-  Status status = GetAfterCamerasOffset(afterCamerasOffset);
-  if (status != OKAY) {
-    return status;
-  }
-  if (m_buffer->size() < afterCamerasOffset + 2 * sizeof(uint32_t) + sizeof(float)) {
-    return READ_PAST_END;
-  }
-  memcpy(&keepAliveInterval, m_buffer->data() + afterCamerasOffset + 2 * sizeof(uint32_t), sizeof(keepAliveInterval));
-  return OKAY;
-}
-
 Status MessageState::GetStoring(uint8_t& storing) const
 {
   uint32_t afterCamerasOffset;
@@ -2776,10 +2703,10 @@ Status MessageState::GetStoring(uint8_t& storing) const
   if (status != OKAY) {
     return status;
   }
-  if (m_buffer->size() < afterCamerasOffset + 2 * sizeof(uint32_t) + sizeof(float) + sizeof(uint8_t)) {
+  if (m_buffer->size() < afterCamerasOffset + 2 * sizeof(uint32_t) + sizeof(uint8_t)) {
     return READ_PAST_END;
   }
-  memcpy(&storing, m_buffer->data() + afterCamerasOffset + 2 * sizeof(uint32_t) + sizeof(float), sizeof(storing));
+  memcpy(&storing, m_buffer->data() + afterCamerasOffset + 2 * sizeof(uint32_t), sizeof(storing));
   return OKAY;
 }
 
@@ -2790,10 +2717,10 @@ Status MessageState::GetCamerasStreaming(uint8_t& camerasStreaming) const
   if (status != OKAY) {
     return status;
   }
-  if (m_buffer->size() < afterCamerasOffset + 2 * sizeof(uint32_t) + sizeof(float) + 2 * sizeof(uint8_t)) {
+  if (m_buffer->size() < afterCamerasOffset + 2 * sizeof(uint32_t) + 2 * sizeof(uint8_t)) {
     return READ_PAST_END;
   }
-  memcpy(&camerasStreaming, m_buffer->data() + afterCamerasOffset + 2 * sizeof(uint32_t) + sizeof(float) + sizeof(uint8_t), sizeof(camerasStreaming));
+  memcpy(&camerasStreaming, m_buffer->data() + afterCamerasOffset + 2 * sizeof(uint32_t) + sizeof(uint8_t), sizeof(camerasStreaming));
   return OKAY;
 }
 
@@ -2804,10 +2731,10 @@ Status MessageState::GetReplaying(uint8_t& replaying) const
   if (status != OKAY) {
     return status;
   }
-  if (m_buffer->size() < afterCamerasOffset + 2 * sizeof(uint32_t) + sizeof(float) + 3 * sizeof(uint8_t)) {
+  if (m_buffer->size() < afterCamerasOffset + 2 * sizeof(uint32_t) + 3 * sizeof(uint8_t)) {
     return READ_PAST_END;
   }
-  memcpy(&replaying, m_buffer->data() + afterCamerasOffset + 2 * sizeof(uint32_t) + sizeof(float) + 2 * sizeof(uint8_t), sizeof(replaying));
+  memcpy(&replaying, m_buffer->data() + afterCamerasOffset + 2 * sizeof(uint32_t) + 2 * sizeof(uint8_t), sizeof(replaying));
   return OKAY;
 }
 
@@ -2818,10 +2745,10 @@ Status MessageState::GetReplayAtEnd(uint8_t& replayAtEnd) const
   if (status != OKAY) {
     return status;
   }
-  if (m_buffer->size() < afterCamerasOffset + 2 * sizeof(uint32_t) + sizeof(float) + 4 * sizeof(uint8_t)) {
+  if (m_buffer->size() < afterCamerasOffset + 2 * sizeof(uint32_t) + 4 * sizeof(uint8_t)) {
     return READ_PAST_END;
   }
-  memcpy(&replayAtEnd, m_buffer->data() + afterCamerasOffset + 2 * sizeof(uint32_t) + sizeof(float) + 3 * sizeof(uint8_t), sizeof(replayAtEnd));
+  memcpy(&replayAtEnd, m_buffer->data() + afterCamerasOffset + 2 * sizeof(uint32_t) + 3 * sizeof(uint8_t), sizeof(replayAtEnd));
   return OKAY;
 }
 
@@ -2832,10 +2759,10 @@ Status MessageState::GetRecordOnReset(uint8_t& recordOnReset) const
   if (status != OKAY) {
     return status;
   }
-  if (m_buffer->size() < afterCamerasOffset + 2 * sizeof(uint32_t) + sizeof(float) + 5 * sizeof(uint8_t)) {
+  if (m_buffer->size() < afterCamerasOffset + 2 * sizeof(uint32_t) + 5 * sizeof(uint8_t)) {
     return READ_PAST_END;
   }
-  memcpy(&recordOnReset, m_buffer->data() + afterCamerasOffset + 2 * sizeof(uint32_t) + sizeof(float) + 4 * sizeof(uint8_t), sizeof(recordOnReset));
+  memcpy(&recordOnReset, m_buffer->data() + afterCamerasOffset + 2 * sizeof(uint32_t) + 4 * sizeof(uint8_t), sizeof(recordOnReset));
   return OKAY;
 }
 
@@ -2846,16 +2773,16 @@ Status MessageState::GetTriggerConfigs(std::vector<TriggerInfo>& triggerConfigs)
   if (status != OKAY) {
     return status;
   }
-  if (m_buffer->size() < afterCamerasOffset + 2 * sizeof(uint32_t) + sizeof(float) + 8 + sizeof(uint32_t)) {
+  if (m_buffer->size() < afterCamerasOffset + 2 * sizeof(uint32_t) + 8 + sizeof(uint32_t)) {
     return READ_PAST_END;
   }
   uint32_t numTriggers;
-  memcpy(&numTriggers, m_buffer->data() + afterCamerasOffset + 2 * sizeof(uint32_t) + sizeof(float) + 8, sizeof(numTriggers));
+  memcpy(&numTriggers, m_buffer->data() + afterCamerasOffset + 2 * sizeof(uint32_t) + 8, sizeof(numTriggers));
   triggerConfigs.resize(numTriggers);
-  if (m_buffer->size() < afterCamerasOffset + 2 * sizeof(uint32_t) + sizeof(float) + 8 + sizeof(uint32_t) + numTriggers * sizeof(TriggerInfo)) {
+  if (m_buffer->size() < afterCamerasOffset + 2 * sizeof(uint32_t) + 8 + sizeof(uint32_t) + numTriggers * sizeof(TriggerInfo)) {
     return READ_PAST_END;
   }
-  uint32_t baseOffset = afterCamerasOffset + 2 * sizeof(uint32_t) + sizeof(float) + 8 + sizeof(uint32_t);
+  uint32_t baseOffset = afterCamerasOffset + 2 * sizeof(uint32_t) + 8 + sizeof(uint32_t);
   for (uint32_t i = 0; i < numTriggers; i++) {
     uint32_t paramOffset = baseOffset + i * sizeof(TriggerInfo);
     memcpy(&triggerConfigs[i].ID, m_buffer->data() + paramOffset, sizeof(triggerConfigs[i].ID));
@@ -2960,14 +2887,13 @@ std::string MessageState::Test()
     std::vector<FeatureID> features = { STORAGE_API_AVAILABLE, TEMPERATURE_API_AVAILBLE, POSE_API_ORIENTATION_AVAILABLE };
     std::vector<CameraInfo> cameras = { { 1, 2, 3, 4, 5, 6 }, { 7, 8, 9, 10, 11, 12 } };
     uint32_t numTempSensorsPerCamera = 13, numExternalTempSensors = 14;
-    float keepAliveInterval = 15.0;
     uint8_t storing = 16, camerasStreaming = 17, replaying = 18, replayAtEnd = 19, recordOnReset = 20;
     std::vector<TriggerInfo> triggerConfigs = { { 1, 2, 3, 4, 5, 6 }, { 7, 8, 9, 10, 11, 12 } };
     uint64_t totalDiskSpace = 21, remainingDiskSpace = 22;
     Time streamReplayTime = { 23, 24 };
     std::vector<StreamEndpoint> streams = { { 0x01020304, 1234 }, { 0x05060708, 5678 } };
     MessageState message(packet, timeCode, features, cameras, numTempSensorsPerCamera, numExternalTempSensors,
-      keepAliveInterval, storing, camerasStreaming, replaying, replayAtEnd, recordOnReset, triggerConfigs,
+      storing, camerasStreaming, replaying, replayAtEnd, recordOnReset, triggerConfigs,
       totalDiskSpace, remainingDiskSpace, streamReplayTime, streams);
     if (message.GetConstructorStatus() != OKAY) {
       return "Error constructing MessageState: " + ErrorMessage(message.GetConstructorStatus());
@@ -2982,13 +2908,13 @@ std::string MessageState::Test()
     if (totalLength != STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE + sizeof(uint32_t) + features.size() * sizeof(uint16_t)
       + (features.size() % 2) * sizeof(uint16_t)
       + cameras.size() * sizeof(CameraInfo) + sizeof(numTempSensorsPerCamera) + sizeof(numExternalTempSensors)
-      + sizeof(keepAliveInterval) + 8 + sizeof(uint32_t) + triggerConfigs.size() * sizeof(TriggerInfo)
+      + 8 + sizeof(uint32_t) + triggerConfigs.size() * sizeof(TriggerInfo)
       + sizeof(totalDiskSpace) + sizeof(remainingDiskSpace) + 2 * sizeof(uint32_t) + sizeof(uint32_t) + streams.size() * 2 * sizeof(uint32_t)) {
       return "Error constructing MessageState from buffer: packet length is not " +
         std::to_string(STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE + sizeof(uint32_t) + features.size() * sizeof(uint16_t)
                  + (features.size() % 2) * sizeof(uint16_t)
                  + cameras.size() * sizeof(CameraInfo) + sizeof(numTempSensorsPerCamera) + sizeof(numExternalTempSensors)
-                 + sizeof(keepAliveInterval) + 8 + sizeof(uint32_t) + triggerConfigs.size() * sizeof(TriggerInfo)
+                 + 8 + sizeof(uint32_t) + triggerConfigs.size() * sizeof(TriggerInfo)
                  + sizeof(totalDiskSpace) + sizeof(remainingDiskSpace) + 2 * sizeof(uint32_t) + sizeof(uint32_t) + streams.size() * 2 * sizeof(uint32_t)) + " but " +
         std::to_string(totalLength);
     }
@@ -3044,14 +2970,6 @@ std::string MessageState::Test()
     }
     if (rNumExternalTempSensors != numExternalTempSensors) {
       return "Error getting numExternalTempSensors from MessageState for MessageState test: numExternalTempSensors is not 14";
-    }
-    float rKeepAliveInterval;
-    status = message.GetKeepAliveInterval(rKeepAliveInterval);
-    if (status != OKAY) {
-      return "Error getting keepAliveInterval from MessageState for MessageState test: " + ErrorMessage(status);
-    }
-    if (rKeepAliveInterval != keepAliveInterval) {
-      return "Error getting keepAliveInterval from MessageState for MessageState test: keepAliveInterval is not 15.0";
     }
     uint8_t rStoring;
     status = message.GetStoring(rStoring);
@@ -3182,7 +3100,7 @@ Status MessageState::GetAfterTriggerConfigsOffset(uint32_t& offset) const
 
   // Add the size of the storing, camerasStreaming, replaying, replayAtEnd, recordOnReset, triggerConfigs
   // to the offset.
-  offset = afterCamerasOffset + 2 * sizeof(uint32_t) + sizeof(float) + 8;
+  offset = afterCamerasOffset + 2 * sizeof(uint32_t) + 8;
   uint32_t numTriggers;
   memcpy(&numTriggers, m_buffer->data() + offset, sizeof(numTriggers));
   offset += sizeof(uint32_t) + numTriggers * sizeof(TriggerInfo);
@@ -6212,38 +6130,7 @@ CoreServerBase::CoreServerBase(uint32_t serialNumber, const std::string& IP,
   int verbosity)
   : CoreServer(serialNumber, IP)
   , m_verbosity(verbosity)
-  , m_keepAliveInterval(0)
 {
-}
-
-asdp::Time CoreServerBase::getNewTimeout()
-{
-  Time time = { std::numeric_limits<uint32_t>::max(), std::numeric_limits<uint32_t>::max() };
-  if (m_keepAliveInterval <= 0) {
-    return time;
-  }
-
-  // Get the current time.
-  Status status = m_timer->GetCoreTime(time);
-  if (status != OKAY) {
-    m_error = "Failed to get core time: " + ErrorMessage(status);
-    return time;
-  }
-
-  // See how much to increase the current time by.
-  uint32_t seconds = static_cast<uint32_t>(m_keepAliveInterval);
-  uint32_t microseconds = static_cast<uint32_t>(
-    (m_keepAliveInterval - static_cast<float>(static_cast<uint32_t>(m_keepAliveInterval))) * 1000000);
-  Time increase = { seconds, microseconds };
-  return time + increase;
-}
-
-void CoreServerBase::checkForTimeouts(std::list<WriterInfo>& writerList, Time now)
-{
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
-
-  // Go through the list and remove any whose timeout has is before now.
-  writerList.remove_if([&now](const WriterInfo& info) { return info.timeOut < now; });
 }
 
 asdp::CoreServerBase::WriterInfo *CoreServerBase::getWriter(
@@ -6256,7 +6143,6 @@ asdp::CoreServerBase::WriterInfo *CoreServerBase::getWriter(
   auto it = std::find_if(baseList.begin(), baseList.end(),
     [&endpoint](const WriterInfo& info) { return info.endpoint == endpoint; });
   if (it != baseList.end()) {
-    it->timeOut = getNewTimeout();
     return &*it;
   }
 
@@ -6267,7 +6153,6 @@ asdp::CoreServerBase::WriterInfo *CoreServerBase::getWriter(
       [&endpoint](const WriterInfo& info) { return info.endpoint == endpoint; });
     if (it != m_stateWriters.end()) {
       baseList.push_back(*it);
-      it->timeOut = getNewTimeout();
       return &*it;
     }
   }
@@ -6276,7 +6161,6 @@ asdp::CoreServerBase::WriterInfo *CoreServerBase::getWriter(
       [&endpoint](const WriterInfo& info) { return info.endpoint == endpoint; });
     if (it != m_eventWriters.end()) {
       baseList.push_back(*it);
-      it->timeOut = getNewTimeout();
       return &*it;
     }
   }
@@ -6285,7 +6169,6 @@ asdp::CoreServerBase::WriterInfo *CoreServerBase::getWriter(
       [&endpoint](const WriterInfo& info) { return info.endpoint == endpoint; });
     if (it != m_subregionWriters.end()) {
       baseList.push_back(*it);
-      it->timeOut = getNewTimeout();
       return &*it;
     }
   }
@@ -6294,7 +6177,6 @@ asdp::CoreServerBase::WriterInfo *CoreServerBase::getWriter(
            [&endpoint](const WriterInfo& info) { return info.endpoint == endpoint; });
     if (it != m_listWriters.end()) {
       baseList.push_back(*it);
-      it->timeOut = getNewTimeout();
       return &*it;
     }
   }
@@ -6303,7 +6185,6 @@ asdp::CoreServerBase::WriterInfo *CoreServerBase::getWriter(
       [&endpoint](const WriterInfo& info) { return info.endpoint == endpoint; });
     if (it != m_temperatureWriters.end()) {
       baseList.push_back(*it);
-      it->timeOut = getNewTimeout();
       return &*it;
     }
   }
@@ -6312,7 +6193,6 @@ asdp::CoreServerBase::WriterInfo *CoreServerBase::getWriter(
       [&endpoint](const WriterInfo& info) { return info.endpoint == endpoint; });
     if (it != m_poseWriters.end()) {
       baseList.push_back(*it);
-      it->timeOut = getNewTimeout();
       return &*it;
     }
   }
@@ -6336,7 +6216,6 @@ asdp::CoreServerBase::WriterInfo *CoreServerBase::getWriter(
     std::cout << "Created StreamWriter for " << endpoint << std::endl;
   }
   baseList.push_back(wi);
-  wi.timeOut = getNewTimeout();
   return &baseList.back();
 }
 
@@ -6500,16 +6379,6 @@ std::string CoreServerBase::run()
       doStopReplay(stopReplayCommand);
     }
     break;
-    case SET_KEEPALIVE_INTERVAL:
-    {
-      CommandPacketKeepaliveInterval setKeepAliveIntervalCommand(*command);
-      status = setKeepAliveIntervalCommand.GetConstructorStatus();
-      if (status != OKAY) {
-        return "Failed to construct set keep alive interval command: " + ErrorMessage(status);
-      }
-      doSetKeepAliveInterval(setKeepAliveIntervalCommand);
-    }
-    break;
     case STREAM_STATE:
     {
       CommandPacketStreamState streamStateCommand(*command);
@@ -6664,19 +6533,6 @@ std::string CoreServerBase::run()
       return "Unrecognized OpCode: " + std::to_string(opCode);
     }
 
-    // Check for timeouts on all the streams.
-    Time now;
-    Status status = m_timer->GetCoreTime(now);
-    if (status != OKAY) {
-      return "Timer failed to get time: " + ErrorMessage(status);
-    }
-    checkForTimeouts(m_stateWriters, now);
-    checkForTimeouts(m_eventWriters, now);
-    checkForTimeouts(m_subregionWriters, now);
-    checkForTimeouts(m_listWriters, now);
-    checkForTimeouts(m_temperatureWriters, now);
-    checkForTimeouts(m_poseWriters, now);
-
     // Run the per-loop call that derived objects use to do their thing.
     doEveryLoop();
 
@@ -6684,14 +6540,6 @@ std::string CoreServerBase::run()
     if (!m_error.empty()) {
       return m_error;
     }
-  }
-}
-
-void CoreServerBase::doSetKeepAliveInterval(const CommandPacketKeepaliveInterval& command)
-{
-  Status status = command.GetInterval(m_keepAliveInterval);
-  if (status != OKAY) {
-    m_error = "Failed to get keep alive interval: " + ErrorMessage(status);
   }
 }
 
@@ -7028,10 +6876,6 @@ std::string asdp::Test()
   ret = CommandPacketSetStartUpRecordingState::Test();
   if (ret.size() > 0) {
     return "Error testing CommandPacketSetStartUpRecordingState: " + ret;
-  }
-  ret = CommandPacketKeepaliveInterval::Test();
-  if (ret.size() > 0) {
-    return "Error testing CommandPacketKeepaliveInterval: " + ret;
   }
   ret = CommandPacketStreamState::Test();
   if (ret.size() > 0) {
