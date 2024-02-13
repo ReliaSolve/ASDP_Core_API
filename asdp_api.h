@@ -120,8 +120,7 @@ enum MessageID : uint32_t {
   FRAME_BEGIN                   = 20000,
   FRAME_DATA                    = 20001,
   FRAME_END                     = 20002,
-  LIST_STORED_PARTIAL           = 30000,
-  LIST_STORED_END               = 30001,
+  STORED_STREAMS                = 30000,
   TEMPERATURE                   = 40000,
   POSE                          = 50000
 };
@@ -1010,8 +1009,7 @@ protected:
   friend class MessageFrameBegin;
   friend class MessageFrameData;
   friend class MessageFrameEnd;
-  friend class MessagePartialStorageList;
-  friend class MessageEndStorageList;
+  friend class MessageStoredStreamList;
   friend class MessageTemperature;
   friend class MessagePose;
 };
@@ -1406,41 +1404,18 @@ public:
   static std::string Test();
 };
 
-/// @brief Partial list of stored message.
-class MessagePartialStorageList : public Message {
+/// @brief List of stored message.
+class MessageStoredStreamList : public Message {
 public:
-  /// @brief Construct a MessagePartialStorageList and store it into a buffer from a StreamPacket.
+  /// @brief Construct a MessageStoredStreamList and store it into a buffer from a StreamPacket.
   /// @param [in] packet Pointer to the StreamPacket containing the message.
   /// @param [in] timeCode Time code for the message.
   /// @param [in] IDs Vector of IDs of stored streams.
-  MessagePartialStorageList(StreamPacket& packet, Time timeCode, std::vector<uint32_t> IDs);
+  MessageStoredStreamList(StreamPacket& packet, Time timeCode, std::vector<uint32_t> IDs);
 
-  /// @brief Type-cast a base Message into a MessagePartialStorageList packet, re-using its buffer.
+  /// @brief Type-cast a base Message into a MessageStoredStreamList packet, re-using its buffer.
   /// @param [in] baseMessage The base Message to convert from.
-  MessagePartialStorageList(Message& baseMessage);
-
-  /// @brief Get the IDs of stored streams.
-  /// @param [out] IDs Vector of IDs of stored streams.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetIDs(std::vector<uint32_t>& IDs) const;
-
-  /// @brief Test function.
-  /// @return Empty string if successful, otherwise descriptive error message.
-  static std::string Test();
-};
-
-/// @brief End of list of stored message.
-class MessageEndStorageList : public Message {
-public:
-  /// @brief Construct a MessageEndStorageList and store it into a buffer from a StreamPacket.
-  /// @param [in] packet Pointer to the StreamPacket containing the message.
-  /// @param [in] timeCode Time code for the message.
-  /// @param [in] IDs Vector of IDs of stored streams.
-  MessageEndStorageList(StreamPacket& packet, Time timeCode, std::vector<uint32_t> IDs);
-
-  /// @brief Type-cast a base Message into a MessageEndStorageList packet, re-using its buffer.
-  /// @param [in] baseMessage The base Message to convert from.
-  MessageEndStorageList(Message& baseMessage);
+  MessageStoredStreamList(Message& baseMessage);
 
   /// @brief Get the IDs of stored streams.
   /// @param [out] IDs Vector of IDs of stored streams.
