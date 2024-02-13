@@ -116,10 +116,8 @@ int main(int argc, char** argv)
   for (int i = 0; i < totalCreateIterations; ++i) {
     uint32_t IP = 0x01020304;
     uint16_t port = 1234;
-    SubregionDescription region1 = { 1, 2, 3, 4, 5, 6 };
-    SubregionDescription region2 = { 7, 8, 9,10,11,12 };
-    std::vector<SubregionDescription> regions = { region1, region2 };
-    CommandPacketStreamSubregions packet({ IP, port }, regions);
+    SubregionDescription region = { 1, 2, 3, 4, 5, 6, 7, 8 };
+    CommandPacketStreamSubregion packet({ IP, port }, region);
   }
 
   auto end = std::chrono::high_resolution_clock::now();

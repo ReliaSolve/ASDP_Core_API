@@ -79,23 +79,20 @@ static std::string OpCodeName(OpCode opCode)
 {
   switch (opCode) {
   case RESET: return "RESET";
-  case CANCEL_ALL_STREAMS: return "CANCEL_ALL_STREAMS";
   case START_RECORDING: return "START_RECORDING";
   case STOP_RECORDING: return "STOP_RECORDING";
   case SET_START_UP_RECORDING_STATE: return "SET_START_UP_RECORDING_STATE";
   case START_REPLAY: return "START_REPLAY";
   case PAUSE_REPLAY: return "PAUSE_REPLAY";
   case STOP_REPLAY: return "STOP_REPLAY";
-  case STREAM_STATE: return "STREAM_STATE";
-  case CANCEL_STATE: return "CANCEL_STATE";
+  case SET_STREAM_STATE_PERIOD: return "SET_STREAM_STATE_PERIOD";
   case CONFIGURE_TRIGGER: return "CONFIGURE_TRIGGER";
   case SOFTWARE_TRIGGER: return "SOFTWARE_TRIGGER";
-  case STREAM_EVENTS: return "STREAM_EVENTS";
-  case CANCEL_EVENTS: return "CANCEL_EVENTS";
-  case STREAM_SUBREGIONS: return "STREAM_SUBREGIONS";
-  case CANCEL_SUBREGIONS: return "CANCEL_SUBREGIONS";
+  case SET_EVENT_VERBOSITY: return "SET_EVENT_VERBOSITY";
+  case STREAM_SUBREGION: return "STREAM_SUBREGION";
+  case CANCEL_SUBREGION: return "CANCEL_SUBREGION";
   case ERASE_ALL_STORED_STREAMS: return "ERASE_ALL_STORED_STREAMS";
-  case STREAM_STORED_LIST: return "LIST_STORED_STREAMS";
+  case LIST_STORED_STREAMS: return "LIST_STORED_STREAMS";
   case ERASE_STORED_STREAM: return "ERASE_STORED_STREAM";
   case STREAM_TEMPERATURES: return "STREAM_TEMPERATURES";
   case CANCEL_TEMPERATURES: return "CANCEL_TEMPERATURES";
@@ -109,14 +106,13 @@ static std::string OpCodeName(OpCode opCode)
 // Definitions of static constants used below.
 
 static const unsigned char MAGIC_COOKIE[4] = { 'A', 'S', 'D', 'P' };
-static const unsigned char VERSION[4] = { 1, 2, 0, 0 };
+static const unsigned char VERSION[4] = { 2, 0, 0, 0 };
 
 static const uint32_t PACKET_BASIC_HEADER_SIZE = 3 * sizeof(uint32_t);
 static const uint32_t PACKET_HEADER_TOTAL_SIZE_OFFSET = 0;
 static const uint32_t PACKET_HEADER_HEADER_SIZE_OFFSET = 4;
 static const uint32_t PACKET_HEADER_VERSION_OFFSET = 8;
 static const uint32_t COMMAND_PACKET_BASE_SIZE = PACKET_BASIC_HEADER_SIZE + sizeof(uint32_t);
-static const uint32_t COMMAND_PACKET_START_STREAM_SIZE = COMMAND_PACKET_BASE_SIZE + 2 * sizeof(uint32_t);
 static const uint32_t STREAM_PACKET_BASE_SIZE = PACKET_BASIC_HEADER_SIZE + sizeof(uint32_t);
 
 static const uint32_t MESSAGE_BASE_SIZE = 6 * sizeof(uint32_t);
@@ -536,8 +532,8 @@ std::string BasicPacket::Test()
     std::shared_ptr<std::vector<uint8_t>> empty = std::make_shared<std::vector<uint8_t>>();
     BasicPacket packet(empty);
     Status status = packet.GetConstructorStatus();
-    if (status != BAD_PARAMETER) {
-      return "Unexpected return code from empty packet construction: " + ErrorMessage(status);
+    if (status == OKAY) {
+      return "Unexpected OKAY return code from empty packet construction";
     }
   }
 
@@ -559,6 +555,22 @@ CommandPacket::CommandPacket(std::shared_ptr<std::vector<uint8_t>> existingBuffe
 {
   if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE) {
     m_constructorStatus = BAD_PARAMETER;
+  }
+}
+
+CommandPacket::CommandPacket(std::shared_ptr<std::vector<uint8_t>> existingBuffer, OpCode code)
+  : CommandPacket(existingBuffer)
+{
+  // Verify the opcode after creating the buffer.
+  OpCode opCode;
+  Status status = GetOpCode(opCode);
+  if (status != OKAY) {
+    m_constructorStatus = status;
+    return;
+  }
+  if (opCode != code) {
+    m_constructorStatus = BAD_PARAMETER;
+    return;
   }
 }
 
@@ -598,7 +610,7 @@ std::string CommandPacket::Test()
     }
 
     // Construct a new packet from the reset packet's buffer and verify that it has the same opcode.
-    CommandPacket resetPacket2(resetPacket.m_buffer);
+    CommandPacket resetPacket2(resetPacket.m_buffer, RESET);
     if (resetPacket2.GetConstructorStatus() != OKAY) {
       return "Error constructing base packet from buffer: " + ErrorMessage(resetPacket2.GetConstructorStatus());
     }
@@ -613,10 +625,10 @@ std::string CommandPacket::Test()
     // Try to construct a CommandPacket from a buffer that is too small and make
     // sure that it fails.
     std::shared_ptr<std::vector<uint8_t>> empty = std::make_shared<std::vector<uint8_t>>();
-    CommandPacket packet(empty);
+    CommandPacket packet(empty, RESET);
     Status status = packet.GetConstructorStatus();
-    if (status != BAD_PARAMETER) {
-      return "Unexpected return code from empty packet construction: " + ErrorMessage(status);
+    if (status == OKAY) {
+      return "Unexpected OKAY return code from empty packet construction";
     }
 
     // Also make sure that trying to read its opcode fails.
@@ -631,176 +643,14 @@ std::string CommandPacket::Test()
   return "";
 }
 
-CommandPacketStreamX::CommandPacketStreamX(StreamEndpoint endpoint, uint32_t extraParameterSize, OpCode opCode)
-  : CommandPacket(2 * sizeof(uint32_t) + extraParameterSize, opCode)
-{
-  unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
-  memcpy(bufPtr, &endpoint.IP, sizeof(endpoint.IP)); bufPtr += sizeof(endpoint.IP);
-  uint32_t portField = endpoint.port;
-  memcpy(bufPtr, &portField, sizeof(portField)); bufPtr += sizeof(portField);
-  // The derived class is responsible for packing its own extra parameters.
-}
-
-CommandPacketStreamX::CommandPacketStreamX(CommandPacket& basePacket, OpCode opCode)
-  : CommandPacket(basePacket.m_buffer)
-{
-  // Check the opcode
-  OpCode myOpCode;
-  basePacket.GetOpCode(myOpCode);
-  if (myOpCode != opCode) {
-    m_constructorStatus = BAD_PARAMETER;
-  }
-}
-
-Status CommandPacketStreamX::GetEndpoint(StreamEndpoint& endpoint) const
-{
-  if (m_buffer->size() < COMMAND_PACKET_START_STREAM_SIZE) {
-    return READ_PAST_END;
-  }
-
-  memcpy(&endpoint.IP, m_buffer->data() + COMMAND_PACKET_BASE_SIZE, sizeof(endpoint.IP));
-
-  uint32_t portField;
-  memcpy(&portField, m_buffer->data() + COMMAND_PACKET_BASE_SIZE + sizeof(uint32_t), sizeof(portField));
-  endpoint.port = portField;
-  return OKAY;
-}
-
-std::string CommandPacketStreamX::Test(OpCode opCode)
-{
-  {
-    // Construct a command packet and verify that we can read its opcode.
-    CommandPacketStreamX packet({ 1,2 }, 0, opCode);
-    if (packet.GetConstructorStatus() != OKAY) {
-      return "Error constructing packet: " + ErrorMessage(packet.GetConstructorStatus());
-    }
-    OpCode myOpCode;
-    Status status = packet.GetOpCode(myOpCode);
-    if (status != OKAY) {
-      return "Error getting opcode from packet: " + ErrorMessage(status);
-    }
-    if (myOpCode != opCode) {
-      return "Error getting opcode from packet: opcode is not as expected";
-    }
-
-    // Also be sure we can read the endpoint.
-    StreamEndpoint endpoint;
-    status = packet.GetEndpoint(endpoint);
-    if (status != OKAY) {
-      return "Error getting endpoint from packet: " + ErrorMessage(status);
-    }
-    if (endpoint.IP != 1 || endpoint.port != 2) {
-      return "Error getting endpoint from packet: endpoint does not match";
-    }
-
-    // Construct a new packet from the packet's buffer and verify that it has the same parameters.
-    CommandPacket& originalPacket = packet;
-    CommandPacketStreamX packet2(originalPacket, opCode);
-    if (packet2.GetConstructorStatus() != OKAY) {
-      return "Error constructing packet from buffer: " + ErrorMessage(packet2.GetConstructorStatus());
-    }
-    status = packet2.GetEndpoint(endpoint);
-    if (status != OKAY) {
-      return "Error getting endpoint from packet constructed from buffer: " + ErrorMessage(status);
-    }
-    if (endpoint.IP != 1 || endpoint.port != 2) {
-      return "Error getting endpoint from packet constructed from buffer: endpoint does not match";
-    }
-  }
-
-  return "";
-}
-
-CommandPacketCancelX::CommandPacketCancelX(StreamEndpoint endpoint, OpCode opCode)
-  : CommandPacket(2 * sizeof(uint32_t), opCode)
-{
-  unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
-  memcpy(bufPtr, &endpoint.IP, sizeof(endpoint.IP)); bufPtr += sizeof(endpoint.IP);
-  uint32_t portField = endpoint.port;
-  memcpy(bufPtr, &portField, sizeof(portField)); bufPtr += sizeof(portField);
-}
-
-CommandPacketCancelX::CommandPacketCancelX(CommandPacket& basePacket, OpCode opCode)
-  : CommandPacket(basePacket.m_buffer)
-{
-  OpCode rOpCode;
-  basePacket.GetOpCode(rOpCode);
-  if (rOpCode != opCode) {
-    m_constructorStatus = BAD_PARAMETER;
-  }
-}
-
-Status CommandPacketCancelX::GetEndpoint(StreamEndpoint& endpoint) const
-{
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + 2 * sizeof(uint32_t)) {
-    return READ_PAST_END;
-  }
-  memcpy(&endpoint.IP, m_buffer->data() + COMMAND_PACKET_BASE_SIZE, sizeof(endpoint.IP));
-  uint32_t portField;
-  memcpy(&portField, m_buffer->data() + COMMAND_PACKET_BASE_SIZE + sizeof(uint32_t), sizeof(portField));
-  endpoint.port = portField;
-  return OKAY;
-}
-
-std::string CommandPacketCancelX::Test(OpCode opCode)
-{
-  {
-    // Construct a command packet and verify that we can read its opcode. Use one of the
-    // derived types for this test, so it sets an opcode.
-    CommandPacketCancelX packet({ 1, 2 }, opCode);
-    if (packet.GetConstructorStatus() != OKAY) {
-      return "Error constructing packet: " + ErrorMessage(packet.GetConstructorStatus());
-    }
-    OpCode opCode;
-    Status status = packet.GetOpCode(opCode);
-    if (status != OKAY) {
-      return "Error getting opcode from packet: " + ErrorMessage(status);
-    }
-    if (opCode != opCode) {
-      return "Error getting opcode from packet: opcode is not as expected";
-    }
-
-    // Also be sure we can read the endpoint.
-    StreamEndpoint endpoint;
-    status = packet.GetEndpoint(endpoint);
-    if (status != OKAY) {
-      return "Error getting endpoint from packet: " + ErrorMessage(status);
-    }
-    if (endpoint.IP != 1 || endpoint.port != 2) {
-      return "Error getting endpoint from packet: endpoint does not match";
-    }
-
-    // Construct a new packet from the packet's buffer and verify that it has the same parameters.
-    CommandPacket& originalPacket = packet;
-    CommandPacketCancelX packet2(originalPacket, opCode);
-    if (packet2.GetConstructorStatus() != OKAY) {
-      return "Error constructing packet from buffer: " + ErrorMessage(packet2.GetConstructorStatus());
-    }
-    status = packet2.GetEndpoint(endpoint);
-    if (status != OKAY) {
-      return "Error getting endpoint from packet constructed from buffer: " + ErrorMessage(status);
-    }
-    if (endpoint.IP != 1 || endpoint.port != 2) {
-      return "Error getting endpoint from packet constructed from buffer: endpoint does not match";
-    }
-  }
-
-  return "";
-}
-
 CommandPacketReset::CommandPacketReset()
   : CommandPacket(0, RESET)
 {
 }
 
 CommandPacketReset::CommandPacketReset(CommandPacket& basePacket)
-  : CommandPacket(basePacket.m_buffer)
+  : CommandPacket(basePacket.m_buffer, RESET)
 {
-  OpCode opCode;
-  basePacket.GetOpCode(opCode);
-  if (opCode != RESET) {
-    m_constructorStatus = BAD_PARAMETER;
-  }
 }
 
 std::string CommandPacketReset::Test()
@@ -831,75 +681,14 @@ std::string CommandPacketReset::Test()
   return "";
 }
 
-CommandPacketCancelAllStreams::CommandPacketCancelAllStreams(uint32_t subnet)
-  : CommandPacket(sizeof(subnet), CANCEL_ALL_STREAMS)
-{
-  memcpy(m_buffer->data() + COMMAND_PACKET_BASE_SIZE, &subnet, sizeof(subnet));
-}
-
-CommandPacketCancelAllStreams::CommandPacketCancelAllStreams(CommandPacket& basePacket)
-  : CommandPacket(basePacket.m_buffer)
-{
-  OpCode opCode;
-  basePacket.GetOpCode(opCode);
-  if (opCode != CANCEL_ALL_STREAMS) {
-    m_constructorStatus = BAD_PARAMETER;
-  }
-}
-
-Status CommandPacketCancelAllStreams::GetSubnet(uint32_t& subnet) const
-{
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + sizeof(subnet)) {
-    return READ_PAST_END;
-  }
-  memcpy(&subnet, m_buffer->data() + COMMAND_PACKET_BASE_SIZE, sizeof(subnet));
-  return OKAY;
-}
-
-std::string CommandPacketCancelAllStreams::Test()
-{
-  {
-    // Construct a CancelAllStreams command packet and verify that we can read its opcode.
-    CommandPacketCancelAllStreams packet(10);
-    if (packet.GetConstructorStatus() != OKAY) {
-      return "Error constructing packet: " + ErrorMessage(packet.GetConstructorStatus());
-    }
-    OpCode opCode;
-    Status status = packet.GetOpCode(opCode);
-    if (status != OKAY) {
-      return "Error getting opcode from packet: " + ErrorMessage(status);
-    }
-    if (opCode != CANCEL_ALL_STREAMS) {
-      return "Error getting opcode from packet: opcode is not CANCEL_ALL_STREAMS";
-    }
-
-    // Also be sure we can read the subnet.
-    uint32_t subnet;
-    status = packet.GetSubnet(subnet);
-    if (status != OKAY) {
-      return "Error getting subnet from packet: " + ErrorMessage(status);
-    }
-    if (subnet != 10) {
-      return "Error getting subnet from packet: subnet is not 10";
-    }
-  }
-
-  return "";
-}
-
 CommandPacketStartRecording::CommandPacketStartRecording()
   : CommandPacket(0, START_RECORDING)
 {
 }
 
 CommandPacketStartRecording::CommandPacketStartRecording(CommandPacket& basePacket)
-  : CommandPacket(basePacket.m_buffer)
+  : CommandPacket(basePacket.m_buffer, START_RECORDING)
 {
-  OpCode opCode;
-  basePacket.GetOpCode(opCode);
-  if (opCode != START_RECORDING) {
-    m_constructorStatus = BAD_PARAMETER;
-  }
 }
 
 std::string CommandPacketStartRecording::Test()
@@ -936,13 +725,8 @@ CommandPacketStopRecording::CommandPacketStopRecording()
 }
 
 CommandPacketStopRecording::CommandPacketStopRecording(CommandPacket& basePacket)
-  : CommandPacket(basePacket.m_buffer)
+  : CommandPacket(basePacket.m_buffer, STOP_RECORDING)
 {
-  OpCode opCode;
-  basePacket.GetOpCode(opCode);
-  if (opCode != STOP_RECORDING) {
-    m_constructorStatus = BAD_PARAMETER;
-  }
 }
 
 std::string CommandPacketStopRecording::Test()
@@ -979,13 +763,8 @@ CommandPacketPauseReplay::CommandPacketPauseReplay()
 }
 
 CommandPacketPauseReplay::CommandPacketPauseReplay(CommandPacket& basePacket)
-  : CommandPacket(basePacket.m_buffer)
+  : CommandPacket(basePacket.m_buffer, PAUSE_REPLAY)
 {
-  OpCode opCode;
-  basePacket.GetOpCode(opCode);
-  if (opCode != PAUSE_REPLAY) {
-    m_constructorStatus = BAD_PARAMETER;
-  }
 }
 
 std::string CommandPacketPauseReplay::Test()
@@ -1026,13 +805,8 @@ CommandPacketStartReplay::CommandPacketStartReplay(uint32_t ID, Time initialTime
 }
 
 CommandPacketStartReplay::CommandPacketStartReplay(CommandPacket& basePacket)
-  : CommandPacket(basePacket.m_buffer)
+  : CommandPacket(basePacket.m_buffer, START_REPLAY)
 {
-  OpCode opCode;
-  basePacket.GetOpCode(opCode);
-  if (opCode != START_REPLAY) {
-    m_constructorStatus = BAD_PARAMETER;
-  }
 }
 
 Status CommandPacketStartReplay::GetID(uint32_t& ID) const
@@ -1122,13 +896,8 @@ CommandPacketResumeReplay::CommandPacketResumeReplay()
 }
 
 CommandPacketResumeReplay::CommandPacketResumeReplay(CommandPacket& basePacket)
-  : CommandPacket(basePacket.m_buffer)
+  : CommandPacket(basePacket.m_buffer, RESUME_REPLAY)
 {
-  OpCode opCode;
-  basePacket.GetOpCode(opCode);
-  if (opCode != RESUME_REPLAY) {
-    m_constructorStatus = BAD_PARAMETER;
-  }
 }
 
 std::string CommandPacketResumeReplay::Test()
@@ -1165,13 +934,8 @@ CommandPacketStopReplay::CommandPacketStopReplay()
 }
 
 CommandPacketStopReplay::CommandPacketStopReplay(CommandPacket& basePacket)
-  : CommandPacket(basePacket.m_buffer)
+  : CommandPacket(basePacket.m_buffer, STOP_REPLAY)
 {
-  OpCode opCode;
-  basePacket.GetOpCode(opCode);
-  if (opCode != STOP_REPLAY) {
-    m_constructorStatus = BAD_PARAMETER;
-  }
 }
 
 std::string CommandPacketStopReplay::Test()
@@ -1209,13 +973,8 @@ CommandPacketSetStartUpRecordingState::CommandPacketSetStartUpRecordingState(uin
 }
 
 CommandPacketSetStartUpRecordingState::CommandPacketSetStartUpRecordingState(CommandPacket& basePacket)
-  : CommandPacket(basePacket.m_buffer)
+  : CommandPacket(basePacket.m_buffer, SET_START_UP_RECORDING_STATE)
 {
-  OpCode opCode;
-  basePacket.GetOpCode(opCode);
-  if (opCode != SET_START_UP_RECORDING_STATE) {
-    m_constructorStatus = BAD_PARAMETER;
-  }
 }
 
 Status CommandPacketSetStartUpRecordingState::GetState(uint32_t& state) const
@@ -1258,34 +1017,34 @@ std::string CommandPacketSetStartUpRecordingState::Test()
   return "";
 }
 
-CommandPacketStreamState::CommandPacketStreamState(StreamEndpoint endpoint, float interval)
-  : CommandPacketStreamX(endpoint, sizeof(float), STREAM_STATE)
+CommandPacketSetStreamStatePeriod::CommandPacketSetStreamStatePeriod(float interval)
+  : CommandPacket(sizeof(float), SET_STREAM_STATE_PERIOD)
 {
-  unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_START_STREAM_SIZE;
+  unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
   memcpy(bufPtr, &interval, sizeof(interval)); bufPtr += sizeof(interval);
 }
 
-CommandPacketStreamState::CommandPacketStreamState(CommandPacket& basePacket)
-  : CommandPacketStreamX(basePacket, STREAM_STATE)
+CommandPacketSetStreamStatePeriod::CommandPacketSetStreamStatePeriod(CommandPacket& basePacket)
+  : CommandPacket(basePacket.m_buffer, SET_STREAM_STATE_PERIOD)
 {
 }
 
-Status CommandPacketStreamState::GetInterval(float& interval) const
+Status CommandPacketSetStreamStatePeriod::GetInterval(float& interval) const
 {
-  if (m_buffer->size() < COMMAND_PACKET_START_STREAM_SIZE + sizeof(float)) {
+  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + sizeof(float)) {
     return READ_PAST_END;
   }
-  memcpy(&interval, m_buffer->data() + COMMAND_PACKET_START_STREAM_SIZE, sizeof(interval));
+  memcpy(&interval, m_buffer->data() + COMMAND_PACKET_BASE_SIZE, sizeof(interval));
   return OKAY;
 }
 
-std::string CommandPacketStreamState::Test()
+std::string CommandPacketSetStreamStatePeriod::Test()
 {
-  std::string ret = CommandPacketStreamX::Test(STREAM_STATE);
+  std::string ret = CommandPacket::Test();
   if (ret.size() > 0) { return ret; }
   {
     // Construct a command packet and verify that we can read its interval.
-    CommandPacketStreamState packet({ 1, 2 }, 3);
+    CommandPacketSetStreamStatePeriod packet(3);
     if (packet.GetConstructorStatus() != OKAY) {
       return "Error constructing packet: " + ErrorMessage(packet.GetConstructorStatus());
     }
@@ -1300,7 +1059,7 @@ std::string CommandPacketStreamState::Test()
 
     // Construct a new packet from the packet's buffer and verify that it has the same parameters.
     CommandPacket& originalPacket = packet;
-    CommandPacketStreamState packet2(originalPacket);
+    CommandPacketSetStreamStatePeriod packet2(originalPacket);
     if (packet2.GetConstructorStatus() != OKAY) {
       return "Error constructing packet from buffer: " + ErrorMessage(packet2.GetConstructorStatus());
     }
@@ -1329,13 +1088,8 @@ CommandPacketConfigureTrigger::CommandPacketConfigureTrigger(TriggerInfo config)
 }
 
 CommandPacketConfigureTrigger::CommandPacketConfigureTrigger(CommandPacket& basePacket)
-  : CommandPacket(basePacket.m_buffer)
+  : CommandPacket(basePacket.m_buffer, CONFIGURE_TRIGGER)
 {
-  OpCode opCode;
-  basePacket.GetOpCode(opCode);
-  if (opCode != CONFIGURE_TRIGGER) {
-    m_constructorStatus = BAD_PARAMETER;
-  }
 }
 
 Status CommandPacketConfigureTrigger::GetConfiguration(TriggerInfo& config) const
@@ -1404,13 +1158,8 @@ CommandPacketSoftwareTrigger::CommandPacketSoftwareTrigger(uint8_t ID, Time init
 }
 
 CommandPacketSoftwareTrigger::CommandPacketSoftwareTrigger(CommandPacket& basePacket)
-  : CommandPacket(basePacket.m_buffer)
+  : CommandPacket(basePacket.m_buffer, SOFTWARE_TRIGGER)
 {
-  OpCode opCode;
-  basePacket.GetOpCode(opCode);
-  if (opCode != SOFTWARE_TRIGGER) {
-    m_constructorStatus = BAD_PARAMETER;
-  }
 }
 
 Status CommandPacketSoftwareTrigger::GetID(uint8_t& ID) const
@@ -1495,38 +1244,37 @@ std::string CommandPacketSoftwareTrigger::Test()
   return "";
 }
 
-CommandPacketStreamEvents::CommandPacketStreamEvents(StreamEndpoint endpoint, uint32_t verbosity)
-  : CommandPacketStreamX(endpoint, sizeof(verbosity), STREAM_EVENTS)
+CommandPacketSetEventVerbosity::CommandPacketSetEventVerbosity(uint8_t verbosity)
+  : CommandPacket(sizeof(verbosity), SET_EVENT_VERBOSITY)
 {
-  unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_START_STREAM_SIZE;
+  unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
   memcpy(bufPtr, &verbosity, sizeof(verbosity)); bufPtr += sizeof(verbosity);
+  memset(bufPtr, 0, 3); bufPtr += 3;
 }
 
-CommandPacketStreamEvents::CommandPacketStreamEvents(CommandPacket& basePacket)
-  : CommandPacketStreamX(basePacket, STREAM_EVENTS)
+CommandPacketSetEventVerbosity::CommandPacketSetEventVerbosity(CommandPacket& basePacket)
+  : CommandPacket(basePacket.m_buffer, SET_EVENT_VERBOSITY)
 {
 }
 
-Status CommandPacketStreamEvents::GetVerbosity(uint32_t& verbosity) const
+Status CommandPacketSetEventVerbosity::GetVerbosity(uint8_t& verbosity) const
 {
-  if (m_buffer->size() < COMMAND_PACKET_START_STREAM_SIZE + sizeof(float)) {
+  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + sizeof(verbosity)) {
     return READ_PAST_END;
   }
-  memcpy(&verbosity, m_buffer->data() + COMMAND_PACKET_START_STREAM_SIZE, sizeof(verbosity));
+  memcpy(&verbosity, m_buffer->data() + COMMAND_PACKET_BASE_SIZE, sizeof(verbosity));
   return OKAY;
 }
 
-std::string CommandPacketStreamEvents::Test()
+std::string CommandPacketSetEventVerbosity::Test()
 {
-  std::string ret = CommandPacketStreamX::Test(STREAM_EVENTS);
-  if (ret.size() > 0) { return ret; }
   {
     // Construct a command packet and verify that we can read its verbosity.
-    CommandPacketStreamEvents packet({ 1, 2 } , 3);
+    CommandPacketSetEventVerbosity packet(3);
     if (packet.GetConstructorStatus() != OKAY) {
       return "Error constructing packet: " + ErrorMessage(packet.GetConstructorStatus());
     }
-    uint32_t verbosity;
+    uint8_t verbosity;
     Status status = packet.GetVerbosity(verbosity);
     if (status != OKAY) {
       return "Error getting verbosity from packet: " + ErrorMessage(status);
@@ -1537,7 +1285,7 @@ std::string CommandPacketStreamEvents::Test()
 
     // Construct a new packet from the packet's buffer and verify that it has the same parameters.
     CommandPacket& originalPacket = packet;
-    CommandPacketStreamEvents packet2(originalPacket);
+    CommandPacketSetEventVerbosity packet2(originalPacket);
     if (packet2.GetConstructorStatus() != OKAY) {
       return "Error constructing packet from buffer: " + ErrorMessage(packet2.GetConstructorStatus());
     }
@@ -1553,77 +1301,131 @@ std::string CommandPacketStreamEvents::Test()
   return "";
 }
 
-CommandPacketStreamSubregions::CommandPacketStreamSubregions(StreamEndpoint endpoint,
-  std::vector<SubregionDescription> const &regions)
-  : CommandPacketStreamX(endpoint, sizeof(uint32_t) + regions.size() * sizeof(SubregionDescription),
-    STREAM_SUBREGIONS)
+CommandPacketStreamSubregion::CommandPacketStreamSubregion(StreamEndpoint endpoint,
+  SubregionDescription const &region)
+  : CommandPacket(sizeof(region) + 2 * sizeof(uint32_t), STREAM_SUBREGION)
 {
-  unsigned char *bufPtr = m_buffer->data() + COMMAND_PACKET_START_STREAM_SIZE;
-  uint32_t numRegions = regions.size();
-  memcpy(bufPtr, &numRegions, sizeof(numRegions)); bufPtr += sizeof(numRegions);
-  for (size_t i = 0; i < regions.size(); ++i) {
-    memcpy(bufPtr, &regions[i].cameraID, sizeof(uint32_t)); bufPtr += sizeof(uint32_t);
-    memcpy(bufPtr, &regions[i].skipFrames, sizeof(uint32_t)); bufPtr += sizeof(uint32_t);
-    memcpy(bufPtr, &regions[i].skipModulo, sizeof(uint32_t)); bufPtr += sizeof(uint32_t);
-    memcpy(bufPtr, &regions[i].left, sizeof(uint32_t)); bufPtr += sizeof(uint32_t);
-    memcpy(bufPtr, &regions[i].top, sizeof(uint32_t)); bufPtr += sizeof(uint32_t);
-    memcpy(bufPtr, &regions[i].right, sizeof(uint32_t)); bufPtr += sizeof(uint32_t);
-    memcpy(bufPtr, &regions[i].bottom, sizeof(uint32_t)); bufPtr += sizeof(uint32_t);
-  }
+  unsigned char *bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
+  memcpy(bufPtr, &region.cameraID, sizeof(uint32_t)); bufPtr += sizeof(region.cameraID);
+  memcpy(bufPtr, &endpoint.IP, sizeof(endpoint.IP)); bufPtr += sizeof(endpoint.IP);
+  uint32_t portField = endpoint.port;
+  memcpy(bufPtr, &portField, sizeof(portField)); bufPtr += sizeof(portField);
+  memcpy(bufPtr, &region.skipFrames, sizeof(uint32_t)); bufPtr += sizeof(region.skipFrames);
+  memcpy(bufPtr, &region.startTimeSeconds, sizeof(uint32_t)); bufPtr += sizeof(region.startTimeSeconds);
+  memcpy(bufPtr, &region.startTimeMicroseconds, sizeof(uint32_t)); bufPtr += sizeof(region.startTimeMicroseconds);
+  memcpy(bufPtr, &region.left, sizeof(uint32_t)); bufPtr += sizeof(region.left);
+  memcpy(bufPtr, &region.top, sizeof(uint32_t)); bufPtr += sizeof(region.top);
+  memcpy(bufPtr, &region.right, sizeof(uint32_t)); bufPtr += sizeof(region.right);
+  memcpy(bufPtr, &region.bottom, sizeof(uint32_t)); bufPtr += sizeof(region.bottom);
 }
 
-CommandPacketStreamSubregions::CommandPacketStreamSubregions(CommandPacket& basePacket)
-  : CommandPacketStreamX(basePacket, STREAM_SUBREGIONS)
+CommandPacketStreamSubregion::CommandPacketStreamSubregion(CommandPacket& basePacket)
+  : CommandPacket(basePacket.m_buffer, STREAM_SUBREGION)
 {
 }
 
-Status CommandPacketStreamSubregions::GetRegionDescriptions(std::vector<SubregionDescription>& regions) const
+Status CommandPacketStreamSubregion::GetEndpoint(StreamEndpoint& endpoint) const
 {
-  if (m_buffer->size() < COMMAND_PACKET_START_STREAM_SIZE + 3 * sizeof(uint32_t)) {
+  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + sizeof(SubregionDescription) + 2 * sizeof(uint32_t)) {
     return READ_PAST_END;
   }
-  uint32_t numRegions;
-  memcpy(&numRegions, m_buffer->data() + COMMAND_PACKET_START_STREAM_SIZE, sizeof(numRegions));
-  if (m_buffer->size() < COMMAND_PACKET_START_STREAM_SIZE + sizeof(uint32_t) + numRegions * sizeof(SubregionDescription)) {
-    return READ_PAST_END;
-  }
-  regions.resize(numRegions);
-  unsigned char *bufPtr = m_buffer->data() + COMMAND_PACKET_START_STREAM_SIZE + sizeof(uint32_t);
-  for (size_t i = 0; i < numRegions; ++i) {
-    memcpy(&regions[i].cameraID, bufPtr, sizeof(uint32_t)); bufPtr += sizeof(uint32_t);
-    memcpy(&regions[i].skipFrames, bufPtr, sizeof(uint32_t)); bufPtr += sizeof(uint32_t);
-    memcpy(&regions[i].skipModulo, bufPtr, sizeof(uint32_t)); bufPtr += sizeof(uint32_t);
-    memcpy(&regions[i].left, bufPtr, sizeof(uint32_t)); bufPtr += sizeof(uint32_t);
-    memcpy(&regions[i].top, bufPtr, sizeof(uint32_t)); bufPtr += sizeof(uint32_t);
-    memcpy(&regions[i].right, bufPtr, sizeof(uint32_t)); bufPtr += sizeof(uint32_t);
-    memcpy(&regions[i].bottom, bufPtr, sizeof(uint32_t)); bufPtr += sizeof(uint32_t);
-  }
+  unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
+  // Skip the camera ID
+  bufPtr += sizeof(uint32_t);
+  memcpy(&endpoint.IP, bufPtr, sizeof(endpoint.IP)); bufPtr += sizeof(endpoint.IP);
+  uint32_t portField;
+  memcpy(&portField, bufPtr, sizeof(portField)); bufPtr += sizeof(portField);
+  endpoint.port = portField;
   return OKAY;
 }
 
-std::string CommandPacketStreamSubregions::Test()
+Status CommandPacketStreamSubregion::GetRegionDescription(SubregionDescription& region) const
 {
-  std::string ret = CommandPacketStreamX::Test(STREAM_SUBREGIONS);
-  if (ret.size() > 0) { return ret; }
+  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + sizeof(SubregionDescription) + 2 * sizeof(uint32_t)) {
+    return READ_PAST_END;
+  }
+  unsigned char *bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
+  memcpy(&region.cameraID, bufPtr, sizeof(uint32_t)); bufPtr += sizeof(region.cameraID);
+  // Skip the endpoint information
+  bufPtr += 2 * sizeof(uint32_t);
+  memcpy(&region.skipFrames, bufPtr, sizeof(uint32_t)); bufPtr += sizeof(region.skipFrames);
+  memcpy(&region.startTimeSeconds, bufPtr, sizeof(uint32_t)); bufPtr += sizeof(region.startTimeSeconds);
+  memcpy(&region.startTimeMicroseconds, bufPtr, sizeof(uint32_t)); bufPtr += sizeof(region.startTimeMicroseconds);
+  memcpy(&region.left, bufPtr, sizeof(uint32_t)); bufPtr += sizeof(region.left);
+  memcpy(&region.top, bufPtr, sizeof(uint32_t)); bufPtr += sizeof(region.top);
+  memcpy(&region.right, bufPtr, sizeof(uint32_t)); bufPtr += sizeof(region.right);
+  memcpy(&region.bottom, bufPtr, sizeof(uint32_t)); bufPtr += sizeof(region.bottom);
+  return OKAY;
+}
+
+std::string CommandPacketStreamSubregion::Test()
+{
   {
-    // Construct a CommandPacketStreamSubregions command packet and verify that we can read its values.
+    // Construct a CommandPacketStreamSubregion command packet and verify that we can read its values.
     uint32_t IP = 0x01020304;
     uint16_t port = 1234;
-    SubregionDescription region1 = { 1, 2, 3, 4, 5, 6, 7 };
-    SubregionDescription region2 = { 8, 9,10,11,12,13, 14 };
-    std::vector<SubregionDescription> regions = { region1, region2 };
-    CommandPacketStreamSubregions packet({ IP, port }, regions);
+    SubregionDescription region = { 1, 2, 3, 4, 5, 6, 7 };
+    CommandPacketStreamSubregion packet({ IP, port }, region);
     if (packet.GetConstructorStatus() != OKAY) {
-      return "Error constructing CommandPacketStreamSubregions packet: " + ErrorMessage(packet.GetConstructorStatus());
+      return "Error constructing CommandPacketStreamSubregion packet: " + ErrorMessage(packet.GetConstructorStatus());
     }
-    std::vector<SubregionDescription> rRegions;
-    Status status = packet.GetRegionDescriptions(rRegions);
+    StreamEndpoint endpoint;
+    Status status = packet.GetEndpoint(endpoint);
     if (status != OKAY) {
-      return "Error getting regions from CommandPacketStreamSubregions packet: " + ErrorMessage(status);
+      return "Error getting endpoint from CommandPacketStreamSubregion packet: " + ErrorMessage(status);
     }
-    if (rRegions != regions) {
-      return "Error getting regions from CommandPacketStreamSubregions packet: regions don't match";
+    if (endpoint.IP != IP || endpoint.port != port) {
+      return "Error getting endpoint from CommandPacketStreamSubregion packet: endpoint doesn't match";
     }
+    SubregionDescription rRegion;
+    status = packet.GetRegionDescription(rRegion);
+    if (status != OKAY) {
+      return "Error getting region from CommandPacketStreamSubregion packet: " + ErrorMessage(status);
+    }
+    if (rRegion != region) {
+      return "Error getting region from CommandPacketStreamSubregion packet: regions don't match";
+    }
+  }
+
+  return "";
+}
+
+CommandPacketCancelSubregion::CommandPacketCancelSubregion(uint32_t camera)
+  : CommandPacket(sizeof(camera), CANCEL_SUBREGION)
+{
+  unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
+  memcpy(bufPtr, &camera, sizeof(uint32_t)); bufPtr += sizeof(camera);
+}
+
+CommandPacketCancelSubregion::CommandPacketCancelSubregion(CommandPacket& basePacket)
+  : CommandPacket(basePacket.m_buffer, CANCEL_SUBREGION)
+{
+}
+
+Status CommandPacketCancelSubregion::GetCamera(uint32_t& camera)
+{
+  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + sizeof(camera)) {
+    return READ_PAST_END;
+  }
+  unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
+  memcpy(&camera, bufPtr, sizeof(camera)); bufPtr += sizeof(camera);
+  return OKAY;
+}
+
+std::string CommandPacketCancelSubregion::Test()
+{
+  // Construct a command and verify that we can read its values.
+  CommandPacketCancelSubregion packet(1);
+  if (packet.GetConstructorStatus() != OKAY) {
+    return "Error constructing CommandPacketCancelSubregion packet: " + ErrorMessage(packet.GetConstructorStatus());
+  }
+  uint32_t camera;
+  Status status = packet.GetCamera(camera);
+  if (status != OKAY) {
+    return "Error getting camera from CommandPacketCancelSubregion packet: " + ErrorMessage(status);
+  }
+  if (camera != 1) {
+    return "Error getting camera from CommandPacketCancelSubregion packet: camera doesn't match";
   }
 
   return "";
@@ -1635,13 +1437,8 @@ CommandPacketEraseAllStoredStreams::CommandPacketEraseAllStoredStreams()
 }
 
 CommandPacketEraseAllStoredStreams::CommandPacketEraseAllStoredStreams(CommandPacket& basePacket)
-  : CommandPacket(basePacket.m_buffer)
+  : CommandPacket(basePacket.m_buffer, ERASE_ALL_STORED_STREAMS)
 {
-  OpCode opCode;
-  basePacket.GetOpCode(opCode);
-  if (opCode != ERASE_ALL_STORED_STREAMS) {
-    m_constructorStatus = BAD_PARAMETER;
-  }
 }
 
 std::string CommandPacketEraseAllStoredStreams::Test()
@@ -1672,30 +1469,28 @@ std::string CommandPacketEraseAllStoredStreams::Test()
   return "";
 }
 
-CommandPacketStreamStoredList::CommandPacketStreamStoredList(StreamEndpoint endpoint)
-  : CommandPacketStreamX(endpoint, 0, STREAM_STORED_LIST)
+CommandPacketListStoredStreams::CommandPacketListStoredStreams()
+  : CommandPacket(0, LIST_STORED_STREAMS)
 {
 }
 
-CommandPacketStreamStoredList::CommandPacketStreamStoredList(CommandPacket& basePacket)
-  : CommandPacketStreamX(basePacket, STREAM_STORED_LIST)
+CommandPacketListStoredStreams::CommandPacketListStoredStreams(CommandPacket& basePacket)
+  : CommandPacket(basePacket.m_buffer, LIST_STORED_STREAMS)
 {
 }
 
-std::string CommandPacketStreamStoredList::Test()
+std::string CommandPacketListStoredStreams::Test()
 {
-  std::string ret = CommandPacketStreamX::Test(STREAM_STORED_LIST);
-  if (ret.size() > 0) { return ret; }
   {
     // Construct a command packet and verify that it worked.
-    CommandPacketStreamStoredList packet({ 1, 2 });
+    CommandPacketListStoredStreams packet;
     if (packet.GetConstructorStatus() != OKAY) {
       return "Error constructing packet: " + ErrorMessage(packet.GetConstructorStatus());
     }
 
-    // Construct a new packet from the packet's buffer and verify that it has the same parameters.
+    // Construct a new packet from the packet's buffer.
     CommandPacket& originalPacket = packet;
-    CommandPacketStreamStoredList packet2(originalPacket);
+    CommandPacketListStoredStreams packet2(originalPacket);
     if (packet2.GetConstructorStatus() != OKAY) {
       return "Error constructing packet from buffer: " + ErrorMessage(packet2.GetConstructorStatus());
     }
@@ -1712,13 +1507,8 @@ CommandPacketEraseStoredStream::CommandPacketEraseStoredStream(uint32_t ID)
 }
 
 CommandPacketEraseStoredStream::CommandPacketEraseStoredStream(CommandPacket& basePacket)
-  : CommandPacket(basePacket.m_buffer)
+  : CommandPacket(basePacket.m_buffer, ERASE_STORED_STREAM)
 {
-  OpCode opCode;
-  basePacket.GetOpCode(opCode);
-  if (opCode != ERASE_STORED_STREAM) {
-    m_constructorStatus = BAD_PARAMETER;
-  }
 }
 
 Status CommandPacketEraseStoredStream::GetID(uint32_t& ID) const
@@ -1775,118 +1565,38 @@ std::string CommandPacketEraseStoredStream::Test()
   return "";
 }
 
-CommandPacketStreamTemperatures::CommandPacketStreamTemperatures(StreamEndpoint endpoint, float interval)
-  : CommandPacketStreamX(endpoint, sizeof(float), STREAM_TEMPERATURES)
+CommandPacketStreamTemperatures::CommandPacketStreamTemperatures()
+  : CommandPacket(0, STREAM_TEMPERATURES)
 {
-  unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_START_STREAM_SIZE;
-  memcpy(bufPtr, &interval, sizeof(interval)); bufPtr += sizeof(interval);
 }
 
 CommandPacketStreamTemperatures::CommandPacketStreamTemperatures(CommandPacket& basePacket)
-  : CommandPacketStreamX(basePacket, STREAM_TEMPERATURES)
+  : CommandPacket(basePacket.m_buffer, STREAM_TEMPERATURES)
 {
-}
-
-Status CommandPacketStreamTemperatures::GetInterval(float& interval) const
-{
-  if (m_buffer->size() < COMMAND_PACKET_START_STREAM_SIZE + sizeof(float)) {
-    return READ_PAST_END;
-  }
-  memcpy(&interval, m_buffer->data() + COMMAND_PACKET_START_STREAM_SIZE, sizeof(interval));
-  return OKAY;
 }
 
 std::string CommandPacketStreamTemperatures::Test()
 {
-  std::string ret = CommandPacketStreamX::Test(STREAM_TEMPERATURES);
+  std::string ret = CommandPacket::Test();
   if (ret.size() > 0) { return ret; }
-  {
-    // Construct a command packet and verify that we can read its parameters.
-    CommandPacketStreamTemperatures packet({ 1, 2 }, 3);
-    if (packet.GetConstructorStatus() != OKAY) {
-      return "Error constructing packet: " + ErrorMessage(packet.GetConstructorStatus());
-    }
-    float interval;
-    Status status = packet.GetInterval(interval);
-    if (status != OKAY) {
-      return "Error getting interval from packet: " + ErrorMessage(status);
-    }
-    if (interval != 3) {
-      return "Error getting interval from packet: interval is not 3";
-    }
-
-    // Construct a new packet from the packet's buffer and verify that it has the same parameters.
-    CommandPacket& originalPacket = packet;
-    CommandPacketStreamTemperatures packet2(originalPacket);
-    if (packet2.GetConstructorStatus() != OKAY) {
-      return "Error constructing packet from buffer: " + ErrorMessage(packet2.GetConstructorStatus());
-    }
-    status = packet2.GetInterval(interval);
-    if (status != OKAY) {
-      return "Error getting interval from packet constructed from buffer: " + ErrorMessage(status);
-    }
-    if (interval != 3) {
-      return "Error getting interval from packet constructed from buffer: interval is not 3";
-    }
-  }
 
   return "";
 }
 
-CommandPacketStreamPoses::CommandPacketStreamPoses(StreamEndpoint endpoint, float interval)
-  : CommandPacketStreamX(endpoint, sizeof(float), STREAM_POSES)
+CommandPacketStreamPoses::CommandPacketStreamPoses()
+  : CommandPacket(0, STREAM_POSES)
 {
-  unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_START_STREAM_SIZE;
-  memcpy(bufPtr, &interval, sizeof(interval)); bufPtr += sizeof(interval);
 }
 
 CommandPacketStreamPoses::CommandPacketStreamPoses(CommandPacket& basePacket)
-  : CommandPacketStreamX(basePacket, STREAM_POSES)
+  : CommandPacket(basePacket.m_buffer, STREAM_POSES)
 {
-}
-
-Status CommandPacketStreamPoses::GetInterval(float& interval) const
-{
-  if (m_buffer->size() < COMMAND_PACKET_START_STREAM_SIZE + sizeof(float)) {
-    return READ_PAST_END;
-  }
-  memcpy(&interval, m_buffer->data() + COMMAND_PACKET_START_STREAM_SIZE, sizeof(interval));
-  return OKAY;
 }
 
 std::string CommandPacketStreamPoses::Test()
 {
-  std::string ret = CommandPacketStreamX::Test(STREAM_POSES);
+  std::string ret = CommandPacket::Test();
   if (ret.size() > 0) { return ret; }
-  {
-    // Construct a command packet and verify that we can read its parameters.
-    CommandPacketStreamPoses packet({ 1, 2 }, 3);
-    if (packet.GetConstructorStatus() != OKAY) {
-      return "Error constructing packet: " + ErrorMessage(packet.GetConstructorStatus());
-    }
-    float interval;
-    Status status = packet.GetInterval(interval);
-    if (status != OKAY) {
-      return "Error getting interval from packet: " + ErrorMessage(status);
-    }
-    if (interval != 3) {
-      return "Error getting interval from packet: interval is not 3";
-    }
-
-    // Construct a new packet from the packet's buffer and verify that it has the same parameters.
-    CommandPacket& originalPacket = packet;
-    CommandPacketStreamPoses packet2(originalPacket);
-    if (packet2.GetConstructorStatus() != OKAY) {
-      return "Error constructing packet from buffer: " + ErrorMessage(packet2.GetConstructorStatus());
-    }
-    status = packet2.GetInterval(interval);
-    if (status != OKAY) {
-      return "Error getting interval from packet constructed from buffer: " + ErrorMessage(status);
-    }
-    if (interval != 3) {
-      return "Error getting interval from packet constructed from buffer: interval is not 3";
-    }
-  }
 
   return "";
 }
@@ -4114,7 +3824,7 @@ std::string MessageTemperature::Test()
 
 MessagePose::MessagePose(StreamPacket& packet, Time timeCode,
     float longitude, float latitude, float altitude,
-    std::array<float, 3> rot, std::array<float, 3> vel, std::array<float, 3> rotvel)
+    std::array<float, 3> rot, std::array<float, 3> vel, std::array<float, 3> rotVel)
   : Message(packet, sizeof(longitude) + sizeof(latitude) + sizeof(altitude) +
     3 * sizeof(float) + 3 * sizeof(float) + 3 * sizeof(float), timeCode, POSE)
 {
@@ -4131,7 +3841,7 @@ MessagePose::MessagePose(StreamPacket& packet, Time timeCode,
   memcpy(bufPtr, &altitude, sizeof(altitude)); bufPtr += sizeof(altitude);
   memcpy(bufPtr, rot.data(), 3 * sizeof(float)); bufPtr += 3 * sizeof(float);
   memcpy(bufPtr, vel.data(), 3 * sizeof(float)); bufPtr += 3 * sizeof(float);
-  memcpy(bufPtr, rotvel.data(), 3 * sizeof(float)); bufPtr += 3 * sizeof(float);
+  memcpy(bufPtr, rotVel.data(), 3 * sizeof(float)); bufPtr += 3 * sizeof(float);
 }
 
 MessagePose::MessagePose(Message& baseMessage)
@@ -6003,6 +5713,11 @@ CoreServerBase::CoreServerBase(uint32_t serialNumber, const std::string& IP,
   int verbosity)
   : CoreServer(serialNumber, IP)
   , m_verbosity(verbosity)
+  , m_statePeriod(1.0)
+  , m_lastStateSent({0, 0})
+  , m_eventVerbosity(0)
+  , m_streamingTemperatures(false)
+  , m_streamingPoses(false)
 {
 }
 
@@ -6182,16 +5897,6 @@ std::string CoreServerBase::run()
       doReset(resetCommand);
     }
     break;
-    case CANCEL_ALL_STREAMS:
-    {
-      CommandPacketCancelAllStreams cancelAllStreamsCommand(*command);
-      status = cancelAllStreamsCommand.GetConstructorStatus();
-      if (status != OKAY) {
-        return "Failed to construct cancel all streams command: " + ErrorMessage(status);
-      }
-      doCancelAllStreams(cancelAllStreamsCommand);
-    }
-    break;
     case START_RECORDING:
     {
       CommandPacketStartRecording startRecordingCommand(*command);
@@ -6252,24 +5957,14 @@ std::string CoreServerBase::run()
       doStopReplay(stopReplayCommand);
     }
     break;
-    case STREAM_STATE:
+    case SET_STREAM_STATE_PERIOD:
     {
-      CommandPacketStreamState streamStateCommand(*command);
+      CommandPacketSetStreamStatePeriod streamStateCommand(*command);
       status = streamStateCommand.GetConstructorStatus();
       if (status != OKAY) {
         return "Failed to construct stream state command: " + ErrorMessage(status);
       }
-      doStreamState(streamStateCommand);
-    }
-    break;
-    case CANCEL_STATE:
-    {
-      CommandPacketCancelState cancelStateCommand(*command);
-      status = cancelStateCommand.GetConstructorStatus();
-      if (status != OKAY) {
-        return "Failed to construct cancel state command: " + ErrorMessage(status);
-      }
-      doCancelState(cancelStateCommand);
+      doSetStreamStatePeriod(streamStateCommand);
     }
     break;
     case CONFIGURE_TRIGGER:
@@ -6292,44 +5987,34 @@ std::string CoreServerBase::run()
       doSoftwareTrigger(softwareTriggerCommand);
     }
     break;
-    case STREAM_EVENTS:
+    case SET_EVENT_VERBOSITY:
     {
-      CommandPacketStreamEvents streamEventsCommand(*command);
+      CommandPacketSetEventVerbosity streamEventsCommand(*command);
       status = streamEventsCommand.GetConstructorStatus();
       if (status != OKAY) {
         return "Failed to construct stream events command: " + ErrorMessage(status);
       }
-      doStreamEvents(streamEventsCommand);
+      doSetEventVerbosity(streamEventsCommand);
     }
     break;
-    case CANCEL_EVENTS:
+    case STREAM_SUBREGION:
     {
-      CommandPacketCancelEvents cancelEventsCommand(*command);
-      status = cancelEventsCommand.GetConstructorStatus();
+      CommandPacketStreamSubregion streamSubregionCommand(*command);
+      status = streamSubregionCommand.GetConstructorStatus();
       if (status != OKAY) {
-        return "Failed to construct cancel events command: " + ErrorMessage(status);
+        return "Failed to construct stream subregion command: " + ErrorMessage(status);
       }
-      doCancelEvents(cancelEventsCommand);
+      doStreamSubregion(streamSubregionCommand);
     }
     break;
-    case STREAM_SUBREGIONS:
+    case CANCEL_SUBREGION:
     {
-      CommandPacketStreamSubregions streamSubregionsCommand(*command);
-      status = streamSubregionsCommand.GetConstructorStatus();
+      CommandPacketCancelSubregion cancelSubregionCommand(*command);
+      status = cancelSubregionCommand.GetConstructorStatus();
       if (status != OKAY) {
-        return "Failed to construct stream subregions command: " + ErrorMessage(status);
+        return "Failed to construct cancel subregion command: " + ErrorMessage(status);
       }
-      doStreamSubregions(streamSubregionsCommand);
-    }
-    break;
-    case CANCEL_SUBREGIONS:
-    {
-      CommandPacketCancelSubregions cancelSubregionsCommand(*command);
-      status = cancelSubregionsCommand.GetConstructorStatus();
-      if (status != OKAY) {
-        return "Failed to construct cancel subregions command: " + ErrorMessage(status);
-      }
-      doCancelSubregions(cancelSubregionsCommand);
+      doCancelSubregion(cancelSubregionCommand);
     }
     break;
     case ERASE_ALL_STORED_STREAMS:
@@ -6342,14 +6027,14 @@ std::string CoreServerBase::run()
       doEraseAllStoredStreams(eraseAllStoredStreamsCommand);
     }
     break;
-    case STREAM_STORED_LIST:
+    case LIST_STORED_STREAMS:
     {
-      CommandPacketStreamStoredList streamStoredListCommand(*command);
-      status = streamStoredListCommand.GetConstructorStatus();
+      CommandPacketListStoredStreams ListStoredStreamsCommand(*command);
+      status = ListStoredStreamsCommand.GetConstructorStatus();
       if (status != OKAY) {
         return "Failed to construct list stored streams command: " + ErrorMessage(status);
       }
-      doStreamStoredList(streamStoredListCommand);
+      doListStoredStreams(ListStoredStreamsCommand);
     }
     break;
     case ERASE_STORED_STREAM:
@@ -6416,65 +6101,23 @@ std::string CoreServerBase::run()
   }
 }
 
-void CoreServerBase::doStreamEvents(const CommandPacketStreamEvents& command)
+void CoreServerBase::doSetEventVerbosity(const CommandPacketSetEventVerbosity& command)
 {
-  StreamEndpoint endpoint;
-  Status status = command.GetEndpoint(endpoint);
-  if (status != OKAY) {
-    m_error = "Failed to get endpoint: " + ErrorMessage(status);
-    return;
-  }
-
-  uint32_t verbosity;
-  status = command.GetVerbosity(verbosity);
+  uint8_t verbosity;
+  Status status = command.GetVerbosity(verbosity);
   if (status != OKAY) {
     m_error = "Failed to get verbosity: " + ErrorMessage(status);
     return;
   }
 
   std::lock_guard<std::recursive_mutex> lock(m_mutex);
-
-  // Create or get the basic writer for the endpoint.
-  WriterInfo *wi = getWriter(endpoint, m_eventWriters);
-  if (wi == nullptr) {
-    m_error = "Failed to create or get writer for endpoint: " + ErrorMessage(status);
-    return;
-  }
-
-  // Fill in the specific entries for streaming events.
-  wi->verbosity = verbosity;
+  m_eventVerbosity = verbosity;
 }
 
-void CoreServerBase::doCancelEvents(const CommandPacketCancelEvents& command)
+void CoreServerBase::doSetStreamStatePeriod(const CommandPacketSetStreamStatePeriod& command)
 {
-  // Get the endpoint to cancel.
-  StreamEndpoint endpoint;
-  Status status = command.GetEndpoint(endpoint);
-  if (status != OKAY) {
-    m_error = "Failed to get endpoint: " + ErrorMessage(status);
-    return;
-  }
-
-  // Remove it from the list if it is there.
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
-  auto it = std::find_if(m_eventWriters.begin(), m_eventWriters.end(),
-    [&endpoint](const WriterInfo& info) { return info.endpoint == endpoint; });
-  if (it != m_eventWriters.end()) {
-    m_eventWriters.erase(it);
-  }
-}
-
-void CoreServerBase::doStreamState(const CommandPacketStreamState& command)
-{
-  StreamEndpoint endpoint;
-  Status status = command.GetEndpoint(endpoint);
-  if (status != OKAY) {
-    m_error = "Failed to get endpoint: " + ErrorMessage(status);
-    return;
-  }
-
   float period;
-  status = command.GetInterval(period);
+  Status status = command.GetInterval(period);
   if (status != OKAY) {
     m_error = "Failed to get period: " + ErrorMessage(status);
     return;
@@ -6482,59 +6125,19 @@ void CoreServerBase::doStreamState(const CommandPacketStreamState& command)
 
   std::lock_guard<std::recursive_mutex> lock(m_mutex);
 
-  // Create or get the basic writer for the endpoint.
-  WriterInfo *wi = getWriter(endpoint, m_stateWriters);
-  if (wi == nullptr) {
-    m_error = "Failed to create or get writer for endpoint: " + ErrorMessage(status);
-    return;
-  }
-
-  // Fill in the specific entries for streaming state.
-  wi->period = period;
+  m_statePeriod = period;
 }
 
-void CoreServerBase::doCancelState(const CommandPacketCancelState& command)
-{
-  // Get the endpoint to cancel.
-  StreamEndpoint endpoint;
-  Status status = command.GetEndpoint(endpoint);
-  if (status != OKAY) {
-    m_error = "Failed to get endpoint: " + ErrorMessage(status);
-    return;
-  }
 
-  // Remove it from the list if it is there.
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
-  auto it = std::find_if(m_stateWriters.begin(), m_stateWriters.end(),
-    [&endpoint](const WriterInfo& info) { return info.endpoint == endpoint; });
-  if (it != m_stateWriters.end()) {
-    m_stateWriters.erase(it);
-  }
-}
-
-void CoreServerBase::doStreamStoredList(const CommandPacketStreamStoredList& command)
+void CoreServerBase::doListStoredStreams(const CommandPacketListStoredStreams& command)
 {
   // If we don't have the storage feature, this command is in error.
   if (find(m_features.begin(), m_features.end(), STORAGE_API_AVAILABLE) == m_features.end()) {
-    sendInvalidCommandMessage(STREAM_STORED_LIST);
+    sendInvalidCommandMessage(LIST_STORED_STREAMS);
     return;
   }
 
-  StreamEndpoint endpoint;
-  Status status = command.GetEndpoint(endpoint);
-  if (status != OKAY) {
-    m_error = "Failed to get endpoint: " + ErrorMessage(status);
-    return;
-  }
-
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
-
-  // Create or get the basic writer for the endpoint.
-  WriterInfo* wi = getWriter(endpoint, m_listWriters);
-  if (wi == nullptr) {
-    m_error = "Failed to create or get writer for endpoint: " + ErrorMessage(status);
-    return;
-  }
+  /// @todo Send the list of stored streams.
 }
 
 void CoreServerBase::doStreamTemperatures(const CommandPacketStreamTemperatures& command)
@@ -6545,31 +6148,8 @@ void CoreServerBase::doStreamTemperatures(const CommandPacketStreamTemperatures&
     return;
   }
 
-  StreamEndpoint endpoint;
-  Status status = command.GetEndpoint(endpoint);
-  if (status != OKAY) {
-    m_error = "Failed to get endpoint: " + ErrorMessage(status);
-    return;
-  }
-
-  float period;
-  status = command.GetInterval(period);
-  if (status != OKAY) {
-    m_error = "Failed to get period: " + ErrorMessage(status);
-    return;
-  }
-
   std::lock_guard<std::recursive_mutex> lock(m_mutex);
-
-  // Create or get the basic writer for the endpoint.
-  WriterInfo* wi = getWriter(endpoint, m_temperatureWriters);
-  if (wi == nullptr) {
-    m_error = "Failed to create or get writer for endpoint: " + ErrorMessage(status);
-    return;
-  }
-
-  // Fill in the specific entries for streaming state.
-  wi->period = period;
+  m_streamingTemperatures = true;
 }
 
 void CoreServerBase::doCancelTemperatures(const CommandPacketCancelTemperatures& command)
@@ -6580,21 +6160,8 @@ void CoreServerBase::doCancelTemperatures(const CommandPacketCancelTemperatures&
     return;
   }
 
-  // Get the endpoint to cancel.
-  StreamEndpoint endpoint;
-  Status status = command.GetEndpoint(endpoint);
-  if (status != OKAY) {
-    m_error = "Failed to get endpoint: " + ErrorMessage(status);
-    return;
-  }
-
-  // Remove it from the list if it is there.
   std::lock_guard<std::recursive_mutex> lock(m_mutex);
-  auto it = std::find_if(m_temperatureWriters.begin(), m_temperatureWriters.end(),
-    [&endpoint](const WriterInfo& info) { return info.endpoint == endpoint; });
-  if (it != m_temperatureWriters.end()) {
-    m_temperatureWriters.erase(it);
-  }
+  m_streamingTemperatures = false;
 }
 
 void CoreServerBase::doStreamPoses(const CommandPacketStreamPoses& command)
@@ -6606,31 +6173,8 @@ void CoreServerBase::doStreamPoses(const CommandPacketStreamPoses& command)
     return;
   }
 
-  StreamEndpoint endpoint;
-  Status status = command.GetEndpoint(endpoint);
-  if (status != OKAY) {
-    m_error = "Failed to get endpoint: " + ErrorMessage(status);
-    return;
-  }
-
-  float period;
-  status = command.GetInterval(period);
-  if (status != OKAY) {
-    m_error = "Failed to get period: " + ErrorMessage(status);
-    return;
-  }
-
   std::lock_guard<std::recursive_mutex> lock(m_mutex);
-
-  // Create or get the basic writer for the endpoint.
-  WriterInfo* wi = getWriter(endpoint, m_poseWriters);
-  if (wi == nullptr) {
-    m_error = "Failed to create or get writer for endpoint: " + ErrorMessage(status);
-    return;
-  }
-
-  // Fill in the specific entries for streaming state.
-  wi->period = period;
+  m_streamingPoses = true;
 }
 
 void CoreServerBase::doCancelPoses(const CommandPacketCancelPoses& command)
@@ -6642,21 +6186,8 @@ void CoreServerBase::doCancelPoses(const CommandPacketCancelPoses& command)
     return;
   }
 
-  // Get the endpoint to cancel.
-  StreamEndpoint endpoint;
-  Status status = command.GetEndpoint(endpoint);
-  if (status != OKAY) {
-    m_error = "Failed to get endpoint: " + ErrorMessage(status);
-    return;
-  }
-
-  // Remove it from the list if it is there.
   std::lock_guard<std::recursive_mutex> lock(m_mutex);
-  auto it = std::find_if(m_poseWriters.begin(), m_poseWriters.end(),
-    [&endpoint](const WriterInfo& info) { return info.endpoint == endpoint; });
-  if (it != m_poseWriters.end()) {
-    m_poseWriters.erase(it);
-  }
+  m_streamingPoses = false;
 }
 
 std::string asdp::Test()
@@ -6711,10 +6242,6 @@ std::string asdp::Test()
   if (ret.size() > 0) {
     return "Error testing CommandPacketReset: " + ret;
   }
-  ret = CommandPacketCancelAllStreams::Test();
-  if (ret.size() > 0) {
-    return "Error testing CommandPacketCancelAllStreams: " + ret;
-  }
   ret = CommandPacketStartRecording::Test();
   if (ret.size() > 0) {
     return "Error testing CommandPacketStartRecording: " + ret;
@@ -6739,17 +6266,13 @@ std::string asdp::Test()
   if (ret.size() > 0) {
     return "Error testing CommandPacketStopReplay: " + ret;
   }
+  ret = CommandPacketSetStreamStatePeriod::Test();
+  if (ret.size() > 0) {
+    return "Error testing CommandPacketStreamEvents: " + ret;
+  }
   ret = CommandPacketSetStartUpRecordingState::Test();
   if (ret.size() > 0) {
     return "Error testing CommandPacketSetStartUpRecordingState: " + ret;
-  }
-  ret = CommandPacketStreamState::Test();
-  if (ret.size() > 0) {
-    return "Error testing CommandPacketStreamState: " + ret;
-  }
-  ret = CommandPacketCancelState::Test();
-  if (ret.size() > 0) {
-    return "Error testing CommandPacketCancelState: " + ret;
   }
   ret = CommandPacketConfigureTrigger::Test();
   if (ret.size() > 0) {
@@ -6759,27 +6282,19 @@ std::string asdp::Test()
   if (ret.size() > 0) {
     return "Error testing CommandPacketSoftwareTrigger: " + ret;
   }
-  ret = CommandPacketStreamEvents::Test();
+  ret = CommandPacketStreamSubregion::Test();
   if (ret.size() > 0) {
-    return "Error testing CommandPacketStreamEvents: " + ret;
+    return "Error testing CommandPacketStreamSubregion: " + ret;
   }
-  ret = CommandPacketCancelEvents::Test();
+  ret = CommandPacketCancelSubregion::Test();
   if (ret.size() > 0) {
-    return "Error testing CommandPacketCancelEvents: " + ret;
-  }
-  ret = CommandPacketStreamSubregions::Test();
-  if (ret.size() > 0) {
-    return "Error testing CommandPacketStreamSubregions: " + ret;
-  }
-  ret = CommandPacketCancelSubregions::Test();
-  if (ret.size() > 0) {
-    return "Error testing CommandPacketCancelSubregions: " + ret;
+    return "Error testing CommandPacketCancelSubregion: " + ret;
   }
   ret = CommandPacketEraseAllStoredStreams::Test();
   if (ret.size() > 0) {
     return "Error testing CommandPacketEraseAllStoredStreams: " + ret;
   }
-  ret = CommandPacketStreamStoredList::Test();
+  ret = CommandPacketListStoredStreams::Test();
   if (ret.size() > 0) {
     return "Error testing CommandPacketEraseAllStoredStreams: " + ret;
   }

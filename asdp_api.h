@@ -89,7 +89,6 @@ std::string ErrorMessage(Status status);
 /// @brief Operation codes for command packets.
 enum OpCode : uint32_t {
   RESET                         = 0,
-  CANCEL_ALL_STREAMS            = 1,
   START_RECORDING               = 2,
   STOP_RECORDING                = 3,
   START_REPLAY                  = 4,
@@ -97,16 +96,14 @@ enum OpCode : uint32_t {
   RESUME_REPLAY                 = 6,
   STOP_REPLAY                   = 7,
   SET_START_UP_RECORDING_STATE  = 8,
-  STREAM_STATE                  = 10,
-  CANCEL_STATE                  = 11,
+  SET_STREAM_STATE_PERIOD       = 10,
   CONFIGURE_TRIGGER             = 10000,
   SOFTWARE_TRIGGER              = 10001,
-  STREAM_EVENTS                 = 10002,
-  CANCEL_EVENTS                 = 10003,
-  STREAM_SUBREGIONS             = 20000,
-  CANCEL_SUBREGIONS             = 20001,
+  SET_EVENT_VERBOSITY           = 10002,
+  STREAM_SUBREGION              = 20000,
+  CANCEL_SUBREGION              = 20001,
   ERASE_ALL_STORED_STREAMS      = 30000,
-  STREAM_STORED_LIST            = 30001,
+  LIST_STORED_STREAMS           = 30001,
   ERASE_STORED_STREAM           = 30002,
   STREAM_TEMPERATURES           = 40000,
   CANCEL_TEMPERATURES           = 40001,
@@ -466,8 +463,7 @@ protected:
 
   /// @brief Construct a command packet that shares a buffer with another packet.
   ///
-  /// This is used when type-casting from an existing buffer to a subclass.
-  /// It is also used when constructing a new packet from an existing buffer
+  /// It is used when constructing a new packet from an existing buffer
   /// that was received from the network.
   /// 
   /// @param [in] existingBuffer Pointer to the buffer containing the packet information.
@@ -475,16 +471,23 @@ protected:
   /// under us.
   CommandPacket(std::shared_ptr<std::vector<uint8_t>> existingBuffer);
 
+  /// @brief Construct a command packet that shares a buffer with another packet.
+  ///
+  /// This is used when type-casting from an existing buffer to a subclass.
+  /// It verifies that the buffer contains the correct type of packet.
+  /// 
+  /// @param [in] existingBuffer Pointer to the buffer containing the packet information.
+  /// @param [in] code Operation code for the packet. Used to verify that the buffer contains the correct type of packet.
+  /// This adds a reference count to the buffer to ensure that it is not deleted out from
+  /// under us.
+  CommandPacket(std::shared_ptr<std::vector<uint8_t>> existingBuffer, OpCode code);
+
   friend class SenderUDP;
   friend class SenderFile;
   friend class ReceiverUDP;
   friend class ReceiverFile;
 
-  friend class CommandPacketStreamX;
-  friend class CommandPacketCancelX;
-
   friend class CommandPacketReset;
-  friend class CommandPacketCancelAllStreams;
   friend class CommandPacketStartRecording;
   friend class CommandPacketStopRecording;
   friend class CommandPacketStartReplay;
@@ -492,66 +495,19 @@ protected:
   friend class CommandPacketResumeReplay;
   friend class CommandPacketStopReplay;
   friend class CommandPacketSetStartUpRecordingState;
+  friend class CommandPacketSetStreamStatePeriod;
   friend class CommandPacketConfigureTrigger;
   friend class CommandPacketSoftwareTrigger;
+  friend class CommandPacketSetEventVerbosity;
+  friend class CommandPacketStreamSubregion;
+  friend class CommandPacketCancelSubregion;
   friend class CommandPacketEraseAllStoredStreams;
+  friend class CommandPacketListStoredStreams;
   friend class CommandPacketEraseStoredStream;
-};
-
-/// @brief Base class for command packets that start streaming some stort of data.
-///
-/// This class is a base class for other command packets that start streaming of some sort of data.
-/// It should not be used directly by the calling program.
-class CommandPacketStreamX : public CommandPacket {
-public:
-  /// @brief Get the endpoint to stream to.
-  /// @param [out] endpoint Endpoint to stream to.
-  /// @return OKAY if successful, otherwise an error code.
-  virtual Status GetEndpoint(StreamEndpoint& endpoint) const;
-
-protected:
-  /// @brief Construct a brand-new command buffer with the STREAM_EVENTS opcode.
-  /// @param [in] endpoint Endpoint to stream to.
-  /// @param [in] extraParameterSize Size of the parameters to be added by the subclass.
-  /// @param [in] opCode Operation code for the packet.
-  CommandPacketStreamX(StreamEndpoint endpoint, uint32_t extraParameterSize, OpCode opCode);
-
-  /// @brief Type-cast a base CommandPacket, re-using its buffer.
-  /// @param [in] basePacket The base packet to convert from.
-  /// @param [in] opCode Operation code for the packet.
-  CommandPacketStreamX(CommandPacket& basePacket, OpCode opCode);
-
-  /// @brief Test function.
-  /// @param [in] opCode Operation code for the packet.
-  /// @return Empty string if successful, otherwise descriptive error message.
-  static std::string Test(OpCode opCode);
-};
-
-/// @brief Base class for command packets that cancel streaming of some sort of data.
-///
-/// This class is a base class for other command packets that cancel streaming of some sort of data.
-/// It should not be used directly by the calling program.
-class CommandPacketCancelX : public CommandPacket {
-public:
-  /// @brief Get the endpoint to stream to.
-  /// @param [out] endpoint Endpoint to stop streaming to.
-  /// @return OKAY if successful, otherwise an error code.
-  virtual Status GetEndpoint(StreamEndpoint& endpoint) const;
-
-protected:
-  /// @brief Construct a brand-new command buffer with the CANCEL_STATE opcode.
-  /// @param [in] endpoint Endpoint to stop streaming to.
-  /// @param [in] opCode Operation code for the packet.
-  CommandPacketCancelX(StreamEndpoint endpoint, OpCode opCode);
-
-  /// @brief Type-cast a base CommandPacket, re-using its buffer.
-  /// @param [in] basePacket The base packet to convert from.
-  /// @param [in] opCode Operation code for the packet.
-  CommandPacketCancelX(CommandPacket& basePacket, OpCode opCode);
-
-  /// @brief Test function.
-  /// @return Empty string if successful, otherwise descriptive error message.
-  static std::string Test(OpCode opCode);
+  friend class CommandPacketStreamTemperatures;
+  friend class CommandPacketCancelTemperatures;
+  friend class CommandPacketStreamPoses;
+  friend class CommandPacketCancelPoses;
 };
 
 /// @brief Command packet to reset the system
@@ -563,27 +519,6 @@ public:
   /// @brief Type-cast a base CommandPacket, re-using its buffer.
   /// @param [in] basePacket The base packet to convert from.
   CommandPacketReset(CommandPacket& basePacket);
-
-  /// @brief Test function.
-  /// @return Empty string if successful, otherwise descriptive error message.
-  static std::string Test();
-};
-
-/// @brief Command packet to cancel all streams on a subnet.
-class CommandPacketCancelAllStreams : public CommandPacket {
-public:
-  /// @brief Construct a brand-new command buffer with the CANCEL_ALL_STREAMS opcode.
-  /// @param [in] subnet Subnet to cancel all streams on.
-  CommandPacketCancelAllStreams(uint32_t subnet);
-
-  /// @brief Type-cast a base CommandPacket, re-using its buffer.
-  /// @param [in] basePacket The base packet to convert from.
-  CommandPacketCancelAllStreams(CommandPacket& basePacket);
-
-  /// @brief Get the subnet to cancel all streams on.
-  /// @param [out] subnet Subnet to cancel all streams on.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetSubnet(uint32_t& subnet) const;
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
@@ -714,17 +649,16 @@ public:
   static std::string Test();
 };
 
-/// @brief Command packet to start streaming state.
-class CommandPacketStreamState: public CommandPacketStreamX {
+/// @brief Command packet to set the streaming state period.
+class CommandPacketSetStreamStatePeriod: public CommandPacket {
 public:
-  /// @brief Construct a brand-new command buffer with the STREAM_STATE opcode.
-  /// @param [in] endpoint Endpoint to stream to.
+  /// @brief Construct a brand-new command buffer with the SET_STREAM_STATE_PERIOD opcode.
   /// @param [in] interval Interval to stream at in seconds.
-  CommandPacketStreamState(StreamEndpoint endpoint, float interval);
+  CommandPacketSetStreamStatePeriod(float interval);
 
   /// @brief Type-cast a base CommandPacket, re-using its buffer.
   /// @param [in] basePacket The base packet to convert from.
-  CommandPacketStreamState(CommandPacket& basePacket);
+  CommandPacketSetStreamStatePeriod(CommandPacket& basePacket);
 
   /// @brief Get the interval to stream at.
   /// @param [out] interval Interval to stream at in seconds.
@@ -734,22 +668,6 @@ public:
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
   static std::string Test();
-};
-
-/// @brief Command packet to cancel streaming state.
-class CommandPacketCancelState : public CommandPacketCancelX {
-public:
-  /// @brief Construct a brand-new command buffer with the CANCEL_STATE opcode.
-  /// @param [in] endpoint Endpoint to stop streaming to.
-  CommandPacketCancelState(StreamEndpoint endpoint) : CommandPacketCancelX(endpoint, CANCEL_STATE) {};
-
-  /// @brief Type-cast a base CommandPacket, re-using its buffer.
-  /// @param [in] basePacket The base packet to convert from.
-  CommandPacketCancelState(CommandPacket& basePacket) : CommandPacketCancelX(basePacket, CANCEL_STATE) {};
-
-  /// @brief Test function.
-  /// @return Empty string if successful, otherwise descriptive error message.
-  static std::string Test() { return CommandPacketCancelX::Test(CANCEL_STATE); }
 };
 
 /// @brief Command packet to configure a trigger.
@@ -801,59 +719,44 @@ public:
   static std::string Test();
 };
 
-/// @brief Command packet to start streaming events.
-class CommandPacketStreamEvents : public CommandPacketStreamX {
+/// @brief Command packet to set the verbosity of event streaming.
+class CommandPacketSetEventVerbosity : public CommandPacket {
 public:
-  /// @brief Construct a brand-new command buffer with the STREAM_EVENTS opcode.
-  /// @param [in] endpoint Endpoint to stream to.
+  /// @brief Construct a brand-new command buffer with the SET_EVENT_VERBOSITY opcode.
   /// @param [in] verbosity Verbosity of the events to stream.
-  CommandPacketStreamEvents(StreamEndpoint endpoint, uint32_t verbosity);
+  CommandPacketSetEventVerbosity(uint8_t verbosity);
 
   /// @brief Type-cast a base CommandPacket, re-using its buffer.
   /// @param [in] basePacket The base packet to convert from.
-  CommandPacketStreamEvents(CommandPacket& basePacket);
+  CommandPacketSetEventVerbosity(CommandPacket& basePacket);
 
   /// @brief Get the verbosity of the events to stream.
   /// @param [out] verbosity Verbosity of the events to stream.
   /// @return OKAY if successful, otherwise an error code.
-  Status GetVerbosity(uint32_t& verbosity) const;
+  Status GetVerbosity(uint8_t& verbosity) const;
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
   static std::string Test();
 };
 
-/// @brief Command packet to cancel streaming events.
-class CommandPacketCancelEvents : public CommandPacketCancelX {
-public:
-  /// @brief Construct a brand-new command buffer with the CANCEL_EVENTS opcode.
-  /// @param [in] endpoint Endpoint to stop streaming to.
-  CommandPacketCancelEvents(StreamEndpoint endpoint) : CommandPacketCancelX(endpoint, CANCEL_EVENTS) {};
-
-  /// @brief Type-cast a base CommandPacket, re-using its buffer.
-  /// @param [in] basePacket The base packet to convert from.
-  CommandPacketCancelEvents(CommandPacket& basePacket) : CommandPacketCancelX(basePacket, CANCEL_EVENTS) {};
-
-  /// @brief Test function.
-  /// @return Empty string if successful, otherwise descriptive error message.
-  static std::string Test() { return CommandPacketCancelX::Test(CANCEL_EVENTS); }
-};
-
 /// @brief Structure describing a subregion.
 struct SubregionDescription {
   uint32_t cameraID;    ///< Camera ID the region is from
   uint32_t skipFrames;  ///< Number of frames to skip between frames in the subregion
-  uint32_t skipModulo;  ///< Which frame to send when skipping (0 = first, 1 = second, etc.)
-  uint32_t left;        ///< Left side of the subregion
-  uint32_t top;         ///< Top side of the subregion
-  uint32_t right;       ///< Right side of the subregion
-  uint32_t bottom;      ///< Bottom side of the subregion
+  uint32_t startTimeSeconds;  ///< Time of the first frame to be streamed
+  uint32_t startTimeMicroseconds;  ///< Time of the first frame to be streamed
+  uint16_t left;        ///< Left side of the subregion
+  uint16_t top;         ///< Top side of the subregion
+  uint16_t right;       ///< Right side of the subregion
+  uint16_t bottom;      ///< Bottom side of the subregion
 
   /// @brief Equality operator.
   bool operator ==(const SubregionDescription& other) const {
     return cameraID == other.cameraID &&
       skipFrames == other.skipFrames &&
-      skipModulo == other.skipModulo &&
+      startTimeSeconds == other.startTimeSeconds &&
+      startTimeMicroseconds == other.startTimeMicroseconds &&
       left == other.left &&
       top == other.top &&
       right == other.right &&
@@ -865,42 +768,52 @@ struct SubregionDescription {
   };
 };
 
-/// @brief Command packet to stream subregions.
-class CommandPacketStreamSubregions : public CommandPacketStreamX {
+/// @brief Command packet to stream subregion.
+class CommandPacketStreamSubregion : public CommandPacket {
 public:
-  /// @brief Construct a brand-new command buffer with the STREAM_SUBREGIONS opcode.
+  /// @brief Construct a brand-new command buffer with the STREAM_SUBREGION opcode.
   /// @param [in] endpoint Endpoint to stream to.
-  /// @param [in] regions Vector of subregions to stream.
-  CommandPacketStreamSubregions(StreamEndpoint endpoint, std::vector<SubregionDescription> const &regions);
+  /// @param [in] region Subregion to stream.
+  CommandPacketStreamSubregion(StreamEndpoint endpoint, SubregionDescription const &region);
 
   /// @brief Type-cast a base CommandPacket, re-using its buffer.
   /// @param [in] basePacket The base packet to convert from.
-  CommandPacketStreamSubregions(CommandPacket& basePacket);
+  CommandPacketStreamSubregion(CommandPacket& basePacket);
+
+  /// @brief Get the endpoint.
+  /// @param [out] endpoint Endpoint to stream to.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetEndpoint(StreamEndpoint& endpoint) const;
 
   /// @brief Get the subregion description.
-  /// @param [out] regions Regsion description.
+  /// @param [out] region Region description.
   /// @return OKAY if successful, otherwise an error code.
-  Status GetRegionDescriptions(std::vector<SubregionDescription> & regions) const;
+  Status GetRegionDescription(SubregionDescription &region) const;
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
   static std::string Test();
 };
 
-/// @brief Command packet to cancel streaming subregions.
-class CommandPacketCancelSubregions : public CommandPacketCancelX {
+/// @brief Command packet to cancel streaming subregion.
+class CommandPacketCancelSubregion : public CommandPacket {
 public:
-  /// @brief Construct a brand-new command buffer with the CANCEL_SUBREGIONS opcode.
-    /// @param [in] endpoint Endpoint to stop streaming to.
-  CommandPacketCancelSubregions(StreamEndpoint endpoint) : CommandPacketCancelX(endpoint, CANCEL_SUBREGIONS) {};
+  /// @brief Construct a brand-new command buffer with the CANCEL_SUBREGION opcode.
+    /// @param [in] camera Camera to stop streaming to.
+  CommandPacketCancelSubregion(uint32_t camera);
 
   /// @brief Type-cast a base CommandPacket, re-using its buffer.
   /// @param [in] basePacket The base packet to convert from.
-  CommandPacketCancelSubregions(CommandPacket& basePacket) : CommandPacketCancelX(basePacket, CANCEL_SUBREGIONS) {};
+  CommandPacketCancelSubregion(CommandPacket& basePacket);
+
+  /// @brief Get the camera to stop streaming to.
+  /// @param [out] camera Camera to stop streaming to.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetCamera(uint32_t& camera);
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
-  static std::string Test() { return CommandPacketCancelX::Test(CANCEL_SUBREGIONS); }
+  static std::string Test();
 };
 
 /// @brief Command packet to erase all stored streams.
@@ -918,16 +831,15 @@ public:
   static std::string Test();
 };
 
-/// @brief Command packet to start streaming the list of stored streams (there is no corresponding cancel).
-class CommandPacketStreamStoredList : public CommandPacketStreamX {
+/// @brief Command packet to send the list of stored streams (there is no corresponding cancel).
+class CommandPacketListStoredStreams : public CommandPacket {
 public:
   /// @brief Construct a brand-new command buffer with the LIST_STORED_STREAMS opcode.
-  /// @param [in] endpoint Endpoint to stream to.
-  CommandPacketStreamStoredList(StreamEndpoint endpoint);
+  CommandPacketListStoredStreams();
 
   /// @brief Type-cast a base CommandPacket, re-using its buffer.
   /// @param [in] basePacket The base packet to convert from.
-  CommandPacketStreamStoredList(CommandPacket& basePacket);
+  CommandPacketListStoredStreams(CommandPacket& basePacket);
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
@@ -956,12 +868,10 @@ public:
 };
 
 /// @brief Command packet to start streaming temperatures.
-class CommandPacketStreamTemperatures : public CommandPacketStreamX {
+class CommandPacketStreamTemperatures : public CommandPacket {
 public:
   /// @brief Construct a brand-new command buffer with the STREAM_TEMPERATURES opcode.
-  /// @param [in] endpoint Endpoint to stream to.
-  /// @param [in] interval Interval to stream at in seconds.
-  CommandPacketStreamTemperatures(StreamEndpoint endpoint, float interval);
+  CommandPacketStreamTemperatures();
 
   /// @brief Type-cast a base CommandPacket, re-using its buffer.
   /// @param [in] basePacket The base packet to convert from.
@@ -978,37 +888,29 @@ public:
 };
 
 /// @brief Command packet to cancel streaming temperatures.
-class CommandPacketCancelTemperatures : public CommandPacketCancelX {
+class CommandPacketCancelTemperatures : public CommandPacket {
 public:
   /// @brief Construct a brand-new command buffer with the CANCEL_TEMPERATURES opcode.
-  /// @param [in] endpoint Endpoint to stop streaming to.
-  CommandPacketCancelTemperatures(StreamEndpoint endpoint) : CommandPacketCancelX(endpoint, CANCEL_TEMPERATURES) {};
+  CommandPacketCancelTemperatures() : CommandPacket(0, CANCEL_TEMPERATURES) {};
 
   /// @brief Type-cast a base CommandPacket, re-using its buffer.
   /// @param [in] basePacket The base packet to convert from.
-  CommandPacketCancelTemperatures(CommandPacket& basePacket) : CommandPacketCancelX(basePacket, CANCEL_TEMPERATURES) {};
+  CommandPacketCancelTemperatures(CommandPacket& basePacket) : CommandPacket(basePacket.m_buffer, CANCEL_TEMPERATURES) {};
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
-  static std::string Test() { return CommandPacketCancelX::Test(CANCEL_TEMPERATURES); }
+  static std::string Test() { return CommandPacket::Test(); }
 };
 
 /// @brief Command packet to start streaming poses.
-class CommandPacketStreamPoses : public CommandPacketStreamX {
+class CommandPacketStreamPoses : public CommandPacket {
 public:
   /// @brief Construct a brand-new command buffer with the STREAM_POSES opcode.
-  /// @param [in] endpoint Endpoint to stream to.
-  /// @param [in] interval Interval to stream at in seconds.
-  CommandPacketStreamPoses(StreamEndpoint endpoint, float interval);
+  CommandPacketStreamPoses();
 
   /// @brief Type-cast a base CommandPacket, re-using its buffer.
   /// @param [in] basePacket The base packet to convert from.
   CommandPacketStreamPoses(CommandPacket& basePacket);
-
-  /// @brief Get the interval to stream at.
-  /// @param [out] interval Interval to stream at in seconds.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetInterval(float& interval) const;
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
@@ -1016,19 +918,18 @@ public:
 };
 
 /// @brief Command packet to cancel streaming state.
-class CommandPacketCancelPoses : public CommandPacketCancelX {
+class CommandPacketCancelPoses : public CommandPacket {
 public:
   /// @brief Construct a brand-new command buffer with the CANCEL_POSES opcode.
-  /// @param [in] endpoint Endpoint to stop streaming to.
-  CommandPacketCancelPoses(StreamEndpoint endpoint) : CommandPacketCancelX(endpoint, CANCEL_POSES) {};
+  CommandPacketCancelPoses() : CommandPacket(0, CANCEL_POSES) {};
 
   /// @brief Type-cast a base CommandPacket, re-using its buffer.
   /// @param [in] basePacket The base packet to convert from.
-  CommandPacketCancelPoses(CommandPacket& basePacket) : CommandPacketCancelX(basePacket, CANCEL_POSES) {};
+  CommandPacketCancelPoses(CommandPacket& basePacket) : CommandPacket(basePacket.m_buffer, CANCEL_POSES) {};
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
-  static std::string Test() { return CommandPacketCancelX::Test(CANCEL_POSES); }
+  static std::string Test() { return CommandPacket::Test(); }
 };
 
 class Message;   // Forward declaration
@@ -1600,7 +1501,7 @@ public:
   /// @param [in] rotVel Rotational velocity about the X,Y,Z axis in radians per second.
   MessagePose(StreamPacket& packet, Time timeCode,
     float longitude, float latitude, float altitude,
-    std::array<float, 3> rot, std::array<float, 3> vel, std::array<float, 3> rotvel);
+    std::array<float, 3> rot, std::array<float, 3> vel, std::array<float, 3> rotVel);
 
   /// @brief Type-cast a base Message into a MessagePose packet, re-using its buffer.
   /// @param [in] baseMessage The base Message to convert from.
@@ -1998,6 +1899,8 @@ public:
   virtual Status GetConstructorStatus() const;
 
 protected:
+  /// @brief Construct a Core object.
+  /// @param [in] maxPayloadSize Maximum size of a packet payload to send.
   Core(uint32_t maxPayloadSize);
   Core(const Core&) = delete;
   Core& operator=(const Core&) = delete;
@@ -2136,10 +2039,18 @@ protected:
     uint16_t port;                                ///< Port number of the server in host byte order.
     uint32_t serial;                              ///< Serial number of the server.
 
+    /// @brief Constructor.
+    /// @param [in] pIP IP address of the server in host byte order.
+    /// @param [in] pPort Port number of the server in host byte order.
+    /// @param [in] pSerial Serial number of the server.
     ServerInfo(uint32_t pIP, uint32_t pPort, uint32_t pSerial) : IP(pIP), port(pPort), serial(pSerial) {}
+
+    /// @brief Test for equality.
     bool operator==(const ServerInfo& rhs) const {
       return IP == rhs.IP && port == rhs.port && serial == rhs.serial;
     }
+
+    /// @brief Test for inequality.
     bool operator!=(const ServerInfo& rhs) const {
       return !(*this == rhs);
     }
@@ -2222,6 +2133,15 @@ protected:
 
   // State variables
   std::vector<uint16_t> m_features; ///< The features of the server (filled in when added)
+  float m_statePeriod;              ///< The period for state streaming
+  Time m_lastStateSent;             ///< The time the last state was sent
+  uint8_t m_eventVerbosity;         ///< The minimum numbered priority of events to send
+  bool m_streamingTemperatures;     ///< Are we streaming temperature data?
+  bool m_streamingPoses;            ///< Are we streaming poses?
+
+  /// @todo Implement streaming of state at the specified interval
+  /// @todo Implement event sending on TCP, checking verbosities
+  /// @todo Implement streaming of clock events
 
   //=============================================================================
   // There are a number of sets of StreamWriters that are created and managed by the server.
@@ -2254,7 +2174,7 @@ protected:
 
   std::list<WriterInfo> m_stateWriters;       ///< The StreamWriters for state, if any.
   std::list<WriterInfo> m_eventWriters;       ///< The StreamWriters for events, if any.
-  std::list<WriterInfo> m_subregionWriters;   ///< The StreamWriters for subregions, if any.
+  std::list<WriterInfo> m_subregionWriters;   ///< The StreamWriters for subregion, if any.
   std::list<WriterInfo> m_listWriters;        ///< The StreamWriters for stored stream lists, if any.
   std::list<WriterInfo> m_temperatureWriters; ///< The StreamWriters for temperatures, if any.
   std::list<WriterInfo> m_poseWriters;        ///< The StreamWriters for poses, if any.
@@ -2296,11 +2216,6 @@ protected:
   }
 
   /// @brief Implement the specified command.
-  virtual void doCancelAllStreams(const CommandPacketCancelAllStreams&) {
-    sendInvalidCommandMessage(CANCEL_ALL_STREAMS);
-  }
-
-  /// @brief Implement the specified command.
   virtual void doStartRecording(const CommandPacketStartRecording&) {
     sendInvalidCommandMessage(START_RECORDING);
   }
@@ -2331,10 +2246,7 @@ protected:
   }
 
   /// @brief Implement the specified command.
-  virtual void doStreamState(const CommandPacketStreamState&);
-
-  /// @brief Implement the specified command.
-  virtual void doCancelState(const CommandPacketCancelState&);
+  virtual void doSetStreamStatePeriod(const CommandPacketSetStreamStatePeriod&);
 
   /// @brief Implement the specified command.
   virtual void doConfigureTrigger(const CommandPacketConfigureTrigger&) {
@@ -2347,19 +2259,16 @@ protected:
   }
 
   /// @brief Implement the specified command.
-  virtual void doStreamEvents(const CommandPacketStreamEvents&);
+  virtual void doSetEventVerbosity(const CommandPacketSetEventVerbosity&);
 
   /// @brief Implement the specified command.
-  virtual void doCancelEvents(const CommandPacketCancelEvents&);
-
-  /// @brief Implement the specified command.
-  virtual void doStreamSubregions(const CommandPacketStreamSubregions&) {
-    sendInvalidCommandMessage(STREAM_SUBREGIONS);
+  virtual void doStreamSubregion(const CommandPacketStreamSubregion&) {
+    sendInvalidCommandMessage(STREAM_SUBREGION);
   }
 
   /// @brief Implement the specified command.
-  virtual void doCancelSubregions(const CommandPacketCancelSubregions&) {
-    sendInvalidCommandMessage(CANCEL_SUBREGIONS);
+  virtual void doCancelSubregion(const CommandPacketCancelSubregion&) {
+    sendInvalidCommandMessage(CANCEL_SUBREGION);
   }
 
   /// @brief Implement the specified command.
@@ -2368,7 +2277,7 @@ protected:
   }
 
   /// @brief Implement the specified command.
-  virtual void doStreamStoredList(const CommandPacketStreamStoredList&);
+  virtual void doListStoredStreams(const CommandPacketListStoredStreams&);
 
   /// @brief Implement the specified command.
   virtual void doEraseStoredStream(const CommandPacketEraseStoredStream&) {

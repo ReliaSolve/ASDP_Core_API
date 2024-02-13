@@ -92,8 +92,8 @@ int main(int argc, char** argv)
   // Send a few commands to the server, waiting a few seconds in between.
   std::shared_ptr<CommandPacket> command;
   for (size_t i = 0; i < 3; ++i) {
-    std::cout << "  Sending keepalive interval command " << i << std::endl;
-    status = client.SendCommandPacket(CommandPacketKeepaliveInterval(0));
+    std::cout << "  Sending state streaming interval interval command " << i << std::endl;
+    status = client.SendCommandPacket(CommandPacketSetStreamStatePeriod(1));
     if (status != OKAY) {
       std::cerr << "Failed to send command: " << ErrorMessage(status) << std::endl;
       return 10;
