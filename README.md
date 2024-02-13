@@ -12,7 +12,7 @@ using the approach described in the [ASDP API Implementation](TR-009v05_Core_API
 systems could be used).  On Ubuntu Linux, this can be done as follows
 
     sudo apt install cmake
-    cd; mkdir src; cd src; git clone https://github.com/reliasolve/ASDP_Core
+    cd; mkdir src; cd src; git clone https://github.com/arizonaCameraLab/ASDP_Core
     cd; mkdir -p build/ASDP_Core; cd build/ASDP_Core
     cmake ../../src/ASDP_Core
     make
