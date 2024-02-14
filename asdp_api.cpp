@@ -4928,7 +4928,7 @@ SenderReceiverTCP::SenderReceiverTCP(const StreamEndpoint& endpoint)
   // The address is already in network byte order, just convert the port.
   memset(&addr, 0, sizeof(addr));
   addr.sin_family = AF_INET;
-  addr.sin_addr.s_addr = addr.sin_addr.s_addr;
+  addr.sin_addr.s_addr = ntohl(m_IP);
   addr.sin_port = htons(endpoint.port);
   if (0 != connect(m_socket->socket, (struct sockaddr*)&addr, sizeof(addr))) {
     Receiver::m_constructorStatus = SOCKET_FAILURE;
@@ -5281,7 +5281,7 @@ Status TCPListener::AcceptConnection(std::shared_ptr<SenderReceiverTCP>& newConn
   // Accept the connection.
   struct sockaddr_in addr;
   socklen_t len = sizeof(addr);
-  std::shared_ptr<Socket> socket;
+  std::shared_ptr<Socket> socket = std::make_shared<Socket>();
   socket->socket = accept(m_socket->socket, (struct sockaddr*)&addr, &len);
   if (socket->socket == BAD_SOCKET) {
     return SOCKET_FAILURE;
