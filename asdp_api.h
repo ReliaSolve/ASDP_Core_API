@@ -131,6 +131,7 @@ enum MessageID : uint32_t {
 /// @brief Event IDs.
 enum EventID : uint32_t {
   INVALID_OPERATION             = 256,
+  UNRECOGNIZED_OPCODE           = 512,
   CLOCK_SYNC                    = 768,
   START_OF_REPLAY               = 769,
   END_OF_REPLAY                 = 770
@@ -2333,6 +2334,14 @@ protected:
   /// method to send the event message in a different way.
   /// @param opCode The invalid command opcode.
   virtual void sendInvalidCommandMessage(OpCode opCode);
+
+  /// @brief Helper method to send an unrecognized-opcode event to the event stream.
+  /// 
+  /// This base-class implementation uses the m_eventWriters list to send the event.
+  /// A derived class that does not use the above list will need to override this
+  /// method to send the event message in a different way.
+  /// @param opCode The invalid command opcode.
+  virtual void sendUnrecognizedOpcodeMessage(OpCode opCode);
 
   //=============================================================================
   // Methods to implement the commands. NOTE: These are each implemented to send

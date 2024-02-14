@@ -6490,6 +6490,42 @@ void CoreServerBase::sendInvalidCommandMessage(OpCode opCode)
   }
 }
 
+void CoreServerBase::sendUnrecognizedOpcodeMessage(OpCode opCode)
+{
+  if (m_verbosity >= 1) {
+    std::cout << "Unrecognized OpCode received: " << opCode << std::endl;
+  }
+
+  std::lock_guard<std::recursive_mutex> lock(m_mutex);
+  for (auto writer : m_eventWriters) {
+    uint8_t priority = 0;
+    EventID type = UNRECOGNIZED_OPCODE;
+    if (writer.verbosity < type) {
+      continue;
+    }
+    std::shared_ptr<StreamPacket> packet;
+    Status status = writer.writer->GetCurrentPacket(packet);
+    if (status != OKAY) {
+      m_error = "Error getting current packet from m_eventWriters: " + ErrorMessage(status);
+      return;
+    }
+    Time timeCode;
+    m_timer->GetCoreTime(timeCode);
+    MessageEvent message(*packet, timeCode, priority, type, std::to_string(opCode));
+    if (message.GetConstructorStatus() != OKAY) {
+      m_error = "Error constructing MessageEvent: " + ErrorMessage(message.GetConstructorStatus());
+      return;
+    }
+
+    // Send the packet immediately.
+    status = writer.writer->Flush();
+    if (status != OKAY) {
+      m_error = "Error flushing m_eventWriters: " + ErrorMessage(status);
+      return;
+    }
+  }
+}
+
 std::string CoreServerBase::run()
 {
   Status status;
@@ -6745,7 +6781,8 @@ std::string CoreServerBase::run()
       }
       break;
       default:
-        return "Unrecognized OpCode: " + std::to_string(opCode);
+        // Tell the client that we don't recognize this opcode (they may be a later version)
+        sendUnrecognizedOpcodeMessage(opCode);
       }
     }
 

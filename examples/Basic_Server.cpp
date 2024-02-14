@@ -105,9 +105,9 @@ int main(int argc, char** argv)
       status = command->GetOpCode(opCode);
       if (status != OKAY) {
         std::cerr << "Failed to get op code: " << ErrorMessage(status) << std::endl;
-        return 9;
+        return 8;
       }
-      std::cout << "Received command code: " << opCode << std::endl;
+      std::cout << "  Received command code: " << opCode << std::endl;
     }
   }
 
