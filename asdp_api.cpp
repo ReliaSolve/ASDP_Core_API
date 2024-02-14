@@ -6518,6 +6518,7 @@ std::string CoreServerBase::run()
 
     // Run through each active client and see if we get a command from it.
     // If we get a failure on a client, remove it from the list.
+    std::vector< std::shared_ptr<SenderReceiverTCP> > badClients;
     for (auto receiver : m_clients) {
 
       // Check for a command, busy waiting.
@@ -6528,8 +6529,9 @@ std::string CoreServerBase::run()
         continue;
       }
       if (status != OKAY) {
-        /// @todo the client is dead, remove it from the list(s).
-        return "Failed to get command: " + ErrorMessage(status);
+        // The client is dead, remove it from the list(s).
+        badClients.push_back(receiver);
+        continue;
       }
 
       // Act on the command.
@@ -6744,6 +6746,14 @@ std::string CoreServerBase::run()
       break;
       default:
         return "Unrecognized OpCode: " + std::to_string(opCode);
+      }
+    }
+
+    // Remove all bad clients from our vector of clients.
+    for (auto badClient : badClients) {
+      auto it = std::find(m_clients.begin(), m_clients.end(), badClient);
+      if (it != m_clients.end()) {
+        m_clients.erase(it);
       }
     }
 

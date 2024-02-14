@@ -82,8 +82,10 @@ int main(int argc, char** argv)
       std::cerr << "Failed to get new TCP links: " << ErrorMessage(status) << std::endl;
       return 7;
     }
+    if (newClients.size() > 0) {
+      std::cout << "Got " << newClients.size() << " new clients." << std::endl;
+    }
     myClients.insert(myClients.end(), newClients.begin(), newClients.end());
-
 
     // Busy wait on commands for all clients.
     for (auto receiver : myClients) {
@@ -94,8 +96,10 @@ int main(int argc, char** argv)
         continue;
       }
       if (status != OKAY) {
-        std::cerr << "Failed to get command: " << ErrorMessage(status) << std::endl;
-        return 8;
+        // This client has closed, so we should remove it from the list.
+        std::cout << "Closing client connection. An actual client should close all related image streams as well." << std::endl;
+        myClients.erase(std::remove(myClients.begin(), myClients.end(), receiver), myClients.end());
+        continue;
       }
       OpCode opCode;
       status = command->GetOpCode(opCode);
