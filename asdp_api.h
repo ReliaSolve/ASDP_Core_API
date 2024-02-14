@@ -77,7 +77,9 @@ enum Status : uint32_t {
   /// @brief Error: The object is not connected to a counterpart objects.
   NOT_CONNECTED                 = 1015,
   /// @brief Error: The size of a floating-point number is not what was expected.
-  INCORRECT_FLOAT_SIZE          = 1016
+  INCORRECT_FLOAT_SIZE          = 1016,
+  /// @brief Error: Incompatible version of the API.
+  INCOMPATIBLE_API_VERSION      = 1017
 };
 
 /// @brief Helper function to return a descriptive error message based on a status value.
@@ -2030,8 +2032,9 @@ protected:
 //---------------------------------------------------------------------------
 /// @brief Core Server class, which provides functions needed to implement a server.
 ///
-/// Starts sending periodic discovery packets to clients, and creates a listening
-/// socket to receive commands from clients. This class is not used when streaming
+/// Starts sending periodic discovery packets to clients, and creates a Receiver
+/// to get commands from clients and a Sender for sending Messages other than
+/// Frame Image messages to the client. This class is not used when streaming
 /// from disk files, only when using network connections.
 
 class CoreServer : public Core {
@@ -2050,10 +2053,10 @@ public:
   CoreServer(uint32_t serial, std::string NICName, uint16_t sendPort = 10102, uint16_t listenPort = 10101,
     uint32_t maxPayloadSize = 9000 - 28);
 
-  /// @brief Get the receiver to use to receive command packets.
-  /// @param [out] receiver The receiver to use to receive command packets.
+  /// @brief Get TCP links to new clients that have been established since the last time this function was called.
+  /// @param [out] newLinks Vector of new SenderReceiverTCP objects that have been established.
   /// @return OKAY if successful, otherwise an error code.
-  Status GetReceiver(std::shared_ptr<Receiver>& receiver) const;
+  Status GetNewTCPLinks(std::vector<std::shared_ptr<SenderReceiverTCP>>& newLinks);
 
   /// @brief Get the status of the discovery thread.
   /// @param [out] threadStatus Stores the thread status.
@@ -2075,13 +2078,15 @@ protected:
   std::atomic_bool m_threadStarted; ///< Thread uses to let us know that has started running.
   std::atomic_bool m_stopThread;    ///< Flag to tell the thread to stop.
   Status m_threadStatus;            ///< Status of the thread.
+  std::recursive_mutex m_mutex;     ///< Mutex to protect the new links vector.
 
-  std::shared_ptr<SenderUDP> m_sender;            ///< Sender object to use to send Discovery packets.
-  std::shared_ptr<ReceiverUDP> m_receiver;        ///< Receiver object to use to receive packets.
+  std::shared_ptr<SenderUDP> m_discoverySender;     ///< Sender object to use to send Discovery packets.
+  std::shared_ptr<TCPListener> m_listener;          ///< Listener object to use to listen for incoming connections.
+  std::vector< std::shared_ptr<SenderReceiverTCP> > m_newStreams;  ///< Client connections established since the last request.
 
-  uint32_t m_IP;                                  ///< IP address for the client to send commands to.
-  uint16_t m_port;                                ///< Port number for a client to send commands to.
-  uint32_t m_serial;                              ///< Serial number of the server.
+  uint32_t m_IP;                                    ///< IP address for the client to connect to.
+  uint16_t m_port;                                  ///< Port number for a client to connect to.
+  uint32_t m_serial;                                ///< Serial number of the server.
 };
 
 //---------------------------------------------------------------------------
@@ -2122,6 +2127,11 @@ public:
   /// @param [out] serial Serial number of the server we're connected to.
   /// @return OKAY if successful, otherwise an error code.
   Status GetServerSerialNumber(uint32_t& serial) const;
+
+  /// @brief Get the Receiver that will get all but Frame Info messages from the server.
+  /// @param [out] receiver Receiver that will get all but Frame Info messages from the server.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetMainStreamReceiver(std::shared_ptr<Receiver>& receiver) const;
 
   /// @brief Send a CommandPacket to the connected server.
   /// @param [in] packet CommandPacket to send.
@@ -2184,11 +2194,11 @@ protected:
 
   /// Mutex to protect the list of servers. Marked mutable so it can be used in const member functions.
   mutable std::mutex m_mutex;
-  std::vector<ServerInfo> m_servers;              ///< List of servers found.
-  std::shared_ptr<SenderUDP> m_sender;            ///< Sender object to use to send packets.
-  std::shared_ptr<ReceiverUDP> m_receiver;        ///< Receiver object to use to receive Discovery packets.
-  uint32_t m_IP;                                  ///< Our IP address where we're listening for packets.
-  uint32_t m_serial;                              ///< Serial number of the server we're connected to.
+  std::vector<ServerInfo> m_servers;                ///< List of servers found.
+  std::shared_ptr<SenderReceiverTCP> m_stream;      ///< Stream to use to send and receive packets.
+  std::shared_ptr<ReceiverUDP> m_discoveryReceiver; ///< Receiver object to use to receive Discovery packets.
+  uint32_t m_IP;                                    ///< Our IP address where we're listening for packets.
+  uint32_t m_serial;                                ///< Serial number of the server we're connected to.
 };
 
 //---------------------------------------------------------------------------
@@ -2245,6 +2255,11 @@ protected:
   std::string m_error;
 
   int m_verbosity; ///< The verbosity level of the server, 0 for no verbosity, higher for more verbosity.
+
+  /// A list of current clients that we will receive commands from and send responses to.
+  /// @todo Will need state for each.
+  /// @todo Will need to associate UDP streams with each so they can be closed when their client is closed.
+  std::vector< std::shared_ptr<SenderReceiverTCP> > m_clients;
 
   // State variables
   std::vector<uint16_t> m_features; ///< The features of the server (filled in when added)

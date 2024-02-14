@@ -66,6 +66,8 @@ std::string asdp::ErrorMessage(Status status)
     return "Not connected";
   case INCORRECT_FLOAT_SIZE:
     return "This architecture does not have 32-bit floats";
+  case INCOMPATIBLE_API_VERSION:
+    return "Incompatible API version";
 
   default:
     return "Unrecognized error code: " + std::to_string(status);
@@ -5332,9 +5334,26 @@ std::string TCPListener::Test()
   }
 
   // Create a SenderReceiverTCP object to connect to the listener.
-  SenderReceiverTCP senderReceiver(StreamEndpoint("localhost", port));
-  if (senderReceiver.GetConstructorStatus() != OKAY) {
-    return "Error constructing SenderReceiverTCP: " + ErrorMessage(senderReceiver.GetConstructorStatus());
+  std::shared_ptr<SenderReceiverTCP> senderReceiver = std::make_shared<SenderReceiverTCP>("localhost", port);
+  if (senderReceiver->GetConstructorStatus() != OKAY) {
+    return "Error constructing SenderReceiverTCP: " + ErrorMessage(senderReceiver->GetConstructorStatus());
+  }
+
+  // Make sure we can get the IP address and port we are using.
+  uint32_t IP;
+  status = senderReceiver->GetIP(IP);
+  if (status != OKAY) {
+    return "Error getting IP from SenderReceiverTCP: " + ErrorMessage(status);
+  }
+  if (IP == 0) {
+    return "Error getting IP from SenderReceiverTCP: zero value";
+  }
+  status = senderReceiver->GetPort(port);
+  if (status != OKAY) {
+    return "Error getting port from SenderReceiverTCP: " + ErrorMessage(status);
+  }
+  if (port == 0) {
+    return "Error getting port from SenderReceiverTCP: zero value";
   }
 
   // Wait for the connection to be accepted.
@@ -5347,14 +5366,84 @@ std::string TCPListener::Test()
     return "Empty connection";
   }
 
+  // Send a buffer that includes the version and type and verify that it
+  // is received.  This tests buffer send/receive, and is what will be done
+  // by clients and servers at the start of the stream.
+  status = newConnection->Send(MAGIC_COOKIE, 4);
+  if (status != OKAY) {
+    return "Error sending magic cookie: " + ErrorMessage(status);
+  }
+  status = newConnection->Send(VERSION, 4);
+  if (status != OKAY) {
+    return "Error sending version: " + ErrorMessage(status);
+  }
+  std::vector<uint8_t> receiveBuffer(4, 0);
+  status = senderReceiver->ReceiveBuffer(receiveBuffer);
+  if (status != OKAY) {
+    return "Error receiving magic cookie: " + ErrorMessage(status);
+  }
+  if (memcmp(MAGIC_COOKIE, receiveBuffer.data(), 4)) {
+    return "Error receiving magic cookie: wrong value";
+  }
+  status = senderReceiver->ReceiveBuffer(receiveBuffer);
+  if (status != OKAY) {
+    return "Error receiving version: " + ErrorMessage(status);
+  }
+  if (memcmp(VERSION, receiveBuffer.data(), 4)) {
+    return "Error receiving version: wrong value";
+  }
+
   // Send a CommandPacket and make sure it is received.
-  /// @todo
+  CommandPacketReset sendCommandPacket;
+  status = newConnection->SendCommandPacket(sendCommandPacket);
+  if (status != OKAY) {
+    return "Error sending CommandPacketReset: " + ErrorMessage(status);
+  }
+  std::shared_ptr<CommandPacket> receiveCommandPacket;
+  status = senderReceiver->ReceiveCommandPacket(0.5, receiveCommandPacket);
+  if (status != OKAY) {
+    return "Error receiving CommandPacketReset: " + ErrorMessage(status);
+  }
+  if (receiveCommandPacket == nullptr) {
+    return "Empty CommandPacketReset packet";
+  }
+  OpCode opCode;
+  status = receiveCommandPacket->GetOpCode(opCode);
+  if (status != OKAY) {
+    return "Error checking CommandPacketReset opcode: " + ErrorMessage(status);
+  }
+  if (opCode != RESET) {
+    return "Error receiving CommandPacketReset: wrong type";
+  }
 
   // Send a StreamPacket and make sure it is received.
-  /// @todo
+  StreamWriter streamWriter(senderReceiver);
+  if (streamWriter.GetConstructorStatus() != OKAY) {
+    return "Error constructing StreamWriter: " + ErrorMessage(streamWriter.GetConstructorStatus());
+  }
+  std::shared_ptr<StreamPacket> sendStreamPacket;
+  status = streamWriter.GetCurrentPacket(sendStreamPacket);
+  if (status != OKAY) {
+    return "Error getting current packet: " + ErrorMessage(status);
+  }
+  MessageEvent message(*sendStreamPacket, Time(), 1, CLOCK_SYNC, "");
+  if (message.GetConstructorStatus() != OKAY) {
+    return "Error constructing MessageEvent: " + ErrorMessage(message.GetConstructorStatus());
+  }
+  status = streamWriter.Flush();
+  if (status != OKAY) {
+    return "Error flushing StreamWriter: " + ErrorMessage(status);
+  }
+  std::shared_ptr<StreamPacket> receiveStreamPacket;
+  status = newConnection->ReceiveStreamPacket(10.0, receiveStreamPacket);
+  if (status != OKAY) {
+    return "Error receiving StreamPacket: " + ErrorMessage(status);
+  }
+  if (receiveStreamPacket == nullptr) {
+    return "Empty StreamPacket packet";
+  }
 
-
-  return "@todo";
+  return "";
 }
 
 StreamWriter::StreamWriter(std::shared_ptr<Sender> sender,
@@ -5616,8 +5705,7 @@ Core::~Core() {}
 
 CoreServer::CoreServer(uint32_t serial, std::string NICName, uint16_t sendPort, uint16_t listenPort, uint32_t maxPayloadSize)
   : Core(maxPayloadSize)
-  , m_sender(std::make_shared<SenderUDP>(NICName, sendPort, true))
-  , m_receiver(std::make_shared<ReceiverUDP>(NICName, listenPort))
+  , m_discoverySender(std::make_shared<SenderUDP>(NICName, sendPort, true))
   , m_stopThread(false)
   , m_threadStatus(OKAY)
   , m_IP(0)
@@ -5625,31 +5713,22 @@ CoreServer::CoreServer(uint32_t serial, std::string NICName, uint16_t sendPort, 
   , m_serial(serial)
 {
   // Make sure we have a valid sender.
-  if (m_sender == nullptr) {
+  if (m_discoverySender == nullptr) {
     m_constructorStatus = BAD_PARAMETER;
     return;
   }
-  if (m_sender->GetConstructorStatus() != OKAY) {
-    m_constructorStatus = m_sender->GetConstructorStatus();
+  if (m_discoverySender->GetConstructorStatus() != OKAY) {
+    m_constructorStatus = m_discoverySender->GetConstructorStatus();
     return;
   }
-  Status status = m_sender->GetIP(m_IP);
+  Status status = m_discoverySender->GetIP(m_IP);
   if (status != OKAY) {
     m_constructorStatus = status;
     return;
   }
 
-  // Make sure we have a valid receiver.
-  if (m_receiver == nullptr) {
-    m_constructorStatus = BAD_PARAMETER;
-    return;
-  }
-  if (m_receiver->GetConstructorStatus() != OKAY) {
-    m_constructorStatus = m_receiver->GetConstructorStatus();
-    return;
-  }
-
   // Make a thread to send discovery packets on, sending them to the broadcast address.
+  // It will also fill in new connections in m_newStreams.
   // Wait for the thread to start before returning.
   m_stopThread = false;
   m_threadStarted = false;
@@ -5667,13 +5746,21 @@ void CoreServer::DiscoveryThread()
   m_threadStatus = OKAY;
 
   // Make a StreamWriter to send the discovery packets.
-  if (m_sender->GetConstructorStatus() != OKAY) {
+  if (m_discoverySender->GetConstructorStatus() != OKAY) {
     m_threadStatus = UNEXPECTED_INTERNAL_STATE;
     return;
   }
-  StreamWriter streamWriter(m_sender, m_maxPayloadSize);
+  StreamWriter streamWriter(m_discoverySender, m_maxPayloadSize);
 
-  // Twice a second, send Discovery packets to the broadcast address.
+  // Make a TCPListener to receive connections on.
+  m_listener = std::make_shared<TCPListener>(StreamEndpoint(m_IP, m_port));
+  if (m_listener->GetConstructorStatus() != OKAY) {
+    m_threadStatus = m_listener->GetConstructorStatus();
+    return;
+  }
+
+  // Twice a second, send Discovery packets to the broadcast address and listen
+  // for new incoming connection requests.
   while (!m_stopThread) {
     // Pack a message into the StreamWriter.
     std::shared_ptr<StreamPacket> packet;
@@ -5699,18 +5786,68 @@ void CoreServer::DiscoveryThread()
       m_threadStatus = status;
       return;
     }
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    // See if we have a new connection.  Wait up to half a second to get
+    // one, so that we only send Discovery packets that fast unless a new
+    // connection is found.
+    std::shared_ptr<SenderReceiverTCP> newConnection;
+    status = m_listener->AcceptConnection(newConnection, 0.5);
+    if ((status != OKAY) && (status != TIMEOUT)) {
+      m_threadStatus = status;
+      return;
+    }
+    if (newConnection != nullptr) {
+
+      // Send the magic cookie and version to the client and wait for them
+      // to do the same.
+      status = newConnection->Send(MAGIC_COOKIE, 4);
+      if (status != OKAY) {
+        newConnection.reset();
+      } else {
+        status = newConnection->Send(VERSION, 4);
+        if (status != OKAY) {
+          newConnection.reset();
+        } else {
+          std::vector<uint8_t> receiveBuffer(4, 0);
+          status = newConnection->ReceiveBuffer(receiveBuffer);
+          if (status != OKAY) {
+            newConnection.reset();
+          } else if (memcmp(MAGIC_COOKIE, receiveBuffer.data(), 4)) {
+            newConnection.reset();
+          } else {
+            status = newConnection->ReceiveBuffer(receiveBuffer);
+            if (status != OKAY) {
+              newConnection.reset();
+            } else if (memcmp(VERSION, receiveBuffer.data(), 4)) {
+              /// @todo Later, be able to handle different minor/patch versions.
+              newConnection.reset();
+            } else {
+              // We have established a new connection, keep track of it.
+              std::lock_guard<std::recursive_mutex> lock(m_mutex);
+              m_newStreams.push_back(newConnection);
+            }
+          }
+        }
+      }
+    }
+
   }
   m_threadStatus = THREAD_COMPLETED;
 }
 
-Status CoreServer::GetReceiver(std::shared_ptr<Receiver>& receiver) const
+Status CoreServer::GetNewTCPLinks(std::vector<std::shared_ptr<SenderReceiverTCP>>& newLinks)
 {
   if (m_constructorStatus != OKAY) {
     return m_constructorStatus;
   }
 
-  receiver = m_receiver;
+  std::lock_guard<std::recursive_mutex> lock(m_mutex);
+  std::vector<std::shared_ptr<SenderReceiverTCP>> ret;
+  for (size_t i = 0; i < m_newStreams.size(); i++) {
+    ret.push_back(m_newStreams[i]);
+  }
+  m_newStreams.clear();
+  newLinks = ret;
   return OKAY;
 }
 
@@ -5742,13 +5879,13 @@ CoreClient::CoreClient(std::string NICName, uint16_t listenPort, uint32_t maxPay
   // Open a socket on our NICName to receive Discovery packets.
 #ifdef ASDP_USE_WINSOCK_SOCKETS
   // On Windows, we cannot listen on all addresses, and we don't have to.
-  m_receiver = std::make_shared<ReceiverUDP>(NICName, listenPort);
+  m_discoveryReceiver = std::make_shared<ReceiverUDP>(NICName, listenPort);
 #else
   // On Linux, we need to listen on all addresses to receive broadcast packets.
-  m_receiver = std::make_shared<ReceiverUDP>("255.255.255.255", listenPort);
+  m_discoveryReceiver = std::make_shared<ReceiverUDP>("255.255.255.255", listenPort);
 #endif
-  if (m_receiver->GetConstructorStatus() != OKAY) {
-    m_constructorStatus = m_receiver->GetConstructorStatus();
+  if (m_discoveryReceiver->GetConstructorStatus() != OKAY) {
+    m_constructorStatus = m_discoveryReceiver->GetConstructorStatus();
     return;
   }
 
@@ -5774,7 +5911,7 @@ void CoreClient::DiscoveryThread()
   // if it isn't already there.
   while (!m_stopThread) {
     std::shared_ptr<StreamPacket> packet;
-    Status status = m_receiver->ReceiveStreamPacket(0.5, packet);
+    Status status = m_discoveryReceiver->ReceiveStreamPacket(0.5, packet);
 
     // If we timed out, just try again.
     if (status == TIMEOUT) {
@@ -5879,11 +6016,22 @@ Status CoreClient::GetServerSerialNumber(uint32_t& serial) const
   if (m_constructorStatus != OKAY) {
     return m_constructorStatus;
   }
-  if (m_sender == nullptr) {
+  if (m_stream == nullptr) {
     return NOT_CONNECTED;
   }
 
   serial = m_serial;
+  return OKAY;
+}
+
+Status CoreClient::GetMainStreamReceiver(std::shared_ptr<Receiver>& receiver) const
+{
+  // Reset in case of failure.
+  receiver.reset();
+  if (m_stream == nullptr) {
+    return NOT_CONNECTED;
+  }
+  receiver = m_stream;
   return OKAY;
 }
 
@@ -5931,14 +6079,47 @@ Status CoreClient::ConnectToServer(std::string serverURL)
     return status;
   }
 
-  // Make a sender to send packets to the server.
-  m_sender = std::make_shared<SenderUDP>(IP, port);
-  if (m_sender->GetConstructorStatus() != OKAY) {
-    return m_sender->GetConstructorStatus();
+  // Connect to the server.
+  m_stream = std::make_shared<SenderReceiverTCP>(IP, port);
+  if (m_stream->GetConstructorStatus() != OKAY) {
+    m_stream.reset();
+    return m_stream->GetConstructorStatus();
+  }
+
+  // Send the magic cookie and version to the server and wait for it to do the same.
+  status = m_stream->Send(MAGIC_COOKIE, 4);
+  if (status != OKAY) {
+    m_stream.reset();
+    return status;
+  }
+  status = m_stream->Send(VERSION, 4);
+  if (status != OKAY) {
+    m_stream.reset();
+    return status;
+  }
+  std::vector<uint8_t> receiveBuffer(4, 0);
+  status = m_stream->ReceiveBuffer(receiveBuffer);
+  if (status != OKAY) {
+    m_stream.reset();
+    return status;
+  }
+  if (memcmp(MAGIC_COOKIE, receiveBuffer.data(), 4)) {
+    m_stream.reset();
+    return BAD_COOKIE;
+  }
+  status = m_stream->ReceiveBuffer(receiveBuffer);
+  if (status != OKAY) {
+    m_stream.reset();
+    return status;
+  }
+  if (memcmp(VERSION, receiveBuffer.data(), 4)) {
+    /// @todo Later, be able to handle different minor/patch versions.
+    m_stream.reset();
+    return INCOMPATIBLE_API_VERSION;
   }
 
   // Record our IP address.
-  status = m_sender->GetIP(m_IP);
+  status = m_stream->GetIP(m_IP);
   if (status != OKAY) {
     return status;
   }
@@ -5972,11 +6153,11 @@ Status CoreClient::SendCommandPacket(const CommandPacket& packet)
   if (m_constructorStatus != OKAY) {
     return m_constructorStatus;
   }
-  if (m_sender == nullptr) {
+  if (m_stream == nullptr) {
     return NOT_CONNECTED;
   }
 
-  return m_sender->SendCommandPacket(packet);
+  return m_stream->SendCommandPacket(packet);
 }
 
 CoreClient::~CoreClient()
@@ -6068,11 +6249,16 @@ std::string CoreClient::Test()
     return "Error connecting to server: " + ErrorMessage(status);
   }
 
-  // Get the Server's receiver so we can receive packets from it.
-  std::shared_ptr<Receiver> receiver;
-  status = coreServer.GetReceiver(receiver);
+  // Get a list of new connections to the server, which should have one entry
+  // after waiting a quarter second.
+  std::this_thread::sleep_for(std::chrono::milliseconds(250));
+  std::vector<std::shared_ptr<SenderReceiverTCP>> newLinks;
+  status = coreServer.GetNewTCPLinks(newLinks);
   if (status != OKAY) {
-    return "Error getting receiver: " + ErrorMessage(status);
+    return "Error getting new TCP links: " + ErrorMessage(status);
+  }
+  if (newLinks.size() != 1) {
+    return "Error getting new TCP links: " + std::to_string(newLinks.size());
   }
 
   // Send a CommandPacketReset from the CoreClient to the CoreServer.
@@ -6083,7 +6269,7 @@ std::string CoreClient::Test()
 
   // Receive the CommandPacketReset on the CoreServer.
   std::shared_ptr<CommandPacket> receiveCommandPacket;
-  status = receiver->ReceiveCommandPacket(0.5, receiveCommandPacket);
+  status = newLinks[0]->ReceiveCommandPacket(0.5, receiveCommandPacket);
   if (status != OKAY) {
     return "Error receiving CommandPacketReset: " + ErrorMessage(status);
   }
@@ -6115,6 +6301,56 @@ std::string CoreClient::Test()
   }
   if (serial2 != serial) {
     return "Error getting serial number: " + std::to_string(serial2);
+  }
+
+  // Send a Message from the server to the client and make sure it is received.
+  StreamWriter streamWriter(newLinks[0]);
+  std::shared_ptr<StreamPacket> packet;
+  status = streamWriter.GetCurrentPacket(packet);
+  if (status != OKAY) {
+    return "Error getting current packet: " + ErrorMessage(status);
+  }
+  MessageEvent message(*packet, Time(), 1, CLOCK_SYNC, "");
+  if (message.GetConstructorStatus() != OKAY) {
+    return "Error constructing MessageEvent: " + ErrorMessage(message.GetConstructorStatus());
+  }
+  status = streamWriter.Flush();
+  if (status != OKAY) {
+    return "Error flushing StreamWriter: " + ErrorMessage(status);
+  }
+  std::shared_ptr<StreamPacket> receiveStreamPacket;
+  std::shared_ptr<Receiver> receiver;
+  status = coreClient.GetMainStreamReceiver(receiver);
+  if (status != OKAY) {
+    return "Error getting main stream receiver: " + ErrorMessage(status);
+  }
+  status = receiver->ReceiveStreamPacket(0.5, receiveStreamPacket);
+  if (status != OKAY) {
+    return "Error receiving StreamPacket: " + ErrorMessage(status);
+  }
+  if (receiveStreamPacket == nullptr) {
+    return "Empty StreamPacket packet";
+  }
+  uint32_t sequenceNumber;
+  status = receiveStreamPacket->GetSequenceNumber(sequenceNumber);
+  if (status != OKAY) {
+    return "Error getting sequence number: " + ErrorMessage(status);
+  }
+  if (sequenceNumber != 0) {
+    return "Unexpected sequence number: " + std::to_string(sequenceNumber);
+  }
+  std::shared_ptr<Message> rMessage;
+  status = receiveStreamPacket->GetNextMessage(rMessage);
+  if (status != OKAY) {
+    return "Error getting message: " + ErrorMessage(status);
+  }
+  MessageID id;
+  status = rMessage->GetType(id);
+  if (status != OKAY) {
+    return "Error getting opcode: " + ErrorMessage(status);
+  }
+  if (id != EVENT) {
+    return "Unexpected message type: " + std::to_string(id);
   }
 
   return "";
@@ -6256,12 +6492,7 @@ void CoreServerBase::sendInvalidCommandMessage(OpCode opCode)
 
 std::string CoreServerBase::run()
 {
-  // Get the Receiver we'll use to get Commands from the client.
-  std::shared_ptr<Receiver> receiver;
-  Status status = GetReceiver(receiver);
-  if (status != OKAY) {
-    return "Failed to get receiver: " + ErrorMessage(status);
-  }
+  Status status;
 
   // Loop forever checking periodic tasks, getting Commands from the client
   // and acting on them.
@@ -6277,229 +6508,243 @@ std::string CoreServerBase::run()
       return "Discovery thread failed: " + ErrorMessage(discoveryStatus);
     }
 
-    // Wait up to half a second for receiving a command.
-    std::shared_ptr<CommandPacket> command;
-    status = receiver->ReceiveCommandPacket(0.5, command);
-    if (status == TIMEOUT) {
-      // Loop again to try to get a command.
-      continue;
-    }
+    // Add any new clients to our active list.
+    std::vector<std::shared_ptr<SenderReceiverTCP>> newClients;
+    status = GetNewTCPLinks(newClients);
     if (status != OKAY) {
-      return "Failed to get command: " + ErrorMessage(status);
+      return "Failed to get new TCP links: " + ErrorMessage(status);
     }
+    m_clients.insert(m_clients.end(), newClients.begin(), newClients.end());
 
-    // Act on the command.
-    OpCode opCode;
-    status = command->GetOpCode(opCode);
-    if (status != OKAY) {
-      return "Failed to get op code: " + ErrorMessage(status);
-    }
-    if (m_verbosity >= 1) {
-      std::cout << "Received command " << OpCodeName(opCode) << std::endl;
-    }
-    switch (opCode) {
-    case RESET:
-    {
-      CommandPacketReset resetCommand(*command);
-      status = resetCommand.GetConstructorStatus();
-      if (status != OKAY) {
-        return "Failed to construct reset command: " + ErrorMessage(status);
+    // Run through each active client and see if we get a command from it.
+    // If we get a failure on a client, remove it from the list.
+    for (auto receiver : m_clients) {
+
+      // Check for a command, busy waiting.
+      std::shared_ptr<CommandPacket> command;
+      status = receiver->ReceiveCommandPacket(0.0, command);
+      if (status == TIMEOUT) {
+        // Skip this client.
+        continue;
       }
-      doReset(resetCommand);
-    }
-    break;
-    case START_RECORDING:
-    {
-      CommandPacketStartRecording startRecordingCommand(*command);
-      status = startRecordingCommand.GetConstructorStatus();
       if (status != OKAY) {
-        return "Failed to construct start recording command: " + ErrorMessage(status);
+        /// @todo the client is dead, remove it from the list(s).
+        return "Failed to get command: " + ErrorMessage(status);
       }
-      doStartRecording(startRecordingCommand);
-    }
-    break;
-    case STOP_RECORDING:
-    {
-      CommandPacketStopRecording stopRecordingCommand(*command);
-      status = stopRecordingCommand.GetConstructorStatus();
+
+      // Act on the command.
+      OpCode opCode;
+      status = command->GetOpCode(opCode);
       if (status != OKAY) {
-        return "Failed to construct stop recording command: " + ErrorMessage(status);
+        return "Failed to get op code: " + ErrorMessage(status);
       }
-      doStopRecording(stopRecordingCommand);
-    }
-    break;
-    case SET_START_UP_RECORDING_STATE:
-    {
-      CommandPacketSetStartUpRecordingState setStartUpRecordingStateCommand(*command);
-      status = setStartUpRecordingStateCommand.GetConstructorStatus();
-      if (status != OKAY) {
-        return "Failed to construct set start up recording state command: " + ErrorMessage(status);
+      if (m_verbosity >= 1) {
+        std::cout << "Received command " << OpCodeName(opCode) << std::endl;
       }
-      doSetStartUpRecordingState(setStartUpRecordingStateCommand);
-    }
-    break;
-    case START_REPLAY:
-    {
-      CommandPacketStartReplay startReplayCommand(*command);
-      status = startReplayCommand.GetConstructorStatus();
-      if (status != OKAY) {
-        return "Failed to construct start replay command: " + ErrorMessage(status);
+      switch (opCode) {
+      case RESET:
+      {
+        CommandPacketReset resetCommand(*command);
+        status = resetCommand.GetConstructorStatus();
+        if (status != OKAY) {
+          return "Failed to construct reset command: " + ErrorMessage(status);
+        }
+        doReset(resetCommand);
       }
-      doStartReplay(startReplayCommand);
-    }
-    break;
-    case PAUSE_REPLAY:
-    {
-      CommandPacketPauseReplay pauseReplayCommand(*command);
-      status = pauseReplayCommand.GetConstructorStatus();
-      if (status != OKAY) {
-        return "Failed to construct pause replay command: " + ErrorMessage(status);
+      break;
+      case START_RECORDING:
+      {
+        CommandPacketStartRecording startRecordingCommand(*command);
+        status = startRecordingCommand.GetConstructorStatus();
+        if (status != OKAY) {
+          return "Failed to construct start recording command: " + ErrorMessage(status);
+        }
+        doStartRecording(startRecordingCommand);
       }
-      doPauseReplay(pauseReplayCommand);
-    }
-    break;
-    case STOP_REPLAY:
-    {
-      CommandPacketStopReplay stopReplayCommand(*command);
-      status = stopReplayCommand.GetConstructorStatus();
-      if (status != OKAY) {
-        return "Failed to construct stop replay command: " + ErrorMessage(status);
+      break;
+      case STOP_RECORDING:
+      {
+        CommandPacketStopRecording stopRecordingCommand(*command);
+        status = stopRecordingCommand.GetConstructorStatus();
+        if (status != OKAY) {
+          return "Failed to construct stop recording command: " + ErrorMessage(status);
+        }
+        doStopRecording(stopRecordingCommand);
       }
-      doStopReplay(stopReplayCommand);
-    }
-    break;
-    case SET_STREAM_STATE_PERIOD:
-    {
-      CommandPacketSetStreamStatePeriod streamStateCommand(*command);
-      status = streamStateCommand.GetConstructorStatus();
-      if (status != OKAY) {
-        return "Failed to construct stream state command: " + ErrorMessage(status);
+      break;
+      case SET_START_UP_RECORDING_STATE:
+      {
+        CommandPacketSetStartUpRecordingState setStartUpRecordingStateCommand(*command);
+        status = setStartUpRecordingStateCommand.GetConstructorStatus();
+        if (status != OKAY) {
+          return "Failed to construct set start up recording state command: " + ErrorMessage(status);
+        }
+        doSetStartUpRecordingState(setStartUpRecordingStateCommand);
       }
-      doSetStreamStatePeriod(streamStateCommand);
-    }
-    break;
-    case CONFIGURE_TRIGGER:
-    {
-      CommandPacketConfigureTrigger configureTriggerCommand(*command);
-      status = configureTriggerCommand.GetConstructorStatus();
-      if (status != OKAY) {
-        return "Failed to construct configure trigger command: " + ErrorMessage(status);
+      break;
+      case START_REPLAY:
+      {
+        CommandPacketStartReplay startReplayCommand(*command);
+        status = startReplayCommand.GetConstructorStatus();
+        if (status != OKAY) {
+          return "Failed to construct start replay command: " + ErrorMessage(status);
+        }
+        doStartReplay(startReplayCommand);
       }
-      doConfigureTrigger(configureTriggerCommand);
-    }
-    break;
-    case SOFTWARE_TRIGGER:
-    {
-      CommandPacketSoftwareTrigger softwareTriggerCommand(*command);
-      status = softwareTriggerCommand.GetConstructorStatus();
-      if (status != OKAY) {
-        return "Failed to construct software trigger command: " + ErrorMessage(status);
+      break;
+      case PAUSE_REPLAY:
+      {
+        CommandPacketPauseReplay pauseReplayCommand(*command);
+        status = pauseReplayCommand.GetConstructorStatus();
+        if (status != OKAY) {
+          return "Failed to construct pause replay command: " + ErrorMessage(status);
+        }
+        doPauseReplay(pauseReplayCommand);
       }
-      doSoftwareTrigger(softwareTriggerCommand);
-    }
-    break;
-    case SET_EVENT_VERBOSITY:
-    {
-      CommandPacketSetEventVerbosity streamEventsCommand(*command);
-      status = streamEventsCommand.GetConstructorStatus();
-      if (status != OKAY) {
-        return "Failed to construct stream events command: " + ErrorMessage(status);
+      break;
+      case STOP_REPLAY:
+      {
+        CommandPacketStopReplay stopReplayCommand(*command);
+        status = stopReplayCommand.GetConstructorStatus();
+        if (status != OKAY) {
+          return "Failed to construct stop replay command: " + ErrorMessage(status);
+        }
+        doStopReplay(stopReplayCommand);
       }
-      doSetEventVerbosity(streamEventsCommand);
-    }
-    break;
-    case STREAM_SUBREGION:
-    {
-      CommandPacketStreamSubregion streamSubregionCommand(*command);
-      status = streamSubregionCommand.GetConstructorStatus();
-      if (status != OKAY) {
-        return "Failed to construct stream subregion command: " + ErrorMessage(status);
+      break;
+      case SET_STREAM_STATE_PERIOD:
+      {
+        CommandPacketSetStreamStatePeriod streamStateCommand(*command);
+        status = streamStateCommand.GetConstructorStatus();
+        if (status != OKAY) {
+          return "Failed to construct stream state command: " + ErrorMessage(status);
+        }
+        doSetStreamStatePeriod(streamStateCommand);
       }
-      doStreamSubregion(streamSubregionCommand);
-    }
-    break;
-    case CANCEL_SUBREGION:
-    {
-      CommandPacketCancelSubregion cancelSubregionCommand(*command);
-      status = cancelSubregionCommand.GetConstructorStatus();
-      if (status != OKAY) {
-        return "Failed to construct cancel subregion command: " + ErrorMessage(status);
+      break;
+      case CONFIGURE_TRIGGER:
+      {
+        CommandPacketConfigureTrigger configureTriggerCommand(*command);
+        status = configureTriggerCommand.GetConstructorStatus();
+        if (status != OKAY) {
+          return "Failed to construct configure trigger command: " + ErrorMessage(status);
+        }
+        doConfigureTrigger(configureTriggerCommand);
       }
-      doCancelSubregion(cancelSubregionCommand);
-    }
-    break;
-    case ERASE_ALL_STORED_STREAMS:
-    {
-      CommandPacketEraseAllStoredStreams eraseAllStoredStreamsCommand(*command);
-      status = eraseAllStoredStreamsCommand.GetConstructorStatus();
-      if (status != OKAY) {
-        return "Failed to construct erase all stored streams command: " + ErrorMessage(status);
+      break;
+      case SOFTWARE_TRIGGER:
+      {
+        CommandPacketSoftwareTrigger softwareTriggerCommand(*command);
+        status = softwareTriggerCommand.GetConstructorStatus();
+        if (status != OKAY) {
+          return "Failed to construct software trigger command: " + ErrorMessage(status);
+        }
+        doSoftwareTrigger(softwareTriggerCommand);
       }
-      doEraseAllStoredStreams(eraseAllStoredStreamsCommand);
-    }
-    break;
-    case LIST_STORED_STREAMS:
-    {
-      CommandPacketListStoredStreams ListStoredStreamsCommand(*command);
-      status = ListStoredStreamsCommand.GetConstructorStatus();
-      if (status != OKAY) {
-        return "Failed to construct list stored streams command: " + ErrorMessage(status);
+      break;
+      case SET_EVENT_VERBOSITY:
+      {
+        CommandPacketSetEventVerbosity streamEventsCommand(*command);
+        status = streamEventsCommand.GetConstructorStatus();
+        if (status != OKAY) {
+          return "Failed to construct stream events command: " + ErrorMessage(status);
+        }
+        doSetEventVerbosity(streamEventsCommand);
       }
-      doListStoredStreams(ListStoredStreamsCommand);
-    }
-    break;
-    case ERASE_STORED_STREAM:
-    {
-      CommandPacketEraseStoredStream eraseStoredStreamCommand(*command);
-      status = eraseStoredStreamCommand.GetConstructorStatus();
-      if (status != OKAY) {
-        return "Failed to construct erase stored stream command: " + ErrorMessage(status);
+      break;
+      case STREAM_SUBREGION:
+      {
+        CommandPacketStreamSubregion streamSubregionCommand(*command);
+        status = streamSubregionCommand.GetConstructorStatus();
+        if (status != OKAY) {
+          return "Failed to construct stream subregion command: " + ErrorMessage(status);
+        }
+        doStreamSubregion(streamSubregionCommand);
       }
-      doEraseStoredStream(eraseStoredStreamCommand);
-    }
-    break;
-    case STREAM_TEMPERATURES:
-    {
-      CommandPacketStreamTemperatures streamTemperaturesCommand(*command);
-      status = streamTemperaturesCommand.GetConstructorStatus();
-      if (status != OKAY) {
-        return "Failed to construct stream temperatures command: " + ErrorMessage(status);
+      break;
+      case CANCEL_SUBREGION:
+      {
+        CommandPacketCancelSubregion cancelSubregionCommand(*command);
+        status = cancelSubregionCommand.GetConstructorStatus();
+        if (status != OKAY) {
+          return "Failed to construct cancel subregion command: " + ErrorMessage(status);
+        }
+        doCancelSubregion(cancelSubregionCommand);
       }
-      doStreamTemperatures(streamTemperaturesCommand);
-    }
-    break;
-    case CANCEL_TEMPERATURES:
-    {
-      CommandPacketCancelTemperatures cancelTemperaturesCommand(*command);
-      status = cancelTemperaturesCommand.GetConstructorStatus();
-      if (status != OKAY) {
-        return "Failed to construct cancel temperatures command: " + ErrorMessage(status);
+      break;
+      case ERASE_ALL_STORED_STREAMS:
+      {
+        CommandPacketEraseAllStoredStreams eraseAllStoredStreamsCommand(*command);
+        status = eraseAllStoredStreamsCommand.GetConstructorStatus();
+        if (status != OKAY) {
+          return "Failed to construct erase all stored streams command: " + ErrorMessage(status);
+        }
+        doEraseAllStoredStreams(eraseAllStoredStreamsCommand);
       }
-      doCancelTemperatures(cancelTemperaturesCommand);
-    }
-    break;
-    case STREAM_POSES:
-    {
-      CommandPacketStreamPoses streamPosesCommand(*command);
-      status = streamPosesCommand.GetConstructorStatus();
-      if (status != OKAY) {
-        return "Failed to construct stream poses command: " + ErrorMessage(status);
+      break;
+      case LIST_STORED_STREAMS:
+      {
+        CommandPacketListStoredStreams ListStoredStreamsCommand(*command);
+        status = ListStoredStreamsCommand.GetConstructorStatus();
+        if (status != OKAY) {
+          return "Failed to construct list stored streams command: " + ErrorMessage(status);
+        }
+        doListStoredStreams(ListStoredStreamsCommand);
       }
-      doStreamPoses(streamPosesCommand);
-    }
-    break;
-    case CANCEL_POSES:
-    {
-      CommandPacketCancelPoses cancelPosesCommand(*command);
-      status = cancelPosesCommand.GetConstructorStatus();
-      if (status != OKAY) {
-        return "Failed to construct cancel poses command: " + ErrorMessage(status);
+      break;
+      case ERASE_STORED_STREAM:
+      {
+        CommandPacketEraseStoredStream eraseStoredStreamCommand(*command);
+        status = eraseStoredStreamCommand.GetConstructorStatus();
+        if (status != OKAY) {
+          return "Failed to construct erase stored stream command: " + ErrorMessage(status);
+        }
+        doEraseStoredStream(eraseStoredStreamCommand);
       }
-      doCancelPoses(cancelPosesCommand);
-    }
-    break;
-    default:
-      return "Unrecognized OpCode: " + std::to_string(opCode);
+      break;
+      case STREAM_TEMPERATURES:
+      {
+        CommandPacketStreamTemperatures streamTemperaturesCommand(*command);
+        status = streamTemperaturesCommand.GetConstructorStatus();
+        if (status != OKAY) {
+          return "Failed to construct stream temperatures command: " + ErrorMessage(status);
+        }
+        doStreamTemperatures(streamTemperaturesCommand);
+      }
+      break;
+      case CANCEL_TEMPERATURES:
+      {
+        CommandPacketCancelTemperatures cancelTemperaturesCommand(*command);
+        status = cancelTemperaturesCommand.GetConstructorStatus();
+        if (status != OKAY) {
+          return "Failed to construct cancel temperatures command: " + ErrorMessage(status);
+        }
+        doCancelTemperatures(cancelTemperaturesCommand);
+      }
+      break;
+      case STREAM_POSES:
+      {
+        CommandPacketStreamPoses streamPosesCommand(*command);
+        status = streamPosesCommand.GetConstructorStatus();
+        if (status != OKAY) {
+          return "Failed to construct stream poses command: " + ErrorMessage(status);
+        }
+        doStreamPoses(streamPosesCommand);
+      }
+      break;
+      case CANCEL_POSES:
+      {
+        CommandPacketCancelPoses cancelPosesCommand(*command);
+        status = cancelPosesCommand.GetConstructorStatus();
+        if (status != OKAY) {
+          return "Failed to construct cancel poses command: " + ErrorMessage(status);
+        }
+        doCancelPoses(cancelPosesCommand);
+      }
+      break;
+      default:
+        return "Unrecognized OpCode: " + std::to_string(opCode);
+      }
     }
 
     // Run the per-loop call that derived objects use to do their thing.

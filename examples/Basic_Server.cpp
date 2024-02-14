@@ -55,16 +55,13 @@ int main(int argc, char** argv)
   }
   std::cout << "Server opened on " << ip_address << " with serial number " << serial_number << std::endl;
 
-  // Get the Receiver we'll use to get Commands from the client.
-  std::shared_ptr<Receiver> receiver;
-  Status status = server.GetReceiver(receiver);
-  if (status != OKAY) {
-    std::cerr << "Failed to get receiver: " << ErrorMessage(status) << std::endl;
-    return 4;
-  }
+  // Currently-active clients.
+  std::vector<std::shared_ptr<SenderReceiverTCP>> myClients;
 
   // Loop forever, getting Commands from the client and printing them.
   while (true) {
+    Status status;
+
 
     // If the discovery thread fails, we should stop.
     Status discoveryStatus;
@@ -78,24 +75,36 @@ int main(int argc, char** argv)
       return 6;
     }
 
-    // Wait up to half a second for receiving a command.
-    std::shared_ptr<CommandPacket> command;
-    status = receiver->ReceiveCommandPacket(0.5, command);
-    if (status == TIMEOUT) {
-      // Loop again to try to get a command.
-      continue;
-    }
+    // See if we have any new clients.
+    std::vector<std::shared_ptr<SenderReceiverTCP>> newClients;
+    status = server.GetNewTCPLinks(newClients);
     if (status != OKAY) {
-      std::cerr << "Failed to get command: " << ErrorMessage(status) << std::endl;
+      std::cerr << "Failed to get new TCP links: " << ErrorMessage(status) << std::endl;
       return 7;
     }
-    OpCode opCode;
-    status = command->GetOpCode(opCode);
-    if (status != OKAY) {
-      std::cerr << "Failed to get op code: " << ErrorMessage(status) << std::endl;
-      return 8;
+    myClients.insert(myClients.end(), newClients.begin(), newClients.end());
+
+
+    // Busy wait on commands for all clients.
+    for (auto receiver : myClients) {
+      std::shared_ptr<CommandPacket> command;
+      status = receiver->ReceiveCommandPacket(0.5, command);
+      if (status == TIMEOUT) {
+        // Loop again to try to get a command.
+        continue;
+      }
+      if (status != OKAY) {
+        std::cerr << "Failed to get command: " << ErrorMessage(status) << std::endl;
+        return 8;
+      }
+      OpCode opCode;
+      status = command->GetOpCode(opCode);
+      if (status != OKAY) {
+        std::cerr << "Failed to get op code: " << ErrorMessage(status) << std::endl;
+        return 9;
+      }
+      std::cout << "Received command code: " << opCode << std::endl;
     }
-    std::cout << "Received command code: " << opCode << std::endl;
   }
 
   return 0;
