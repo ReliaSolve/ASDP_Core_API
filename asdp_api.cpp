@@ -108,20 +108,18 @@ static std::string OpCodeName(OpCode opCode)
 static const unsigned char MAGIC_COOKIE[4] = { 'A', 'S', 'D', 'P' };
 static const unsigned char VERSION[4] = { 2, 0, 0, 0 };
 
-static const uint32_t PACKET_BASIC_HEADER_SIZE = 3 * sizeof(uint32_t);
 static const uint32_t PACKET_HEADER_TOTAL_SIZE_OFFSET = 0;
-static const uint32_t PACKET_HEADER_HEADER_SIZE_OFFSET = 4;
-static const uint32_t PACKET_HEADER_VERSION_OFFSET = 8;
+static const uint32_t PACKET_BASIC_HEADER_SIZE = sizeof(uint32_t);
+static const uint32_t COMMAND_PACKET_OPCODE_OFFSET = PACKET_BASIC_HEADER_SIZE;
 static const uint32_t COMMAND_PACKET_BASE_SIZE = PACKET_BASIC_HEADER_SIZE + sizeof(uint32_t);
+static const uint32_t STREAM_PACKET_SEQUENCE_NUMBER_OFFSET = PACKET_BASIC_HEADER_SIZE;
 static const uint32_t STREAM_PACKET_BASE_SIZE = PACKET_BASIC_HEADER_SIZE + sizeof(uint32_t);
 
-static const uint32_t MESSAGE_BASE_SIZE = 6 * sizeof(uint32_t);
+static const uint32_t MESSAGE_BASE_SIZE = 4 * sizeof(uint32_t);
 static const uint32_t MESSAGE_HEADER_MESSAGE_TOTAL_SIZE_OFFSET = 0;
-static const uint32_t MESSAGE_HEADER_MESSAGE_HEADER_SIZE_OFFSET = 4;
-static const uint32_t MESSAGE_HEADER_VERSION_OFFSET = 8;
-static const uint32_t MESSAGE_HEADER_MESSAGE_TIME_SECONDS_OFFSET = 12;
-static const uint32_t MESSAGE_HEADER_MESSAGE_TIME_MICROSECONDS_SIZE_OFFSET = 16;
-static const uint32_t MESSAGE_HEADER_MESSAGE_TYPE_OFFSET = 20;
+static const uint32_t MESSAGE_HEADER_MESSAGE_TIME_SECONDS_OFFSET = sizeof(uint32_t);
+static const uint32_t MESSAGE_HEADER_MESSAGE_TIME_MICROSECONDS_SIZE_OFFSET = 2 * sizeof(uint32_t);
+static const uint32_t MESSAGE_HEADER_MESSAGE_TYPE_OFFSET = 3 * sizeof(uint32_t);
 
 //----------------------------------------------------------------------------
 // Figure out whether we're using Windows sockets or not.
@@ -435,17 +433,14 @@ std::string Timer::Test()
   return "";
 }
 
-BasicPacket::BasicPacket(uint32_t extraHeaderSize, uint32_t parameterSize)
-  : m_buffer(std::make_shared<std::vector<uint8_t>>(PACKET_BASIC_HEADER_SIZE + extraHeaderSize + parameterSize))
+BasicPacket::BasicPacket(uint32_t extraSize)
+  : m_buffer(std::make_shared<std::vector<uint8_t>>(PACKET_BASIC_HEADER_SIZE + extraSize))
   , m_constructorStatus(OKAY)
 {
   // Pack our header.
   unsigned char* bufPtr = m_buffer->data();
-  uint32_t totalSize = PACKET_BASIC_HEADER_SIZE + extraHeaderSize + parameterSize;
+  uint32_t totalSize = PACKET_BASIC_HEADER_SIZE + extraSize;
   memcpy(bufPtr, &totalSize, sizeof(totalSize)); bufPtr += sizeof(totalSize);
-  const uint32_t header_size = PACKET_BASIC_HEADER_SIZE + extraHeaderSize;
-  memcpy(bufPtr, &header_size, sizeof(header_size)); bufPtr += sizeof(header_size);
-  memcpy(bufPtr, VERSION, sizeof(VERSION)); bufPtr += sizeof(VERSION);
 }
 
 BasicPacket::BasicPacket(std::shared_ptr<std::vector<uint8_t>> existingBuffer)
@@ -503,7 +498,7 @@ std::string BasicPacket::Test()
   {
     // Construct a basic packet, giving it some extra parameter size.
     uint32_t parameterSize = 200;
-    BasicPacket packet(0, parameterSize);
+    BasicPacket packet(parameterSize);
     if (packet.GetConstructorStatus() != OKAY) {
       return "Error constructing base packet: " + ErrorMessage(packet.GetConstructorStatus());
     }
@@ -542,10 +537,10 @@ std::string BasicPacket::Test()
 }
 
 CommandPacket::CommandPacket(uint32_t parameterSize, OpCode code)
-  : BasicPacket(0, sizeof(uint32_t) + parameterSize)
+  : BasicPacket(sizeof(uint32_t) + parameterSize)
 {
   // Pack our operation code.
-  unsigned char *bufPtr = m_buffer->data() + PACKET_BASIC_HEADER_SIZE;
+  unsigned char *bufPtr = m_buffer->data() + COMMAND_PACKET_OPCODE_OFFSET;
   uint32_t myOpCode = code;
   memcpy(bufPtr, &myOpCode, sizeof(myOpCode)); bufPtr += sizeof(myOpCode);
 }
@@ -581,14 +576,7 @@ Status CommandPacket::GetOpCode(OpCode& opCode) const
     return READ_PAST_END;
   }
 
-  // Read the offset from the beginning of the buffer to the opcode from the header.
-  // This is done to allow future versions to have more information in the header.
-  uint32_t opCodeOffset;
-  memcpy(&opCodeOffset, m_buffer->data() + PACKET_HEADER_HEADER_SIZE_OFFSET, sizeof(opCodeOffset));
-  if (opCodeOffset + sizeof(opCode) > m_buffer->size()) {
-    return READ_PAST_END;
-  }
-  memcpy(&opCode, m_buffer->data() + opCodeOffset, sizeof(opCode));
+  memcpy(&opCode, m_buffer->data() + COMMAND_PACKET_OPCODE_OFFSET, sizeof(opCode));
   return OKAY;
 }
 
@@ -1306,17 +1294,17 @@ CommandPacketStreamSubregion::CommandPacketStreamSubregion(StreamEndpoint endpoi
   : CommandPacket(sizeof(region) + 2 * sizeof(uint32_t), STREAM_SUBREGION)
 {
   unsigned char *bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
-  memcpy(bufPtr, &region.cameraID, sizeof(uint32_t)); bufPtr += sizeof(region.cameraID);
+  memcpy(bufPtr, &region.cameraID, sizeof(region.cameraID)); bufPtr += sizeof(region.cameraID);
   memcpy(bufPtr, &endpoint.IP, sizeof(endpoint.IP)); bufPtr += sizeof(endpoint.IP);
   uint32_t portField = endpoint.port;
   memcpy(bufPtr, &portField, sizeof(portField)); bufPtr += sizeof(portField);
-  memcpy(bufPtr, &region.skipFrames, sizeof(uint32_t)); bufPtr += sizeof(region.skipFrames);
-  memcpy(bufPtr, &region.startTimeSeconds, sizeof(uint32_t)); bufPtr += sizeof(region.startTimeSeconds);
-  memcpy(bufPtr, &region.startTimeMicroseconds, sizeof(uint32_t)); bufPtr += sizeof(region.startTimeMicroseconds);
-  memcpy(bufPtr, &region.left, sizeof(uint32_t)); bufPtr += sizeof(region.left);
-  memcpy(bufPtr, &region.top, sizeof(uint32_t)); bufPtr += sizeof(region.top);
-  memcpy(bufPtr, &region.right, sizeof(uint32_t)); bufPtr += sizeof(region.right);
-  memcpy(bufPtr, &region.bottom, sizeof(uint32_t)); bufPtr += sizeof(region.bottom);
+  memcpy(bufPtr, &region.skipFrames, sizeof(region.skipFrames)); bufPtr += sizeof(region.skipFrames);
+  memcpy(bufPtr, &region.startTimeSeconds, sizeof(region.startTimeSeconds)); bufPtr += sizeof(region.startTimeSeconds);
+  memcpy(bufPtr, &region.startTimeMicroseconds, sizeof(region.startTimeMicroseconds)); bufPtr += sizeof(region.startTimeMicroseconds);
+  memcpy(bufPtr, &region.left, sizeof(region.left)); bufPtr += sizeof(region.left);
+  memcpy(bufPtr, &region.top, sizeof(region.left)); bufPtr += sizeof(region.top);
+  memcpy(bufPtr, &region.right, sizeof(region.left)); bufPtr += sizeof(region.right);
+  memcpy(bufPtr, &region.bottom, sizeof(region.left)); bufPtr += sizeof(region.bottom);
 }
 
 CommandPacketStreamSubregion::CommandPacketStreamSubregion(CommandPacket& basePacket)
@@ -1345,16 +1333,16 @@ Status CommandPacketStreamSubregion::GetRegionDescription(SubregionDescription& 
     return READ_PAST_END;
   }
   unsigned char *bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
-  memcpy(&region.cameraID, bufPtr, sizeof(uint32_t)); bufPtr += sizeof(region.cameraID);
+  memcpy(&region.cameraID, bufPtr, sizeof(region.cameraID)); bufPtr += sizeof(region.cameraID);
   // Skip the endpoint information
   bufPtr += 2 * sizeof(uint32_t);
-  memcpy(&region.skipFrames, bufPtr, sizeof(uint32_t)); bufPtr += sizeof(region.skipFrames);
-  memcpy(&region.startTimeSeconds, bufPtr, sizeof(uint32_t)); bufPtr += sizeof(region.startTimeSeconds);
-  memcpy(&region.startTimeMicroseconds, bufPtr, sizeof(uint32_t)); bufPtr += sizeof(region.startTimeMicroseconds);
-  memcpy(&region.left, bufPtr, sizeof(uint32_t)); bufPtr += sizeof(region.left);
-  memcpy(&region.top, bufPtr, sizeof(uint32_t)); bufPtr += sizeof(region.top);
-  memcpy(&region.right, bufPtr, sizeof(uint32_t)); bufPtr += sizeof(region.right);
-  memcpy(&region.bottom, bufPtr, sizeof(uint32_t)); bufPtr += sizeof(region.bottom);
+  memcpy(&region.skipFrames, bufPtr, sizeof(region.skipFrames)); bufPtr += sizeof(region.skipFrames);
+  memcpy(&region.startTimeSeconds, bufPtr, sizeof(region.startTimeSeconds)); bufPtr += sizeof(region.startTimeSeconds);
+  memcpy(&region.startTimeMicroseconds, bufPtr, sizeof(region.startTimeMicroseconds)); bufPtr += sizeof(region.startTimeMicroseconds);
+  memcpy(&region.left, bufPtr, sizeof(region.left)); bufPtr += sizeof(region.left);
+  memcpy(&region.top, bufPtr, sizeof(region.top)); bufPtr += sizeof(region.top);
+  memcpy(&region.right, bufPtr, sizeof(region.right)); bufPtr += sizeof(region.right);
+  memcpy(&region.bottom, bufPtr, sizeof(region.bottom)); bufPtr += sizeof(region.bottom);
   return OKAY;
 }
 
@@ -1364,7 +1352,7 @@ std::string CommandPacketStreamSubregion::Test()
     // Construct a CommandPacketStreamSubregion command packet and verify that we can read its values.
     uint32_t IP = 0x01020304;
     uint16_t port = 1234;
-    SubregionDescription region = { 1, 2, 3, 4, 5, 6, 7 };
+    SubregionDescription region = { 1, 2, 3, 4, 5, 6, 7, 8 };
     CommandPacketStreamSubregion packet({ IP, port }, region);
     if (packet.GetConstructorStatus() != OKAY) {
       return "Error constructing CommandPacketStreamSubregion packet: " + ErrorMessage(packet.GetConstructorStatus());
@@ -1602,7 +1590,7 @@ std::string CommandPacketStreamPoses::Test()
 }
 
 StreamPacket::StreamPacket(uint32_t bufferMaxSize, uint32_t sequenceNumber)
-  : BasicPacket(sizeof(uint32_t), bufferMaxSize - STREAM_PACKET_BASE_SIZE)
+  : BasicPacket(bufferMaxSize - PACKET_BASIC_HEADER_SIZE)
 {
   // Overwrite the stored total size with the actually filled-in size, leaving room in the buffer.
   uint32_t usedSize = STREAM_PACKET_BASE_SIZE;
@@ -1610,7 +1598,7 @@ StreamPacket::StreamPacket(uint32_t bufferMaxSize, uint32_t sequenceNumber)
   memcpy(bufPtr, &usedSize, sizeof(usedSize)); bufPtr += sizeof(usedSize);
 
   // Set the sequence number.
-  bufPtr = m_buffer->data() + PACKET_BASIC_HEADER_SIZE;
+  bufPtr = m_buffer->data() + STREAM_PACKET_SEQUENCE_NUMBER_OFFSET;
   memcpy(bufPtr, &sequenceNumber, sizeof(sequenceNumber)); bufPtr += sizeof(sequenceNumber);
 }
 
@@ -1629,15 +1617,7 @@ Status StreamPacket::GetSequenceNumber(uint32_t& sequenceNumber) const
     return READ_PAST_END;
   }
 
-  // Read the offset from the beginning of the buffer to the first message from the header.
-  // This is done to allow future versions to have more information in the header.
-  uint32_t firstMessageOffset;
-  memcpy(&firstMessageOffset, m_buffer->data() + PACKET_HEADER_HEADER_SIZE_OFFSET, sizeof(firstMessageOffset));
-  uint32_t sequenceNumberOffset = firstMessageOffset - sizeof(uint32_t);
-  if (sequenceNumberOffset + sizeof(sequenceNumber) > m_buffer->size()) {
-    return READ_PAST_END;
-  }
-  memcpy(&sequenceNumber, m_buffer->data() + sequenceNumberOffset, sizeof(sequenceNumber));
+  memcpy(&sequenceNumber, m_buffer->data() + STREAM_PACKET_SEQUENCE_NUMBER_OFFSET, sizeof(sequenceNumber));
   return OKAY;
 }
 
@@ -1648,15 +1628,7 @@ Status StreamPacket::SetSequenceNumber(uint32_t sequenceNumber)
     return WRITE_PAST_END;
   }
 
-  // Read the offset from the beginning of the buffer to the first message from the header.
-  // This is done to allow future versions to have more information in the header.
-  uint32_t firstMessageOffset;
-  memcpy(&firstMessageOffset, m_buffer->data() + PACKET_HEADER_HEADER_SIZE_OFFSET, sizeof(firstMessageOffset));
-  uint32_t sequenceNumberOffset = firstMessageOffset - sizeof(uint32_t);
-  if (sequenceNumberOffset + sizeof(sequenceNumber) > m_buffer->size()) {
-    return WRITE_PAST_END;
-  }
-  memcpy(m_buffer->data() + sequenceNumberOffset, &sequenceNumber, sizeof(sequenceNumber));
+  memcpy(m_buffer->data() + STREAM_PACKET_SEQUENCE_NUMBER_OFFSET, &sequenceNumber, sizeof(sequenceNumber));
   return OKAY;
 }
 
@@ -1675,9 +1647,7 @@ Status StreamPacket::GetNextMessage(std::shared_ptr<Message>& message) const
   // in the buffer.  Otherwise, use the offset from the message
   uint32_t offset;
   if (message == nullptr) {
-    // Read the offset from the beginning of the buffer to the first message from the header.
-    // This is done to allow future versions to have more information in the header.
-    memcpy(&offset, m_buffer->data() + PACKET_HEADER_HEADER_SIZE_OFFSET, sizeof(offset));
+    offset = STREAM_PACKET_BASE_SIZE;
   } else {
     // Make sure we're using the same buffer.
     if (message->m_buffer != m_buffer) {
@@ -1824,9 +1794,6 @@ Message::Message(StreamPacket& packet, uint32_t parameterSize, Time timeCode, Me
   // Pack our header.
   uint8_t *bufPtr = m_buffer->data() + m_offset;
   memcpy(bufPtr, &totalSize, sizeof(totalSize)); bufPtr += sizeof(totalSize);
-  const uint32_t header_size = MESSAGE_HEADER_MESSAGE_TYPE_OFFSET;
-  memcpy(bufPtr, &header_size, sizeof(header_size)); bufPtr += sizeof(header_size);
-  memcpy(bufPtr, VERSION, sizeof(VERSION)); bufPtr += sizeof(VERSION);
   memcpy(bufPtr, &timeCode.seconds, sizeof(timeCode.seconds)); bufPtr += sizeof(timeCode.seconds);
   memcpy(bufPtr, &timeCode.microseconds, sizeof(timeCode.microseconds)); bufPtr += sizeof(timeCode.microseconds);
   uint32_t myType = type;
@@ -1876,15 +1843,6 @@ Status Message::GetTotalSize(uint32_t& size) const
   return OKAY;
 }
 
-Status Message::GetHeaderSize(uint32_t& size) const
-{
-  if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE) {
-    return READ_PAST_END;
-  }
-  memcpy(&size, m_buffer->data() + m_offset + MESSAGE_HEADER_MESSAGE_HEADER_SIZE_OFFSET, sizeof(size));
-  return OKAY;
-}
-
 Message::~Message()
 {
 }
@@ -1911,15 +1869,6 @@ std::string Message::Test()
   if (totalSize != MESSAGE_BASE_SIZE) {
     return "Error constructing message from buffer for message test: message length is not " +
       std::to_string(MESSAGE_BASE_SIZE) + " but " + std::to_string(totalSize);
-  }
-  uint32_t headerSize;
-  status = message.GetHeaderSize(headerSize);
-  if (status != OKAY) {
-    return "Error checking message size for message test: " + ErrorMessage(status);
-  }
-  if (headerSize != MESSAGE_HEADER_MESSAGE_TYPE_OFFSET) {
-    return "Error constructing message from buffer for message test: header size is not " +
-      std::to_string(MESSAGE_HEADER_MESSAGE_TYPE_OFFSET) + " but " + std::to_string(headerSize);
   }
 
   // Check the length of the packet including the message to make sure it matches expectation.
@@ -2015,15 +1964,17 @@ std::string Message::Test()
 
 MessageDiscovery::MessageDiscovery(StreamPacket& packet, Time timeCode,
     StreamEndpoint endpoint, uint32_t serial)
-  : Message(packet, 3 * sizeof(uint32_t), timeCode, DISCOVERY)
+  : Message(packet, 5 * sizeof(uint32_t), timeCode, DISCOVERY)
 {
   // See if our subobject failed. If so, we're done.
   if (m_constructorStatus != OKAY) {
     return;
   }
 
-  // Pack our parameters.
+  // Pack our parameters, including the magic cookie and version.
   unsigned char* bufPtr = m_buffer->data() + m_offset + MESSAGE_BASE_SIZE;
+  memcpy(bufPtr, MAGIC_COOKIE, 4); bufPtr += 4;
+  memcpy(bufPtr, VERSION, 4); bufPtr += 4;
   memcpy(bufPtr, &endpoint.IP, sizeof(endpoint.IP)); bufPtr += sizeof(endpoint.IP);
   uint32_t portField = endpoint.port;
   memcpy(bufPtr, &portField, sizeof(portField)); bufPtr += sizeof(portField);
@@ -2038,28 +1989,48 @@ MessageDiscovery::MessageDiscovery(Message& baseMessage)
   if (type != DISCOVERY) {
     m_constructorStatus = BAD_PARAMETER;
   }
+
+  // Check the magic cookie.
+  unsigned char* bufPtr = m_buffer->data() + m_offset + MESSAGE_BASE_SIZE;
+  if (memcmp(bufPtr, MAGIC_COOKIE, 4) != 0) {
+    m_constructorStatus = BAD_COOKIE;
+  }
 }
 
-Status MessageDiscovery::GetEndpoint(StreamEndpoint& endpoint) const
+Status MessageDiscovery::GetVersion(uint8_t& major, uint16_t& minor, uint8_t& patch) const
 {
   if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE + 2 * sizeof(uint32_t)) {
     return READ_PAST_END;
   }
 
-  memcpy(&endpoint.IP, m_buffer->data() + m_offset + MESSAGE_BASE_SIZE, sizeof(endpoint.IP));
+  unsigned char *bufPtr = m_buffer->data() + m_offset + MESSAGE_BASE_SIZE + 4;
+  memcpy(&major, bufPtr, sizeof(major)); bufPtr += sizeof(major);
+  memcpy(&minor, bufPtr, sizeof(minor)); bufPtr += sizeof(minor);
+  memcpy(&patch, bufPtr, sizeof(patch)); bufPtr += sizeof(patch);
+
+  return OKAY;
+}
+
+Status MessageDiscovery::GetEndpoint(StreamEndpoint& endpoint) const
+{
+  if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE + 4 * sizeof(uint32_t)) {
+    return READ_PAST_END;
+  }
+
+  memcpy(&endpoint.IP, m_buffer->data() + m_offset + MESSAGE_BASE_SIZE + 2 * 4, sizeof(endpoint.IP));
 
   uint32_t portField;
-  memcpy(&portField, m_buffer->data() + m_offset + MESSAGE_BASE_SIZE + sizeof(uint32_t), sizeof(portField));
+  memcpy(&portField, m_buffer->data() + m_offset + MESSAGE_BASE_SIZE + 2 * 4 + sizeof(uint32_t), sizeof(portField));
   endpoint.port = portField;
   return OKAY;
 }
 
 Status MessageDiscovery::GetSerial(uint32_t& serial) const
 {
-  if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE + 3 * sizeof(uint32_t)) {
+  if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE + 5 * sizeof(uint32_t)) {
     return READ_PAST_END;
   }
-  memcpy(&serial, m_buffer->data() + m_offset + MESSAGE_BASE_SIZE + 2 * sizeof(uint32_t), sizeof(serial));
+  memcpy(&serial, m_buffer->data() + m_offset + MESSAGE_BASE_SIZE + 2 * 4 + 2 * sizeof(uint32_t), sizeof(serial));
   return OKAY;
 }
 
@@ -2087,9 +2058,9 @@ std::string MessageDiscovery::Test()
     if (status != OKAY) {
       return "Error checking message size for MessageDiscovery test: " + ErrorMessage(status);
     }
-    if (totalLength != STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE + 3 * sizeof(uint32_t)) {
+    if (totalLength != STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE + 5 * sizeof(uint32_t)) {
       return "Error constructing MessageDiscovery from buffer: packet length is not " +
-        std::to_string(STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE + 3 * sizeof(uint32_t)) + " but " +
+        std::to_string(STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE + 5 * sizeof(uint32_t)) + " but " +
         std::to_string(totalLength);
     }
 
@@ -2110,6 +2081,21 @@ std::string MessageDiscovery::Test()
     }
     if (type != DISCOVERY) {
       return "Error getting type from MessageDiscovery for MessageDiscovery test: type is not DISCOVERY";
+    }
+
+    // Check the version of the message
+    uint8_t major, patch;
+    uint16_t minor;
+    status = message.GetVersion(major, minor, patch);
+    if (status != OKAY) {
+      return "Error getting version from MessageDiscovery for MessageDiscovery test: " + ErrorMessage(status);
+    }
+    uint16_t sysMajor, sysPatch;
+    uint16_t sysMinor;
+    UnpackVersion(VERSION, sysMajor, sysMinor, sysPatch);
+    if (major != sysMajor || minor != sysMinor || patch != sysPatch) {
+      return "Error getting version from MessageDiscovery for MessageDiscovery test: version is not " +
+        std::to_string(sysMajor) + "." + std::to_string(sysMinor) + "." + std::to_string(sysPatch);
     }
 
     // Check the values of the message
@@ -4654,8 +4640,8 @@ Status ReceiverFile::ReceiveCommandPacket(double timeout_seconds, std::shared_pt
   }
 
   // Get the packet header up through the field that records the length.
-  if (m_maxLen < 3 * sizeof(uint32_t)) {
-    return WRITE_PAST_END;
+  if (m_maxLen < PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t)) {
+    return READ_PAST_END;
   }
   std::shared_ptr<std::vector<uint8_t>> buffer = std::make_shared<std::vector<uint8_t>>(m_maxLen);
   m_file->read(reinterpret_cast<char*>(buffer->data()), PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t));
@@ -4667,7 +4653,7 @@ Status ReceiverFile::ReceiveCommandPacket(double timeout_seconds, std::shared_pt
   uint32_t length;
   memcpy(&length, buffer->data() + PACKET_HEADER_TOTAL_SIZE_OFFSET, sizeof(length));
   if (length > m_maxLen) {
-    return WRITE_PAST_END;
+    return READ_PAST_END;
   }
 
   // Read the rest of the packet.
@@ -4701,8 +4687,8 @@ Status ReceiverFile::ReceiveStreamPacket(double timeout_seconds, std::shared_ptr
   }
 
   // Get the packet header up through the field that records the length.
-  if (m_maxLen < 3 * sizeof(uint32_t)) {
-    return WRITE_PAST_END;
+  if (m_maxLen < PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t)) {
+    return READ_PAST_END;
   }
   std::shared_ptr<std::vector<uint8_t>> buffer = std::make_shared<std::vector<uint8_t>>(m_maxLen);
   m_file->read(reinterpret_cast<char*>(buffer->data()), PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t));
@@ -4714,7 +4700,7 @@ Status ReceiverFile::ReceiveStreamPacket(double timeout_seconds, std::shared_ptr
   uint32_t length;
   memcpy(&length, buffer->data() + PACKET_HEADER_TOTAL_SIZE_OFFSET, sizeof(length));
   if (length > m_maxLen) {
-    return WRITE_PAST_END;
+    return READ_PAST_END;
   }
 
   // Read the rest of the packet.
@@ -4858,6 +4844,517 @@ std::string ReceiverFile::Test()
   remove("deleteme.bin");
 
   return "";
+}
+
+SenderReceiverTCP::SenderReceiverTCP(std::string host, uint16_t port)
+  : SenderReceiverTCP(StreamEndpoint(host, port))
+{
+}
+
+SenderReceiverTCP::SenderReceiverTCP(const StreamEndpoint& endpoint)
+  : Receiver(65535)
+  , m_socket(std::make_shared<Socket>())
+  , m_IP(0)
+  , m_port(0)
+{
+  // Problem if the enpoint has been set to all zeros.
+  if (endpoint.IP == 0) {
+    Receiver::m_constructorStatus = BAD_PARAMETER;
+    return;
+  }
+
+  // Set up to bind to a local socket that uses any available port on the interface that would be
+  // used to send to the requested address.  The assumption is that we're on the same sublan as the
+  // host we're sending to, so we can do a best match between all of our NIC addresses and the server
+  // address to determine which one we should use.
+
+  // Open the socket to use for sending TCP packets.
+  m_socket->socket = socket(AF_INET, SOCK_STREAM, 0);
+  if (m_socket->socket == BAD_SOCKET) {
+    Receiver::m_constructorStatus = BAD_PARAMETER;
+    return;
+  }
+
+  // Find the list of our NIC addresses.
+  std::vector<uint32_t> localIPs = GetLocalIPs();
+  if (localIPs.size() == 0) {
+    Receiver::m_constructorStatus = SOCKET_FAILURE;
+    return;
+  }
+
+  // Find the entry from our list of addresses that most closely matches the address we're sending to.
+  uint32_t bestMatch = 0;
+  uint32_t bestMatchCount = 0;
+  for (uint32_t localIP : localIPs) {
+    uint32_t count = 0;
+    for (uint32_t mask = 0x80000000; mask != 0; mask >>= 1) {
+      if ((localIP & mask) == (htonl(endpoint.IP) & mask)) {
+        count++;
+      }
+    }
+    if (count > bestMatchCount) {
+      bestMatch = localIP;
+      bestMatchCount = count;
+    }
+  }
+
+  // Bind to the best match.
+  struct sockaddr_in addr;
+  memset(&addr, 0, sizeof(addr));
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = bestMatch;
+  addr.sin_port = 0;
+
+  // Bind the socket to use the requested interface and any port.  Then find out
+  // what port we are using.
+  if (0 != bind(m_socket->socket, (struct sockaddr*)&addr, sizeof(addr))) {
+    Receiver::m_constructorStatus = SOCKET_FAILURE;
+    m_socket.reset();
+    return;
+  }
+  socklen_t sockLen = sizeof(addr);
+  if (0 != getsockname(m_socket->socket, (struct sockaddr*)&addr, &sockLen)) {
+    Receiver::m_constructorStatus = SOCKET_FAILURE;
+    m_socket.reset();
+    return;
+  }
+
+  // Record the IP address of our NIC and the port we are using to send on.
+  // Convert the IP address and port to host byte order.
+  m_IP = ntohl(addr.sin_addr.s_addr);
+  m_port = ntohs(addr.sin_port);
+
+  // Connect the socket to the specified host and to the port we want to use.
+  // The address is already in network byte order, just convert the port.
+  memset(&addr, 0, sizeof(addr));
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = addr.sin_addr.s_addr;
+  addr.sin_port = htons(endpoint.port);
+  if (0 != connect(m_socket->socket, (struct sockaddr*)&addr, sizeof(addr))) {
+    Receiver::m_constructorStatus = SOCKET_FAILURE;
+    m_socket.reset();
+    return;
+  }
+
+  // Set the socket options.
+  Receiver::m_constructorStatus = SetSocketOptions();
+}
+
+Status SenderReceiverTCP::SetSocketOptions()
+{
+  // Turn on TCP_NODELAY for the socket so it sends data immediately rather than waiting
+  // to piggy-back on a response.
+  int flag = 1;
+  if (0 != setsockopt(m_socket->socket, IPPROTO_TCP, TCP_NODELAY, (char*)&flag, sizeof(flag))) {
+    return SOCKET_FAILURE;
+  }
+
+  return OKAY;
+}
+
+SenderReceiverTCP::SenderReceiverTCP(std::shared_ptr<Socket> socket, uint32_t IP, uint16_t port)
+  : Receiver(65535)
+  , m_socket(socket)
+  , m_IP(IP)
+  , m_port(port)
+{
+  // Make sure we have a valid socket.
+  if ((m_socket == nullptr) || (m_socket->socket == BAD_SOCKET)) {
+    Receiver::m_constructorStatus = BAD_PARAMETER;
+    return;
+  }
+
+  // Set our options for the socket.
+  Receiver::m_constructorStatus = SetSocketOptions();
+}
+
+Status SenderReceiverTCP::GetIP(uint32_t& IP) const
+{
+  // Make sure we have a valid socket.
+  if ((m_socket == nullptr) || (m_socket->socket == BAD_SOCKET)) {
+    return Receiver::m_constructorStatus;
+  }
+
+  // Return the IP address.
+  IP = m_IP;
+  return OKAY;
+}
+
+Status SenderReceiverTCP::GetPort(uint16_t& port) const
+{
+  // Make sure we have a valid socket.
+  if ((m_socket == nullptr) || (m_socket->socket == BAD_SOCKET)) {
+    return Receiver::m_constructorStatus;
+  }
+
+  // Return the port.
+  port = m_port;
+  return OKAY;
+}
+
+Status SenderReceiverTCP::Send(const void* buffer, uint32_t length)
+{
+  // Check our parameters
+  if (buffer == nullptr) {
+    return BAD_PARAMETER;
+  }
+
+  // Make sure we have a valid socket.
+  if ((m_socket == nullptr) || (m_socket->socket == BAD_SOCKET)) {
+    return Receiver::m_constructorStatus;
+  }
+
+  // Send the data.
+  int result = send(m_socket->socket, (const char*)buffer, length, 0);
+  if (result == SOCKET_ERROR) {
+    return SOCKET_FAILURE;
+  }
+
+  // Everything worked.
+  return OKAY;
+}
+
+Status SenderReceiverTCP::SendCommandPacket(const CommandPacket& packet)
+{
+  // Make sure we have a valid socket.
+  if ((m_socket == nullptr) || (m_socket->socket == BAD_SOCKET)) {
+    return Receiver::m_constructorStatus;
+  }
+
+  // Send the data.
+  int result = send(m_socket->socket, (const char*)packet.m_buffer->data(), packet.m_buffer->size(), 0);
+  if (result == SOCKET_ERROR) {
+    return SOCKET_FAILURE;
+  }
+
+  // Everything worked.
+  return OKAY;
+}
+
+Status SenderReceiverTCP::SendStreamPacket(const StreamPacket& packet)
+{
+  // Make sure we have a valid socket.
+  if ((m_socket == nullptr) || (m_socket->socket == BAD_SOCKET)) {
+    return Receiver::m_constructorStatus;
+  }
+
+  // Find out how large the data in the packet is.
+  uint32_t length;
+  Status status = packet.GetTotalLength(length);
+  if (status != OKAY) {
+    return status;
+  }
+
+  // Send the data.
+  int result = send(m_socket->socket, (const char*)packet.m_buffer->data(), length, 0);
+  if (result == SOCKET_ERROR) {
+    return SOCKET_FAILURE;
+  }
+
+  // Everything worked.
+  return OKAY;
+}
+
+Status SenderReceiverTCP::IsPacketAvailable(double timeout_seconds, bool& available)
+{
+  // Make sure we have a valid socket.
+  if ((m_socket == nullptr) || (m_socket->socket == BAD_SOCKET)) {
+    return Receiver::m_constructorStatus;
+  }
+
+  // Set up the timeout.
+  struct timeval timeout;
+  timeout.tv_sec = (long)timeout_seconds;
+  timeout.tv_usec = (long)((timeout_seconds - (long)timeout_seconds) * 1000000);
+
+  // Set up the file descriptor set.
+  fd_set fds;
+  FD_ZERO(&fds);
+  FD_SET(m_socket->socket, &fds);
+
+  // Wait for the socket to be ready.
+  int result = select(m_socket->socket + 1, &fds, nullptr, nullptr, &timeout);
+  if (result == SOCKET_ERROR) {
+    return SOCKET_FAILURE;
+  }
+
+  // Check if the socket is ready.
+  available = (result > 0);
+  return OKAY;
+}
+
+Status SenderReceiverTCP::ReceiveBuffer(std::vector<uint8_t>& buffer)
+{
+  // Make sure we have a valid socket.
+  if ((m_socket == nullptr) || (m_socket->socket == BAD_SOCKET)) {
+    return Receiver::m_constructorStatus;
+  }
+
+  // Receive the data.
+  int length = recv(m_socket->socket, reinterpret_cast<char*>(buffer.data()), buffer.size(), 0);
+  if (length == SOCKET_ERROR) {
+    return SOCKET_READ_FAILURE;
+  }
+  if (length != buffer.size()) {
+    return SOCKET_READ_FAILURE;
+  }
+
+  // Everything worked.
+  return OKAY;
+}
+
+Status SenderReceiverTCP::ReceiveCommandPacket(double timeout_seconds, std::shared_ptr<CommandPacket>& packet)
+{
+  // See if we have a packet available.
+  bool available;
+  Status status = IsPacketAvailable(timeout_seconds, available);
+  if (status != OKAY) {
+    return status;
+  }
+  if (!available) {
+    return TIMEOUT;
+  }
+
+  // Get the packet header up through the field that records the length.
+  if (m_maxLen < PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t)) {
+    return READ_PAST_END;
+  }
+  std::shared_ptr<std::vector<uint8_t>> buffer = std::make_shared<std::vector<uint8_t>>(m_maxLen);
+  int len = recv(m_socket->socket, reinterpret_cast<char*>(buffer->data()),
+    PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t), 0);
+  if (len != PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t)) {
+    return SOCKET_READ_FAILURE;
+  }
+
+  // Find the length of the packet.
+  uint32_t length;
+  memcpy(&length, buffer->data() + PACKET_HEADER_TOTAL_SIZE_OFFSET, sizeof(length));
+  if (length > m_maxLen) {
+    return READ_PAST_END;
+  }
+
+  // Read the rest of the packet.
+  len = recv(m_socket->socket,
+    reinterpret_cast<char*>(buffer->data()) + PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t),
+    length - PACKET_HEADER_TOTAL_SIZE_OFFSET - sizeof(uint32_t), 0);
+  if (len != length - PACKET_HEADER_TOTAL_SIZE_OFFSET - sizeof(uint32_t)) {
+    return SOCKET_READ_FAILURE;
+  }
+
+  // Construct the packet using the buffer.
+  CommandPacket* commandPacketPtr = new CommandPacket(buffer);
+  packet.reset(commandPacketPtr);
+  if (packet->GetConstructorStatus() != OKAY) {
+    return packet->GetConstructorStatus();
+  }
+
+  // Everything worked.
+  return OKAY;
+}
+
+Status SenderReceiverTCP::ReceiveStreamPacket(double timeout_seconds, std::shared_ptr<StreamPacket>& packet)
+{
+  // See if we have a packet available.
+  bool available;
+  Status status = IsPacketAvailable(timeout_seconds, available);
+  if (status != OKAY) {
+    return status;
+  }
+  if (!available) {
+    return TIMEOUT;
+  }
+
+  // Get the packet header up through the field that records the length.
+  if (m_maxLen < PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t)) {
+    return WRITE_PAST_END;
+  }
+  std::shared_ptr<std::vector<uint8_t>> buffer = std::make_shared<std::vector<uint8_t>>(m_maxLen);
+  int len = recv(m_socket->socket, reinterpret_cast<char*>(buffer->data()),
+       PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t), 0);
+  if (len != PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t)) {
+    return SOCKET_READ_FAILURE;
+  }
+
+  // Find the length of the packet.
+  uint32_t length;
+  memcpy(&length, buffer->data() + PACKET_HEADER_TOTAL_SIZE_OFFSET, sizeof(length));
+  if (length > m_maxLen) {
+    return WRITE_PAST_END;
+  }
+
+  // Read the rest of the packet.
+  len = recv(m_socket->socket,
+       reinterpret_cast<char*>(buffer->data()) + PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t),
+       length - PACKET_HEADER_TOTAL_SIZE_OFFSET - sizeof(uint32_t), 0);
+  if (len != length - PACKET_HEADER_TOTAL_SIZE_OFFSET - sizeof(uint32_t)) {
+    return SOCKET_READ_FAILURE;
+  }
+
+  // Construct the packet using the buffer.
+  StreamPacket* streamPacketPtr = new StreamPacket(buffer);
+  packet.reset(streamPacketPtr);
+  if (packet->GetConstructorStatus() != OKAY) {
+    return packet->GetConstructorStatus();
+  }
+
+  // Everything worked.
+  return OKAY;
+}
+
+TCPListener::TCPListener(const StreamEndpoint& endpoint, uint32_t numListeners)
+  : m_constructorStatus(OKAY)
+  , m_socket(std::make_shared<Socket>())
+  , m_IP(endpoint.IP)
+  , m_port(endpoint.port)
+{
+  // Open the socket to use for receiving TCP connections.
+  m_socket->socket = socket(AF_INET, SOCK_STREAM, 0);
+  if (m_socket->socket == BAD_SOCKET) {
+    m_constructorStatus = BAD_PARAMETER;
+    m_socket.reset();
+    return;
+  }
+
+  // Bind the socket to the specified NIC and port.
+  struct sockaddr_in addr;
+  memset(&addr, 0, sizeof(addr));
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = htonl(endpoint.IP);
+  addr.sin_port = htons(endpoint.port);
+  if (0 != bind(m_socket->socket, (struct sockaddr*)&addr, sizeof(addr))) {
+    m_constructorStatus = SOCKET_FAILURE;
+    m_socket.reset();
+    return;
+  }
+
+  // If we didn't specify a port, get the port we were assigned by the bind.
+  if (m_port == 0) {
+    struct sockaddr_in sin;
+    socklen_t len = sizeof(sin);
+    if (getsockname(m_socket->socket, (struct sockaddr*)&sin, &len) == -1) {
+      m_constructorStatus = SOCKET_FAILURE;
+      m_socket.reset();
+      return;
+    }
+    m_port = ntohs(sin.sin_port);
+  }
+
+  // Listen on the socket for incoming connections.
+  if (0 != listen(m_socket->socket, numListeners)) {
+    m_constructorStatus = SOCKET_FAILURE;
+    m_socket.reset();
+    return;
+  }
+}
+
+Status TCPListener::AcceptConnection(std::shared_ptr<SenderReceiverTCP>& newConnection, float timeoutSeconds)
+{
+  // Clear the connection in case of trouble or timeout below.
+  newConnection.reset();
+
+  // Make sure we have a valid socket.
+  if ((m_socket == nullptr) || (m_socket->socket == BAD_SOCKET)) {
+    return m_constructorStatus;
+  }
+
+  // Set up the timeout.
+  struct timeval timeout;
+  timeout.tv_sec = (long)timeoutSeconds;
+  timeout.tv_usec = (long)((timeoutSeconds - (long)timeoutSeconds) * 1000000);
+
+  // Set up the file descriptor set.
+  fd_set fds;
+  FD_ZERO(&fds);
+  FD_SET(m_socket->socket, &fds);
+
+  // Wait for the socket to be ready.
+  int result = select(m_socket->socket + 1, &fds, nullptr, nullptr, &timeout);
+  if (result == SOCKET_ERROR) {
+    return SOCKET_FAILURE;
+  }
+
+  // Check if the socket is ready.
+  if (result == 0) {
+    return TIMEOUT;
+  }
+
+  // Accept the connection.
+  struct sockaddr_in addr;
+  socklen_t len = sizeof(addr);
+  std::shared_ptr<Socket> socket;
+  socket->socket = accept(m_socket->socket, (struct sockaddr*)&addr, &len);
+  if (socket->socket == BAD_SOCKET) {
+    return SOCKET_FAILURE;
+  }
+
+  // Create a new SenderReceiverTCP object for the new connection.
+  SenderReceiverTCP* pSRTCP = new SenderReceiverTCP(socket, ntohl(addr.sin_addr.s_addr), ntohs(addr.sin_port));
+  newConnection.reset(pSRTCP);
+  if (newConnection->GetConstructorStatus() != OKAY) {
+    return newConnection->GetConstructorStatus();
+  }
+
+  // Everything worked.
+  return OKAY;
+}
+
+Status TCPListener::GetPort(uint16_t& port) const
+{
+  // Make sure we have a valid socket.
+  if ((m_socket == nullptr) || (m_socket->socket == BAD_SOCKET)) {
+    return m_constructorStatus;
+  }
+
+  // Return the port.
+  port = m_port;
+  return OKAY;
+}
+
+std::string TCPListener::Test()
+{
+  Status status;
+
+  // Create a listener.
+  TCPListener listener(StreamEndpoint("localhost", 0));
+  if (listener.GetConstructorStatus() != OKAY) {
+    return "Error constructing TCPListener: " + ErrorMessage(listener.GetConstructorStatus());
+  }
+  status = listener.GetConstructorStatus();
+  if (status != OKAY) {
+    return "Error constructing TCPListener: " + ErrorMessage(status);
+  }
+
+  // Find the port we are using.
+  uint16_t port;
+  status = listener.GetPort(port);
+  if (status != OKAY) {
+    return "Error getting port from TCPListener: " + ErrorMessage(status);
+  }
+
+  // Create a SenderReceiverTCP object to connect to the listener.
+  SenderReceiverTCP senderReceiver(StreamEndpoint("localhost", port));
+  if (senderReceiver.GetConstructorStatus() != OKAY) {
+    return "Error constructing SenderReceiverTCP: " + ErrorMessage(senderReceiver.GetConstructorStatus());
+  }
+
+  // Wait for the connection to be accepted.
+  std::shared_ptr<SenderReceiverTCP> newConnection;
+  status = listener.AcceptConnection(newConnection, 0.5);
+  if (status != OKAY) {
+    return "Error accepting connection: " + ErrorMessage(status);
+  }
+  if (newConnection == nullptr) {
+    return "Empty connection";
+  }
+
+  // Send a CommandPacket and make sure it is received.
+  /// @todo
+
+  // Send a StreamPacket and make sure it is received.
+  /// @todo
+
+
+  return "@todo";
 }
 
 StreamWriter::StreamWriter(std::shared_ptr<Sender> sender,
@@ -6285,6 +6782,10 @@ std::string asdp::Test()
   ret = ReceiverFile::Test();
   if (ret.size() > 0) {
     return "Error testing File send/receive: " + ret;
+  }
+  ret = TCPListener::Test();
+  if (ret.size() > 0) {
+    return "Error testing TCP send/receive: " + ret;
   }
 
   //-------------------------------------------------------------------

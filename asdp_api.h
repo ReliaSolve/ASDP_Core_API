@@ -397,9 +397,9 @@ protected:
   BasicPacket& operator=(BasicPacket&&) = delete;
 
   /// @brief Construct a basic packet with its own buffer and fill its values in.
-  /// @param [in] extraHeaderSize Size of the header portion of the packet beyond the basic header size.
-  /// @param [in] parameterSize Size of the parameter portion of the packet after the base size.
-  BasicPacket(uint32_t extraHeaderSize, uint32_t parameterSize);
+  /// @param [in] extraHeaderSize Size of the packet beyond the basic packet size.
+  /// This includes all extra header information and the parameter portion of the packet.
+  BasicPacket(uint32_t extraSize);
 
   /// @brief Construct a basic packet that shares a buffer with another packet.
   ///
@@ -427,7 +427,7 @@ protected:
 //---------------------------------------------------------------------------
 /// @brief Command packet, subclass constructed and sent by clients and received and parsed by server.
 ///
-/// The command packet is a UDP packet sent by a client to a server.  It contains an operation code
+/// The command packet is a command sent by a client to a server.  It contains an operation code
 /// and optional parameters.  The server receives the packet, parses it, and executes the operation.
 /// These packets are sent using the Sender class and received using the Receiver class.
 /// They are created on a client by constructing a subclass.  They are parsed on a server from a
@@ -485,6 +485,7 @@ protected:
   friend class SenderFile;
   friend class ReceiverUDP;
   friend class ReceiverFile;
+  friend class SenderReceiverTCP;
 
   friend class CommandPacketReset;
   friend class CommandPacketStartRecording;
@@ -761,6 +762,7 @@ struct SubregionDescription {
       right == other.right &&
       bottom == other.bottom;
   };
+
   /// @brief Inequality operator.
   bool operator !=(const SubregionDescription& other) const {
     return !(*this == other);
@@ -936,7 +938,7 @@ class Message;   // Forward declaration
 //---------------------------------------------------------------------------
 /// @brief Stream packet, subclass constructed and sent by servers and received and parsed by clients.
 ///
-/// The stream packet is a UDP packet sent by a server to a client.  It contains zero or more
+/// The stream packet is a packet full of messages sent by a server to a client.  It contains zero or more
 /// Messages.  The client receives the packet, parses it, and handles the messages.
 /// These packets are sent using a Sender class and received using a Receiver class.
 /// They are created on a server by constructing a subclass.  They are parsed on a client from a
@@ -999,6 +1001,7 @@ protected:
   friend class SenderFile;
   friend class ReceiverUDP;
   friend class ReceiverFile;
+  friend class SenderReceiverTCP;
 
   friend class StreamWriter;
 
@@ -1043,11 +1046,6 @@ public:
   /// @return OKAY if successful, otherwise an error code.
   Status GetTotalSize(uint32_t& size) const;
 
-  /// @brief Get the header size of the message a packed into the message itself.
-  /// @param [out] size Number of bytes in the header before the Message Type is encoded.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetHeaderSize(uint32_t& size) const;
-
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
   static std::string Test();
@@ -1087,6 +1085,13 @@ public:
   /// @brief Type-cast a base Message into a MessageDiscovery packet, re-using its buffer.
   /// @param [in] baseMessage The base Message to convert from.
   MessageDiscovery(Message& baseMessage);
+
+  /// @brief Get the version of the system.
+  /// @param [out] major Major version number.
+  /// @param [out] minor Minor version number.
+  /// @param [out] patch Patch version number.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetVersion(uint8_t &major, uint16_t &minor, uint8_t &patch) const;
 
   /// @brief Get the endpoint to send commands to.
   /// @param [out] endpoint Endpoint to send commands to.
@@ -1571,7 +1576,7 @@ public:
   /// @param [in] broadcast Whether to use the broadcast address from the specified address.
   SenderUDP(const StreamEndpoint& endpoint, bool broadcast = false);
 
-  /// @brief Send a UDP packet.
+  /// @brief Send a buffer full of data.
   /// @param [in] buffer Pointer to the buffer containing the packet to send.
   /// @param [in] length Length of the packet to send.
   /// @return OKAY if successful, otherwise an error code.
@@ -1615,7 +1620,7 @@ public:
   /// @brief Destructor.
   ~SenderFile() override;
 
-  /// @brief Send a UDP packet.
+  /// @brief Send a buffer full of data.
   /// @param [in] buffer Pointer to the buffer containing the packet to send.
   /// @param [in] length Length of the packet to send.
   /// @return OKAY if successful, otherwise an error code.
@@ -1648,7 +1653,7 @@ public:
   virtual ~Receiver() {};
 
   /// @brief See if a packet is available to receive.
-  /// 
+  ///
   /// This is not usually called by the calling program, which will call one of the ReceivePacket() functions
   /// for CommandPacket or StreamPacket instead.
   /// @param [in] timeout_seconds Timeout in seconds to wait for a packet.
@@ -1657,7 +1662,7 @@ public:
   virtual Status IsPacketAvailable(double timeout_seconds, bool& available) = 0;
 
   /// @brief Receive a packet, hanging until one is available.
-  /// 
+  ///
   /// This is not usually called by the calling program, which will call one of the ReceivePacket() functions
   /// for CommandPacket or StreamPacket instead.
   /// Use IsPacketAvailable() to see if a packet is available before calling this function.
@@ -1708,7 +1713,7 @@ public:
   Status GetPort(uint16_t& port) const { port = m_port;  return OKAY; }
 
   /// @brief See if a packet is available to receive.
-  /// 
+  ///
   /// This is not usually called by the calling program, which will call one of the ReceivePacket() functions
   /// for CommandPacket or StreamPacket instead.
   /// @param [in] timeout_seconds Timeout in seconds to wait for a packet.
@@ -1717,7 +1722,7 @@ public:
   Status IsPacketAvailable(double timeout_seconds, bool& available) override;
 
   /// @brief Receive a packet, hanging until one is available.
-  /// 
+  ///
   /// This is not usually called by the calling program, which will call one of the ReceivePacket() functions
   /// for CommandPacket or StreamPacket instead.
   /// Use IsPacketAvailable() to see if a packet is available before calling this function.
@@ -1759,7 +1764,7 @@ public:
   ReceiverFile(std::string fileName, uint32_t maxLen = 9000 - 28);
 
   /// @brief See if a packet is available to receive.
-  /// 
+  ///
   /// This is not usually called by the calling program, which will call one of the ReceivePacket() functions
   /// for CommandPacket or StreamPacket instead.
   /// @param [in] timeout_seconds Timeout in seconds to wait for a packet.
@@ -1768,7 +1773,7 @@ public:
   Status IsPacketAvailable(double timeout_seconds, bool& available) override;
 
   /// @brief Receive a packet, hanging until one is available.
-  /// 
+  ///
   /// This is not usually called by the calling program, which will call one of the ReceivePacket() functions
   /// for CommandPacket or StreamPacket instead.
   /// Use IsPacketAvailable() to see if a packet is available before calling this function.
@@ -1799,6 +1804,141 @@ public:
 
 protected:
   std::shared_ptr<std::ifstream> m_file;    ///< Pointer to the file object to read from.
+};
+
+//---------------------------------------------------------------------------
+/// @brief Class used to send and receive via TCP. Used internally by CoreClient and CoreServer.
+///
+/// The class constructors are used to create a connection to a specified endpoint.  To
+/// listen on a port for incoming TCP connections, use the TCPListener factory class to
+/// construct one or more of these objects.
+
+class SenderReceiverTCP : public Sender, public Receiver {
+public:
+  //=================================================================================
+  // Sender overrides
+
+  /// @brief Construct a SenderReceiverTCP object that will connect to a specific endpoint.
+  /// @param [in] host Name of the host to connect to.
+  /// @param [in] port Port number to connect to.
+  SenderReceiverTCP(std::string host, uint16_t port);
+
+  /// @brief Construct a SenderReceiverTCP object that will connect to a specific endpoint.
+  /// @param [in] endpoint Endpoint to connect to.
+  SenderReceiverTCP(const StreamEndpoint& endpoint);
+
+  Status GetConstructorStatus() const override { return Receiver::m_constructorStatus; }
+
+  /// @brief Send a buffer full of data.
+  /// @param [in] buffer Pointer to the buffer containing the packet to send.
+  /// @param [in] length Length of the packet to send.
+  /// @return OKAY if successful, otherwise an error code.
+  Status Send(const void* buffer, uint32_t length) override;
+
+  /// @brief Send a CommandPacket.
+  /// @param [in] packet CommandPacket to send.
+  /// @return OKAY if successful, otherwise an error code.
+  Status SendCommandPacket(const CommandPacket& packet) override;
+
+  /// @brief Send a StreamPacket.
+  /// @param [in] packet StreamPacket to send.
+  /// @return OKAY if successful, otherwise an error code.
+  Status SendStreamPacket(const StreamPacket& packet) override;
+
+  /// @brief Get the local IP address associated with this sender.
+  /// @param [out] IP local IP address associated with this sender in host byte order.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetIP(uint32_t& IP) const;
+
+  /// @brief Get the local port associated with this sender, which will be determined by the OS.
+  /// @param [out] port Local port associated with this sender in host byte order.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetPort(uint16_t& port) const;
+
+  //=================================================================================
+  // Receiver overrides not already covered above (GetPort overrides both)
+
+  /// @brief See if a packet is available to receive.
+  ///
+  /// This is not usually called by the calling program, which will call one of the ReceivePacket() functions
+  /// for CommandPacket or StreamPacket instead.
+  /// @param [in] timeout_seconds Timeout in seconds to wait for a packet.
+  /// @param [out] available True if a packet is available, false if not.
+  /// @return OKAY if successful, otherwise an error code.
+  Status IsPacketAvailable(double timeout_seconds, bool& available) override;
+
+  /// @brief Receive a packet, hanging until one is available.
+  ///
+  /// This is not usually called by the calling program, which will call one of the ReceivePacket() functions
+  /// for CommandPacket or StreamPacket instead.
+  /// Use IsPacketAvailable() to see if a packet is available before calling this function.
+  /// @param [inout] buffer A buffer to fill in with the incoming packet.  It must be large enough
+  /// to receive the entire packet.  If it is too small, the packet will be truncated and BUFFER_TOO_SMALL
+  /// will be returned.
+  /// @return OKAY if successful, otherwise an error code.
+  Status ReceiveBuffer(std::vector<uint8_t>& buffer) override;
+
+  /// @brief Allocates a new CommandPacket and fills it in with the received data.
+  /// @param [in] timeout_seconds Timeout in seconds to wait for a packet.
+  /// @param [out] packet The received CommandPacket, nullptr if timeout or error.
+  /// @return OKAY if successful, TIMEOUT on timeout, otherwise an error code.
+  Status ReceiveCommandPacket(double timeout_seconds, std::shared_ptr<CommandPacket>& packet) override;
+
+  /// @brief Allocates a new StreamPacket and fills it in with the received data.
+  /// @param [in] timeout_seconds Timeout in seconds to wait for a packet.
+  /// @param [out] packet The received StreamPacket, nullptr if timeout or error.
+  /// @return OKAY if successful, TIMEOUT on timeout, otherwise an error code.
+  Status ReceiveStreamPacket(double timeout_seconds, std::shared_ptr<StreamPacket>& packet) override;
+
+protected:
+  std::shared_ptr<Socket> m_socket; ///< Pointer to the socket object to use to do our work.
+  uint32_t m_IP;                    ///< IP address to send to.
+  uint16_t m_port;                  ///< Port number to send to.
+
+  /// @brief Constuctor used by TCPListener to create a new connection.
+  SenderReceiverTCP(std::shared_ptr<Socket> socket, uint32_t IP, uint16_t port);
+
+  /// @brief Set the socket behavior to be low latency and anyting else desired.
+  /// @return OKAY if successful, otherwise an error code.
+  Status SetSocketOptions();
+
+  friend class TCPListener;
+};
+
+//---------------------------------------------------------------------------
+/// @brief Class used to listen for incoming TCP connections.
+
+class TCPListener {
+public:
+  /// @brief Construct a TCPListener object that will listen on a specific endpoint.
+  /// @param [in] endpoint Endpoint to listen on.
+  /// @param [in] numListeners Number of incoming simulataneous connections to allow.
+  TCPListener(const StreamEndpoint& endpoint, uint32_t numListeners = 2);
+
+  /// @brief Return the status of the constructor.
+  /// @return Constructor status.
+  Status GetConstructorStatus() const { return m_constructorStatus; }
+
+  /// @brief Get the local port associated with this sender, which will be determined by the OS.
+  /// @param [out] port Local port associated with this sender in host byte order.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetPort(uint16_t& port) const;
+
+  /// @brief Accept an incoming connection and return a new connection.
+  /// @param [out] newConnection Pointer to the new connection object.  Is nullptr on timeout or error.
+  /// @param [in] timeoutSeconds Timeout in seconds to wait for a connection.
+  /// @return OKAY if successful, TIMEOUT on timeout, otherwise an error code.
+  Status AcceptConnection(std::shared_ptr<SenderReceiverTCP> &newConnection, float timeoutSeconds);
+
+  /// @brief Test function for both this class and the SenderReceiverTCP class.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
+
+protected:
+  Status m_constructorStatus;       ///< Reports any errors during construction
+  std::shared_ptr<Socket> m_socket; ///< Pointer to the socket object to use to do our work.
+  uint32_t m_IP;                    ///< IP address to send to.
+  uint16_t m_port;                  ///< Port number to send to.
 };
 
 //---------------------------------------------------------------------------
