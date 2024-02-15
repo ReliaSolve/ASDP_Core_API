@@ -5818,13 +5818,13 @@ void CoreServer::DiscoveryThread()
             status = newConnection->ReceiveBuffer(receiveBuffer);
             if (status != OKAY) {
               newConnection.reset();
-            } else if (memcmp(VERSION, receiveBuffer.data(), 4)) {
-              /// @todo Later, be able to handle different minor/patch versions.
-              newConnection.reset();
             } else {
               // We have established a new connection, keep track of it.
+              std::shared_ptr<ClientInfo> SI = std::make_shared<ClientInfo>();
+              UnpackVersion(receiveBuffer.data(), SI->major, SI->minor, SI->patch);
+              SI->stream = newConnection;
               std::lock_guard<std::recursive_mutex> lock(m_mutex);
-              m_newStreams.push_back(newConnection);
+              m_newStreams.push_back(SI);
             }
           }
         }
@@ -5835,14 +5835,14 @@ void CoreServer::DiscoveryThread()
   m_threadStatus = THREAD_COMPLETED;
 }
 
-Status CoreServer::GetNewTCPLinks(std::vector<std::shared_ptr<SenderReceiverTCP>>& newLinks)
+Status CoreServer::GetNewTCPLinks(std::vector< std::shared_ptr<ClientInfo> >& newLinks)
 {
   if (m_constructorStatus != OKAY) {
     return m_constructorStatus;
   }
 
   std::lock_guard<std::recursive_mutex> lock(m_mutex);
-  std::vector<std::shared_ptr<SenderReceiverTCP>> ret;
+  std::vector< std::shared_ptr<ClientInfo> > ret;
   for (size_t i = 0; i < m_newStreams.size(); i++) {
     ret.push_back(m_newStreams[i]);
   }
@@ -6252,7 +6252,7 @@ std::string CoreClient::Test()
   // Get a list of new connections to the server, which should have one entry
   // after waiting a quarter second.
   std::this_thread::sleep_for(std::chrono::milliseconds(250));
-  std::vector<std::shared_ptr<SenderReceiverTCP>> newLinks;
+  std::vector< std::shared_ptr<CoreServer::ClientInfo> > newLinks;
   status = coreServer.GetNewTCPLinks(newLinks);
   if (status != OKAY) {
     return "Error getting new TCP links: " + ErrorMessage(status);
@@ -6269,7 +6269,7 @@ std::string CoreClient::Test()
 
   // Receive the CommandPacketReset on the CoreServer.
   std::shared_ptr<CommandPacket> receiveCommandPacket;
-  status = newLinks[0]->ReceiveCommandPacket(0.5, receiveCommandPacket);
+  status = newLinks[0]->stream->ReceiveCommandPacket(0.5, receiveCommandPacket);
   if (status != OKAY) {
     return "Error receiving CommandPacketReset: " + ErrorMessage(status);
   }
@@ -6304,7 +6304,7 @@ std::string CoreClient::Test()
   }
 
   // Send a Message from the server to the client and make sure it is received.
-  StreamWriter streamWriter(newLinks[0]);
+  StreamWriter streamWriter(newLinks[0]->stream);
   std::shared_ptr<StreamPacket> packet;
   status = streamWriter.GetCurrentPacket(packet);
   if (status != OKAY) {
@@ -6545,21 +6545,27 @@ std::string CoreServerBase::run()
     }
 
     // Add any new clients to our active list.
-    std::vector<std::shared_ptr<SenderReceiverTCP>> newClients;
+    std::vector<std::shared_ptr<ClientInfo>> newClients;
     status = GetNewTCPLinks(newClients);
     if (status != OKAY) {
       return "Failed to get new TCP links: " + ErrorMessage(status);
     }
-    m_clients.insert(m_clients.end(), newClients.begin(), newClients.end());
+    for (auto newClient : newClients) {
+      if (m_verbosity >= 1) {
+        std::cout << "Got new client, version "
+          << newClient->major << "." << newClient->minor << "." << newClient->patch << std::endl;
+      }
+      m_clients.push_back(newClient);
+    }
 
     // Run through each active client and see if we get a command from it.
     // If we get a failure on a client, remove it from the list.
-    std::vector< std::shared_ptr<SenderReceiverTCP> > badClients;
+    std::vector< std::shared_ptr<ClientInfo> > badClients;
     for (auto receiver : m_clients) {
 
       // Check for a command, busy waiting.
       std::shared_ptr<CommandPacket> command;
-      status = receiver->ReceiveCommandPacket(0.0, command);
+      status = receiver->stream->ReceiveCommandPacket(0.0, command);
       if (status == TIMEOUT) {
         // Skip this client.
         continue;
@@ -6576,8 +6582,8 @@ std::string CoreServerBase::run()
       if (status != OKAY) {
         return "Failed to get op code: " + ErrorMessage(status);
       }
-      if (m_verbosity >= 1) {
-        std::cout << "Received command " << OpCodeName(opCode) << std::endl;
+      if (m_verbosity >= 2) {
+        std::cout << " Received command " << OpCodeName(opCode) << std::endl;
       }
       switch (opCode) {
       case RESET:
@@ -6788,6 +6794,9 @@ std::string CoreServerBase::run()
 
     // Remove all bad clients from our vector of clients.
     for (auto badClient : badClients) {
+      if (m_verbosity >= 1) {
+        std::cout << "Closing client" << std::endl;
+      }
       auto it = std::find(m_clients.begin(), m_clients.end(), badClient);
       if (it != m_clients.end()) {
         m_clients.erase(it);

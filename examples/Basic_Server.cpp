@@ -56,7 +56,7 @@ int main(int argc, char** argv)
   std::cout << "Server opened on " << ip_address << " with serial number " << serial_number << std::endl;
 
   // Currently-active clients.
-  std::vector<std::shared_ptr<SenderReceiverTCP>> myClients;
+  std::vector<std::shared_ptr<CoreServer::ClientInfo>> myClients;
 
   // Loop forever, getting Commands from the client and printing them.
   while (true) {
@@ -76,21 +76,22 @@ int main(int argc, char** argv)
     }
 
     // See if we have any new clients.
-    std::vector<std::shared_ptr<SenderReceiverTCP>> newClients;
+    std::vector<std::shared_ptr<CoreServer::ClientInfo>> newClients;
     status = server.GetNewTCPLinks(newClients);
     if (status != OKAY) {
       std::cerr << "Failed to get new TCP links: " << ErrorMessage(status) << std::endl;
       return 7;
     }
-    if (newClients.size() > 0) {
-      std::cout << "Got " << newClients.size() << " new clients." << std::endl;
+    for (auto newClient : newClients) {
+      std::cout << "Got new client, version "
+        << newClient->major << "." << newClient->minor << "." << newClient->patch << std::endl;
+      myClients.push_back(newClient);
     }
-    myClients.insert(myClients.end(), newClients.begin(), newClients.end());
 
     // Busy wait on commands for all clients.
     for (auto receiver : myClients) {
       std::shared_ptr<CommandPacket> command;
-      status = receiver->ReceiveCommandPacket(0.5, command);
+      status = receiver->stream->ReceiveCommandPacket(0.5, command);
       if (status == TIMEOUT) {
         // Loop again to try to get a command.
         continue;

@@ -2054,10 +2054,18 @@ public:
   CoreServer(uint32_t serial, std::string NICName, uint16_t sendPort = 10102, uint16_t listenPort = 10101,
     uint32_t maxPayloadSize = 9000 - 28);
 
+  /// @brief Class to hold the information about a client that has connected.
+  struct ClientInfo {
+    std::shared_ptr<SenderReceiverTCP> stream; ///< Pointer to the SenderReceiverTCP object for the client.
+    uint16_t major;                            ///< Major version number of the client.
+    uint16_t minor;                            ///< Minor version number of the client.
+    uint16_t patch;                            ///< Patch version number of the client.
+  };
+
   /// @brief Get TCP links to new clients that have been established since the last time this function was called.
   /// @param [out] newLinks Vector of new SenderReceiverTCP objects that have been established.
   /// @return OKAY if successful, otherwise an error code.
-  Status GetNewTCPLinks(std::vector<std::shared_ptr<SenderReceiverTCP>>& newLinks);
+  Status GetNewTCPLinks(std::vector< std::shared_ptr<ClientInfo> >& newLinks);
 
   /// @brief Get the status of the discovery thread.
   /// @param [out] threadStatus Stores the thread status.
@@ -2083,7 +2091,7 @@ protected:
 
   std::shared_ptr<SenderUDP> m_discoverySender;     ///< Sender object to use to send Discovery packets.
   std::shared_ptr<TCPListener> m_listener;          ///< Listener object to use to listen for incoming connections.
-  std::vector< std::shared_ptr<SenderReceiverTCP> > m_newStreams;  ///< Client connections established since the last request.
+  std::vector< std::shared_ptr<ClientInfo> > m_newStreams;  ///< Client connections established since the last request.
 
   uint32_t m_IP;                                    ///< IP address for the client to connect to.
   uint16_t m_port;                                  ///< Port number for a client to connect to.
@@ -2260,7 +2268,7 @@ protected:
   /// A list of current clients that we will receive commands from and send responses to.
   /// @todo Will need state for each.
   /// @todo Will need to associate UDP streams with each so they can be closed when their client is closed.
-  std::vector< std::shared_ptr<SenderReceiverTCP> > m_clients;
+  std::vector< std::shared_ptr<ClientInfo> > m_clients;
 
   // State variables
   std::vector<uint16_t> m_features; ///< The features of the server (filled in when added)
