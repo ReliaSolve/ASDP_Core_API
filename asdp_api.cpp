@@ -108,7 +108,7 @@ static std::string OpCodeName(OpCode opCode)
 // Definitions of static constants used below.
 
 static const unsigned char MAGIC_COOKIE[4] = { 'A', 'S', 'D', 'P' };
-static const unsigned char VERSION[4] = { 2, 0, 0, 0 };
+static const unsigned char VERSION[4] = { 2, 1, 0, 0 };
 
 static const uint32_t PACKET_HEADER_TOTAL_SIZE_OFFSET = 0;
 static const uint32_t PACKET_BASIC_HEADER_SIZE = sizeof(uint32_t);
@@ -4919,15 +4919,15 @@ SenderReceiverTCP::SenderReceiverTCP(const StreamEndpoint& endpoint)
 
   // Record the IP address of our NIC and the port we are using to send on.
   // Convert the IP address and port to host byte order.
-  m_IP = ntohl(addr.sin_addr.s_addr);
-  m_port = ntohs(addr.sin_port);
+  m_IP = endpoint.IP;
+  m_port = endpoint.port;
 
   // Connect the socket to the specified host and to the port we want to use.
   // The address is already in network byte order, just convert the port.
   memset(&addr, 0, sizeof(addr));
   addr.sin_family = AF_INET;
   addr.sin_addr.s_addr = ntohl(m_IP);
-  addr.sin_port = htons(endpoint.port);
+  addr.sin_port = htons(m_port);
   if (0 != connect(m_socket->socket, (struct sockaddr*)&addr, sizeof(addr))) {
     Receiver::m_constructorStatus = SOCKET_FAILURE;
     m_socket.reset();
@@ -6071,9 +6071,10 @@ Status CoreClient::ConnectToServer(std::string serverURL, uint16_t& major, uint1
 
   // Connect to the server.
   m_stream = std::make_shared<SenderReceiverTCP>(IP, port);
-  if (m_stream->GetConstructorStatus() != OKAY) {
+  status = m_stream->GetConstructorStatus();
+  if (status != OKAY) {
     m_stream.reset();
-    return m_stream->GetConstructorStatus();
+    return status;
   }
 
   // Send the magic cookie and version to the server and wait for it to do the same.
