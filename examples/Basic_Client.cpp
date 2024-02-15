@@ -4,7 +4,7 @@
 
 // This is a basic client that sends commands to a server.  It opens a client that listens
 // on the specified IP address, connects to and and sends commands to the first server to
-// respond.  It does not wait for a response from the server.
+// respond.  It prints the types of any Messages from the server.
 
 #include <iostream>
 #include <chrono>
