@@ -141,12 +141,13 @@ static const uint32_t MESSAGE_HEADER_MESSAGE_TYPE_OFFSET = 3 * sizeof(uint32_t);
 // Architecture-dependent include files.
 
 #ifndef ASDP_USE_WINSOCK_SOCKETS
-#include <sys/time.h>   // for timeval, timezone, gettimeofday
-#include <sys/select.h> // for fd_set
-#include <netinet/in.h> // for htonl, htons
-#include <poll.h>       // for poll()
-#include <netdb.h>      // for addrinfo and related functions
-#include <unistd.h>     // for close()
+#include <sys/time.h>    // for timeval, timezone, gettimeofday
+#include <sys/select.h>  // for fd_set
+#include <netinet/in.h>  // for htonl, htons
+#include <netinet/tcp.h> // for TCP_NODELAY
+#include <poll.h>        // for poll()
+#include <netdb.h>       // for addrinfo and related functions
+#include <unistd.h>      // for close()
 #include <sys/types.h>
 #include <ifaddrs.h>
 #include <arpa/inet.h>
