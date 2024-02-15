@@ -4361,23 +4361,36 @@ Status ReceiverUDP::ReceiveBuffer(std::vector<uint8_t>& buffer)
   // Receive the data. On Linux, we need to ask it to inform us if the buffer is too small.
   // On Windows, it returns an error if the buffer is too small.
 #ifdef ASDP_USE_WINSOCK_SOCKETS
-  #define FLAGS 0
-#else
-  #define FLAGS MSG_TRUNC
-#endif
-  int length = recv(m_socket->socket, reinterpret_cast<char*>(buffer.data()), buffer.size(), FLAGS);
+  int length = recv(m_socket->socket, reinterpret_cast<char*>(buffer.data()), buffer.size(), 0);
   if (length == SOCKET_ERROR) {
     // Windows will fall through to here if the buffer is too small.
     // There is no way to tell on Windows whether the buffer was too small or if there was some other error.
     return SOCKET_READ_FAILURE;
   }
-  if (length > buffer.size()) {
+#else
+  struct iovec iov[1];
+  struct msghdr msg;
+  ssize_t n;
+
+  // Set up message structure
+  memset(&msg, 0, sizeof(msg));
+  msg.msg_name = nullptr;
+  msg.msg_namelen = 0;
+  iov[0].iov_base = buffer.data();
+  iov[0].iov_len = buffer.size();
+  msg.msg_iov = iov;
+  msg.msg_iovlen = 1;
+
+  // Receive the data
+  ssize_t length = recvmsg(m_socket->socket, &msg, 0);
+  if (msg.msg_flags & MSG_TRUNC) {
     // Return the same error on Windows and Linux when the buffer is too small.
     return SOCKET_READ_FAILURE;
   }
 
   // Record how many bytes we received by resizing the buffer to this size.
   buffer.resize(length);
+#endif
 
   // Everything worked.
   return OKAY;
