@@ -4387,10 +4387,10 @@ Status ReceiverUDP::ReceiveBuffer(std::vector<uint8_t>& buffer)
     // Return the same error on Windows and Linux when the buffer is too small.
     return SOCKET_READ_FAILURE;
   }
+#endif
 
   // Record how many bytes we received by resizing the buffer to this size.
   buffer.resize(length);
-#endif
 
   // Everything worked.
   return OKAY;
