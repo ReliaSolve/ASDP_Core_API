@@ -2484,7 +2484,7 @@ std::string MessageState::Test()
 
     // Add a message.
     Time timeCode = { 1234, 5678 };
-    std::vector<FeatureID> features = { STORAGE_API_AVAILABLE, TEMPERATURE_API_AVAILBLE, POSE_API_ORIENTATION_AVAILABLE };
+    std::vector<FeatureID> features = { STORAGE_API_AVAILABLE, TEMPERATURE_API_AVAILABLE, POSE_API_ORIENTATION_AVAILABLE };
     std::vector<CameraInfo> cameras = { { 1, 2, 3, 4, 5, 6 }, { 7, 8, 9, 10, 11, 12 } };
     uint32_t numTempSensorsPerCamera = 13, numExternalTempSensors = 14;
     uint8_t storing = 16, camerasStreaming = 17, replaying = 18, replayAtEnd = 19, recordOnReset = 20;
@@ -6893,7 +6893,7 @@ void CoreServerBase::doSetStreamStatePeriod(const CommandPacketSetStreamStatePer
 void CoreServerBase::doStreamTemperatures(const CommandPacketStreamTemperatures& command, ClientState& client)
 {
   // If we don't have the temperature feature, this command is in error.
-  if (find(m_features.begin(), m_features.end(), TEMPERATURE_API_AVAILBLE) == m_features.end()) {
+  if (find(m_features.begin(), m_features.end(), TEMPERATURE_API_AVAILABLE) == m_features.end()) {
     sendInvalidCommandMessage(STREAM_TEMPERATURES, client);
     return;
   }
@@ -6904,7 +6904,7 @@ void CoreServerBase::doStreamTemperatures(const CommandPacketStreamTemperatures&
 void CoreServerBase::doCancelTemperatures(const CommandPacketCancelTemperatures& command, ClientState& client)
 {
   // If we don't have the temperature feature, this command is in error.
-  if (find(m_features.begin(), m_features.end(), TEMPERATURE_API_AVAILBLE) == m_features.end()) {
+  if (find(m_features.begin(), m_features.end(), TEMPERATURE_API_AVAILABLE) == m_features.end()) {
     sendInvalidCommandMessage(STREAM_TEMPERATURES, client);
     return;
   }

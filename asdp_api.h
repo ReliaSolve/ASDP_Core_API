@@ -141,7 +141,7 @@ enum EventID : uint32_t {
 /// @brief feature IDs.
 enum FeatureID : uint16_t {
   STORAGE_API_AVAILABLE = 1,
-  TEMPERATURE_API_AVAILBLE = 3,
+  TEMPERATURE_API_AVAILABLE = 3,
   POSE_API_ORIENTATION_AVAILABLE = 4,
   POSE_API_POSITION_AVAILABLE = 5
 };
@@ -2074,9 +2074,9 @@ public:
   /// @brief Class to hold the information about a client that has connected.
   struct ClientInfo {
     std::shared_ptr<SenderReceiverTCP> stream; ///< Pointer to the SenderReceiverTCP object for the client.
-    uint16_t major;                            ///< Major version number of the client.
-    uint16_t minor;                            ///< Minor version number of the client.
-    uint16_t patch;                            ///< Patch version number of the client.
+    uint16_t major = 0;                        ///< Major version number of the client.
+    uint16_t minor = 0;                        ///< Minor version number of the client.
+    uint16_t patch = 0;                        ///< Patch version number of the client.
   };
 
   /// @brief Get TCP links to new clients that have been established since the last time this function was called.
