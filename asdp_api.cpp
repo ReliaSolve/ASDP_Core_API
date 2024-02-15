@@ -6579,6 +6579,7 @@ std::string CoreServerBase::run()
         }
         ClientState client(newClient, writer);
         m_clients.push_back(client);
+        clientAdded(m_clients.back());
       }
     }
 
@@ -6850,6 +6851,7 @@ std::string CoreServerBase::run()
       }
       auto it = std::find(m_clients.begin(), m_clients.end(), badClient);
       if (it != m_clients.end()) {
+        clientBeingRemoved(*it);
         m_clients.erase(it);
       }
     }

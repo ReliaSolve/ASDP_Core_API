@@ -2263,6 +2263,42 @@ public:
   virtual std::string run();
 
 protected:
+  /// @brief Hold per-client state information.
+  class ClientState {
+  public:
+    std::shared_ptr<ClientInfo> m_client;   ///< The client information from connection
+    std::shared_ptr<StreamWriter> m_writer; ///< The StreamWriter for the client
+    Time m_clockPeriod;                     ///< The between clock events
+    Time m_lastClockSent;                   ///< The time the last clock was sent
+    Time m_statePeriod;                     ///< The period for state streaming
+    Time m_lastStateSent;                   ///< The time the last state was sent
+    uint8_t m_eventVerbosity;               ///< The minimum numbered priority of events to send
+    bool m_streamingTemperatures;           ///< Are we streaming temperature data?
+    bool m_streamingPoses;                  ///< Are we streaming poses?
+
+    /// @brief Constructor
+    /// @param [in] client Client to talk with.
+    /// @param [in] writer StreamWriter to use to talk with the client.
+    ClientState(std::shared_ptr<ClientInfo> client, std::shared_ptr<StreamWriter> writer)
+      : m_client(client), m_writer(writer)
+      , m_clockPeriod(0.1), m_lastClockSent({ 0, 0 })
+      , m_statePeriod(0.5), m_lastStateSent({ 0, 0 }), m_eventVerbosity(0)
+      , m_streamingTemperatures(false), m_streamingPoses(false) {};
+
+    /// @brief Equality operator just judges by the client pointer
+    bool operator==(const ClientState& rhs) const {
+      return m_client.get() == rhs.m_client.get();
+    }
+
+    /// @brief Inequality operator
+    bool operator!=(const ClientState& rhs) const {
+      return !(*this == rhs);
+    }
+
+  protected:
+    ClientState() = delete;
+  };
+
   /// @brief Function to be called every time through the run loop, override in derived class.
   ///
   /// This function is called every time through the run loop.  It can be used
@@ -2274,6 +2310,24 @@ protected:
   /// The function should set m_error to non empty to indicate an error, which
   /// will cause the run() function to exit.
   virtual void doEveryLoop() {};
+
+  /// @brief Function called after a new client is added, override in derived class.
+  ///
+  /// This can be used to set up the client state, or to do other things that
+  /// need to be done when a new client is added.
+  /// 
+  /// The function should set m_error to non empty to indicate an error, which
+  /// will cause the run() function to exit.
+  virtual void clientAdded(ClientState& client) {};
+
+  /// @brief Function called before a client is removed, override in derived class.
+  ///
+  /// This can be used to clean up per-camera UDP senders related to the client or
+  /// perform other cleanup before the client is removed.
+  /// 
+  /// The function should set m_error to non empty to indicate an error, which
+  /// will cause the run() function to exit.
+  virtual void clientBeingRemoved(ClientState& client) {};
 
   /// @brief Can be used to indicate an error state by internal methods.
   ///
@@ -2300,44 +2354,6 @@ protected:
   uint64_t m_totalDiskSpace;            ///< Total disk space (filled in by derived class)
   uint64_t m_remainingDiskSpace;        ///< Free disk space (filled in by derived class)
   Time m_streamReplayTime;              ///< The current replay time (filled in by derived class)
-
-  /// @brief Hold per-client state information.
-  /// @todo Will need to associate UDP streams with each so they can be closed when their client is closed.
-  /// There is only one per camera.
-  class ClientState {
-  public:
-    std::shared_ptr<ClientInfo> m_client;   ///< The client information from connection
-    std::shared_ptr<StreamWriter> m_writer; ///< The StreamWriter for the client
-    Time m_clockPeriod;                     ///< The between clock events
-    Time m_lastClockSent;                   ///< The time the last clock was sent
-    Time m_statePeriod;                     ///< The period for state streaming
-    Time m_lastStateSent;                   ///< The time the last state was sent
-    uint8_t m_eventVerbosity;               ///< The minimum numbered priority of events to send
-    bool m_streamingTemperatures;           ///< Are we streaming temperature data?
-    bool m_streamingPoses;                  ///< Are we streaming poses?
-
-    /// @brief Constructor
-    /// @param [in] client Client to talk with.
-    /// @param [in] writer StreamWriter to use to talk with the client.
-    ClientState(std::shared_ptr<ClientInfo> client, std::shared_ptr<StreamWriter> writer)
-      : m_client(client), m_writer(writer)
-      , m_clockPeriod(0.1), m_lastClockSent({0, 0})
-      , m_statePeriod(0.5), m_lastStateSent({ 0, 0 }), m_eventVerbosity(0)
-      , m_streamingTemperatures(false), m_streamingPoses(false) {};
-
-    /// @brief Equality operator just judges by the client pointer
-    bool operator==(const ClientState& rhs) const {
-      return m_client.get() == rhs.m_client.get();
-    }
-
-    /// @brief Inequality operator
-    bool operator!=(const ClientState& rhs) const {
-      return !(*this == rhs);
-    }
-
-  protected:
-    ClientState() = delete;
-  };
 
   /// A list of current clients that we will receive commands from and send responses to.
   std::vector<ClientState> m_clients;
