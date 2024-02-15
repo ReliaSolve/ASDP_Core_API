@@ -2124,8 +2124,11 @@ public:
 
   /// @brief Connect to a server.
   /// @param [in] serverURL Server to connect to.
+  /// @param [out] major Major version number of the server.
+  /// @param [out] minor Minor version number of the server.
+  /// @param [out] patch Patch version number of the server.
   /// @return OKAY if successful, otherwise an error code.
-  Status ConnectToServer(std::string serverURL);
+  Status ConnectToServer(std::string serverURL, uint16_t &major, uint16_t &minor, uint16_t &patch);
 
   /// @brief Get the IP address of the NIC we're using to talk with the server.
   /// @param [out] IP IP address of the NIC we're using to talk with the server.

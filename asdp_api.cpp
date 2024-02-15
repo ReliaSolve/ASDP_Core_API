@@ -6041,18 +6041,18 @@ std::string CoreClient::URLFromServerInfo(ServerInfo serverInfo)
   uint16_t port = serverInfo.port;
   std::string IPString = std::to_string((IP >> 24) & 0xff) + "." + std::to_string((IP >> 16) & 0xff) + "."
     + std::to_string((IP >> 8) & 0xff) + "." + std::to_string(IP & 0xff);
-  return "socket://" + IPString + ":" + std::to_string(port);
+  return "tcp://" + IPString + ":" + std::to_string(port);
 }
 
 Status CoreClient::ServerInfoFromURL(std::string URL, std::string& IP, uint16_t& port)
 {
-  // Make sure the URL starts with "socket://".
-  if (URL.substr(0, 9) != "socket://") {
+  // Make sure the URL starts with "tcp://".
+  if (URL.substr(0, 6) != "tcp://") {
     return BAD_PARAMETER;
   }
 
   // Get the IP address and port.
-  std::string IPString = URL.substr(9);
+  std::string IPString = URL.substr(6);
   size_t colonPos = IPString.find(':');
   if (colonPos == std::string::npos) {
     return BAD_PARAMETER;
@@ -6065,7 +6065,7 @@ Status CoreClient::ServerInfoFromURL(std::string URL, std::string& IP, uint16_t&
   return OKAY;
 }
 
-Status CoreClient::ConnectToServer(std::string serverURL)
+Status CoreClient::ConnectToServer(std::string serverURL, uint16_t& major, uint16_t& minor, uint16_t& patch)
 {
   if (m_constructorStatus != OKAY) {
     return m_constructorStatus;
@@ -6112,11 +6112,7 @@ Status CoreClient::ConnectToServer(std::string serverURL)
     m_stream.reset();
     return status;
   }
-  if (memcmp(VERSION, receiveBuffer.data(), 4)) {
-    /// @todo Later, be able to handle different minor/patch versions.
-    m_stream.reset();
-    return INCOMPATIBLE_API_VERSION;
-  }
+  UnpackVersion(receiveBuffer.data(), major, minor, patch);
 
   // Record our IP address.
   status = m_stream->GetIP(m_IP);
@@ -6185,7 +6181,7 @@ std::string CoreClient::Test()
   uint32_t serial = 123456789;
   ServerInfo serverInfo(IP, port, serial);
   std::string URL = URLFromServerInfo(serverInfo);
-  if (URL != "socket://127.0.0.1:10102") {
+  if (URL != "tcp://127.0.0.1:10102") {
     return "Error creating URL: " + URL;
   }
 
@@ -6244,7 +6240,8 @@ std::string CoreClient::Test()
   }
 
   // Connect the CoreClient to the server.
-  status = coreClient.ConnectToServer(servers[0]);
+  uint16_t major, minor, patch;
+  status = coreClient.ConnectToServer(servers[0], major, minor, patch);
   if (status != OKAY) {
     return "Error connecting to server: " + ErrorMessage(status);
   }

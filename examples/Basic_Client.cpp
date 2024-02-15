@@ -76,11 +76,13 @@ int main(int argc, char** argv)
 
   // Connect to the first server found.
   std::cout << "Connecting to " << servers[0] << std::endl;
-  status = client.ConnectToServer(servers[0]);
+  uint16_t major, minor, patch;
+  status = client.ConnectToServer(servers[0], major, minor, patch);
   if (status != OKAY) {
     std::cerr << "Failed to connect to server: " << ErrorMessage(status) << std::endl;
     return 8;
   }
+  std::cout << "  Connected to server version " << major << "." << minor << "." << patch << std::endl;
   uint32_t serialNumber;
   status = client.GetServerSerialNumber(serialNumber);
   if (status != OKAY) {
