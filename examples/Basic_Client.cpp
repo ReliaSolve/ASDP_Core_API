@@ -91,16 +91,57 @@ int main(int argc, char** argv)
   }
   std::cout << "  Connected to server with serial number " << serialNumber << std::endl;
 
+  // Get the main stream receiver
+  std::shared_ptr<Receiver> receiver;
+  status = client.GetMainStreamReceiver(receiver);
+  if (status != OKAY) {
+    std::cerr << "Failed to get main stream receiver: " << ErrorMessage(status) << std::endl;
+    return 10;
+  }
+
   // Send a few commands to the server, waiting a few seconds in between.
   std::shared_ptr<CommandPacket> command;
-  for (size_t i = 0; i < 3; ++i) {
-    std::cout << "  Sending state streaming interval interval command " << i << std::endl;
-    status = client.SendCommandPacket(CommandPacketSetStreamStatePeriod(1));
-    if (status != OKAY) {
-      std::cerr << "Failed to send command: " << ErrorMessage(status) << std::endl;
-      return 10;
+  auto start = std::chrono::high_resolution_clock::now();
+  size_t i = 0;
+  while (i < 3) {
+
+    // See if it is time to send a command.
+    auto now = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed = now - start;
+    if (elapsed.count() >= 2.0) {
+      std::cout << "  Sending state streaming interval interval command " << i << std::endl;
+      status = client.SendCommandPacket(CommandPacketSetStreamStatePeriod(1.5));
+      if (status != OKAY) {
+        std::cerr << "Failed to send command: " << ErrorMessage(status) << std::endl;
+        return 11;
+      }
+      start = std::chrono::high_resolution_clock::now();
+      i++;
     }
-    std::this_thread::sleep_for(std::chrono::seconds(2));
+
+    // If we receive a message, print it.
+    std::shared_ptr<StreamPacket> response;
+    status = receiver->ReceiveStreamPacket(0.01, response);
+    while (status == OKAY) {
+      std::shared_ptr<Message> message;
+      status = response->GetNextMessage(message);
+      if (status != OKAY) {
+        std::cerr << "Failed to get message from stream packet: " << ErrorMessage(status) << std::endl;
+        return 12;
+      }
+      MessageID type;
+      status = message->GetType(type);
+      if (status != OKAY) {
+        std::cerr << "Failed to get message type: " << ErrorMessage(status) << std::endl;
+        return 13;
+      }
+      std::cout<< "   Received message type: " << type << std::endl;
+      status = receiver->ReceiveStreamPacket(0, response);
+    }
+    if (status != TIMEOUT) {
+      std::cerr << "Failed to receive stream packet: " << ErrorMessage(status) << std::endl;
+      return 14;
+    }    
   }
 
 

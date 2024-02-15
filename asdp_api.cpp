@@ -2176,7 +2176,7 @@ MessageState::MessageState(StreamPacket& packet, Time timeCode,
     uint8_t recordOnReset,
     std::vector<TriggerInfo> triggerConfigs,
     uint64_t totalDiskSpace, uint64_t remainingDiskSpace,
-    Time streamReplayTime, std::vector<StreamEndpoint> streams)
+    Time streamReplayTime)
   : Message(packet,
       sizeof(uint32_t) + features.size() * sizeof(uint16_t) + (features.size() % 2) * sizeof(uint16_t)
         + cameras.size() * sizeof(CameraInfo)
@@ -2184,8 +2184,7 @@ MessageState::MessageState(StreamPacket& packet, Time timeCode,
         + 8 /* The byte-sized ones and padding */
         + sizeof(uint32_t) + triggerConfigs.size() * sizeof(TriggerInfo)
         + sizeof(totalDiskSpace) + sizeof(remainingDiskSpace)
-        + 2 * sizeof(uint32_t) /* Time */
-        + sizeof(uint32_t) + streams.size() * 2 * sizeof(uint32_t) /* Stream info */,
+        + 2 * sizeof(uint32_t) /* Time */,
       timeCode, DISCOVERY)
 {
   // See if our subobject failed. If so, we're done.
@@ -2236,13 +2235,6 @@ MessageState::MessageState(StreamPacket& packet, Time timeCode,
   memcpy(bufPtr, &remainingDiskSpace, sizeof(remainingDiskSpace)); bufPtr += sizeof(remainingDiskSpace);
   memcpy(bufPtr, &streamReplayTime.seconds, sizeof(streamReplayTime.seconds)); bufPtr += sizeof(streamReplayTime.seconds);
   memcpy(bufPtr, &streamReplayTime.microseconds, sizeof(streamReplayTime.microseconds)); bufPtr += sizeof(streamReplayTime.microseconds);
-  uint32_t numStreams = streams.size();
-  memcpy(bufPtr, &numStreams, sizeof(numStreams)); bufPtr += sizeof(numStreams);
-  for (uint32_t i = 0; i < numStreams; i++) {
-    memcpy(bufPtr, &streams[i].IP, sizeof(streams[i].IP)); bufPtr += sizeof(streams[i].IP);
-    uint32_t portField = streams[i].port;
-    memcpy(bufPtr, &portField, sizeof(portField)); bufPtr += sizeof(portField);
-  }
 }
 
 MessageState::MessageState(Message& baseMessage)
@@ -2469,32 +2461,6 @@ Status MessageState::GetStreamReplayTime(Time& streamReplayTime) const
   return OKAY;
 }
 
-Status MessageState::GetStreams(std::vector<StreamEndpoint>& streams) const
-{
-  uint32_t afterTriggerConfigsOffset;
-  Status status = GetAfterTriggerConfigsOffset(afterTriggerConfigsOffset);
-  if (status != OKAY) {
-    return status;
-  }
-  if (m_buffer->size() < afterTriggerConfigsOffset + 2 * sizeof(uint64_t) + 2 * sizeof(uint32_t) + sizeof(uint32_t)) {
-    return READ_PAST_END;
-  }
-  uint32_t numStreams;
-  memcpy(&numStreams, m_buffer->data() + afterTriggerConfigsOffset + 2 * sizeof(uint64_t) + 2 * sizeof(uint32_t), sizeof(numStreams));
-  streams.resize(numStreams);
-  if (m_buffer->size() < afterTriggerConfigsOffset + 2 * sizeof(uint64_t) + 2 * sizeof(uint32_t) + sizeof(uint32_t) + numStreams * 2 * sizeof(uint32_t)) {
-    return READ_PAST_END;
-  }
-  uint32_t baseOffset = afterTriggerConfigsOffset + 2 * sizeof(uint64_t) + 2 * sizeof(uint32_t) + sizeof(uint32_t);
-  for (uint32_t i = 0; i < numStreams; i++) {
-    memcpy(&streams[i].IP, m_buffer->data() + baseOffset + i * 2 * sizeof(uint32_t), sizeof(streams[i].IP));
-    uint32_t portField;
-    memcpy(&portField, m_buffer->data() + baseOffset + i * 2 * sizeof(uint32_t) + sizeof(streams[i].IP), sizeof(portField));
-    streams[i].port = portField;
-  }
-  return OKAY;
-}
-
 std::string MessageState::Test()
 {
   {
@@ -2513,10 +2479,9 @@ std::string MessageState::Test()
     std::vector<TriggerInfo> triggerConfigs = { { 1, 2, 3, 4, 5, 6 }, { 7, 8, 9, 10, 11, 12 } };
     uint64_t totalDiskSpace = 21, remainingDiskSpace = 22;
     Time streamReplayTime = { 23, 24 };
-    std::vector<StreamEndpoint> streams = { { 0x01020304, 1234 }, { 0x05060708, 5678 } };
     MessageState message(packet, timeCode, features, cameras, numTempSensorsPerCamera, numExternalTempSensors,
       storing, camerasStreaming, replaying, replayAtEnd, recordOnReset, triggerConfigs,
-      totalDiskSpace, remainingDiskSpace, streamReplayTime, streams);
+      totalDiskSpace, remainingDiskSpace, streamReplayTime);
     if (message.GetConstructorStatus() != OKAY) {
       return "Error constructing MessageState: " + ErrorMessage(message.GetConstructorStatus());
     }
@@ -2531,13 +2496,13 @@ std::string MessageState::Test()
       + (features.size() % 2) * sizeof(uint16_t)
       + cameras.size() * sizeof(CameraInfo) + sizeof(numTempSensorsPerCamera) + sizeof(numExternalTempSensors)
       + 8 + sizeof(uint32_t) + triggerConfigs.size() * sizeof(TriggerInfo)
-      + sizeof(totalDiskSpace) + sizeof(remainingDiskSpace) + 2 * sizeof(uint32_t) + sizeof(uint32_t) + streams.size() * 2 * sizeof(uint32_t)) {
+      + sizeof(totalDiskSpace) + sizeof(remainingDiskSpace) + 2 * sizeof(uint32_t)) {
       return "Error constructing MessageState from buffer: packet length is not " +
         std::to_string(STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE + sizeof(uint32_t) + features.size() * sizeof(uint16_t)
                  + (features.size() % 2) * sizeof(uint16_t)
                  + cameras.size() * sizeof(CameraInfo) + sizeof(numTempSensorsPerCamera) + sizeof(numExternalTempSensors)
                  + 8 + sizeof(uint32_t) + triggerConfigs.size() * sizeof(TriggerInfo)
-                 + sizeof(totalDiskSpace) + sizeof(remainingDiskSpace) + 2 * sizeof(uint32_t) + sizeof(uint32_t) + streams.size() * 2 * sizeof(uint32_t)) + " but " +
+                 + sizeof(totalDiskSpace) + sizeof(remainingDiskSpace) + 2 * sizeof(uint32_t)) + " but " +
         std::to_string(totalLength);
     }
 
@@ -2664,14 +2629,6 @@ std::string MessageState::Test()
     }
     if (rStreamReplayTime != streamReplayTime) {
       return "Error getting streamReplayTime from MessageState for MessageState test: streamReplayTime is not { 23, 24 }";
-    }
-    std::vector<StreamEndpoint> rStreams;
-    status = message.GetStreams(rStreams);
-    if (status != OKAY) {
-      return "Error getting streams from MessageState for MessageState test: " + ErrorMessage(status);
-    }
-    if (rStreams != streams) {
-      return "Error getting streams from MessageState for MessageState test: streams are not { { 0x01020304, 1234 }, { 0x05060708, 5678 } }";
     }
   }
 
@@ -4330,8 +4287,8 @@ Status ReceiverUDP::IsPacketAvailable(double timeout_seconds, bool& available)
 
   // Set up the timeout.
   struct timeval timeout;
-  timeout.tv_sec = (long)timeout_seconds;
-  timeout.tv_usec = (long)((timeout_seconds - (long)timeout_seconds) * 1000000);
+  timeout.tv_sec = (uint32_t)timeout_seconds;
+  timeout.tv_usec = (uint32_t)((timeout_seconds - (uint32_t)timeout_seconds) * 1000000);
 
   // Set up the file descriptor set.
   fd_set fds;
@@ -5061,8 +5018,8 @@ Status SenderReceiverTCP::IsPacketAvailable(double timeout_seconds, bool& availa
 
   // Set up the timeout.
   struct timeval timeout;
-  timeout.tv_sec = (long)timeout_seconds;
-  timeout.tv_usec = (long)((timeout_seconds - (long)timeout_seconds) * 1000000);
+  timeout.tv_sec = (uint32_t)timeout_seconds;
+  timeout.tv_usec = (uint32_t)((timeout_seconds - (uint32_t)timeout_seconds) * 1000000);
 
   // Set up the file descriptor set.
   fd_set fds;
@@ -5254,8 +5211,8 @@ Status TCPListener::AcceptConnection(std::shared_ptr<SenderReceiverTCP>& newConn
 
   // Set up the timeout.
   struct timeval timeout;
-  timeout.tv_sec = (long)timeoutSeconds;
-  timeout.tv_usec = (long)((timeoutSeconds - (long)timeoutSeconds) * 1000000);
+  timeout.tv_sec = (uint32_t)timeoutSeconds;
+  timeout.tv_usec = (uint32_t)((timeoutSeconds - (uint32_t)timeoutSeconds) * 1000000);
 
   // Set up the file descriptor set.
   fd_set fds;
@@ -6346,6 +6303,16 @@ CoreServerBase::CoreServerBase(uint32_t serialNumber, const std::string& IP,
   int verbosity)
   : CoreServer(serialNumber, IP)
   , m_verbosity(verbosity)
+  , m_numTemperaturesPerCamera(0)
+  , m_numSystemTemperatures(0)
+  , m_storing(0)
+  , m_camerasStreaming(0)
+  , m_replaying(0)
+  , m_replayAtEnd(0)
+  , m_recordOnReset(0)
+  , m_totalDiskSpace(0)
+  , m_remainingDiskSpace(0)
+  , m_streamReplayTime({ 0, 0 })
 {
 }
 
@@ -6419,6 +6386,67 @@ void CoreServerBase::sendUnrecognizedOpcodeMessage(OpCode opCode, ClientState& c
   }
 }
 
+Status CoreServerBase::SendStateMessage(ClientState& client)
+{
+  if (m_verbosity >= 10) {
+    std::cout << "  Sending state message" << std::endl;
+  }
+
+  std::lock_guard<std::recursive_mutex> lock(m_mutex);
+  std::shared_ptr<StreamWriter> writer = client.m_writer;
+  std::shared_ptr<StreamPacket> packet;
+  Status status = writer->GetCurrentPacket(packet);
+  if (status != OKAY) {
+    m_error = "Error getting current packet from StreamWriter: " + ErrorMessage(status);
+    return status;
+  }
+  Time timeCode;
+  m_timer->GetCoreTime(timeCode);
+  MessageState message(*packet, timeCode,
+    m_features, m_cameras,
+    m_numTemperaturesPerCamera, m_numSystemTemperatures,
+    m_storing, m_camerasStreaming, m_replaying, m_replayAtEnd,
+    m_recordOnReset,
+    m_triggers,
+    m_totalDiskSpace, m_remainingDiskSpace,
+    m_streamReplayTime);
+  if (message.GetConstructorStatus() != OKAY) {
+    // Retry after flushing the buffer.
+    status = writer->Flush();
+    if (status != OKAY) {
+      m_error = "Error flushing StreamWriter: " + ErrorMessage(status);
+      return status;
+    }
+    status = writer->GetCurrentPacket(packet);
+    if (status != OKAY) {
+      m_error = "Error getting current packet from StreamWriter: " + ErrorMessage(status);
+      return status;
+    }
+    message = MessageState(*packet, timeCode,
+           m_features, m_cameras,
+           m_numTemperaturesPerCamera, m_numSystemTemperatures,
+           m_storing, m_camerasStreaming, m_replaying, m_replayAtEnd,
+           m_recordOnReset,
+           m_triggers,
+           m_totalDiskSpace, m_remainingDiskSpace,
+           m_streamReplayTime);
+    status = message.GetConstructorStatus();
+    if (status != OKAY) {
+      m_error = "Error constructing MessageEvent: " + ErrorMessage(message.GetConstructorStatus());
+      return status;
+    }
+  }
+
+  // Send the packet immediately.
+  status = writer->Flush();
+  if (status != OKAY) {
+    m_error = "Error flushing StreamWriter: " + ErrorMessage(status);
+    return status;
+  }
+
+  return OKAY;
+}
+
 std::string CoreServerBase::run()
 {
   Status status;
@@ -6466,6 +6494,20 @@ std::string CoreServerBase::run()
     // If we get a failure on a client, remove it from the list.
     std::vector<ClientState> badClients;
     for (auto &client : m_clients) {
+
+      // See if it is time to send a state packet to this client and do so if it is.
+      Time now;
+      status = m_timer->GetCoreTime(now);
+      if (status != OKAY) {
+        return "Failed to get core time: " + ErrorMessage(status);
+      }
+      if (client.m_lastStateSent + client.m_statePeriod < now) {
+        status = SendStateMessage(client);
+        if (status != OKAY) {
+          return "Failed to send state packet: " + ErrorMessage(status);
+        }
+        client.m_lastStateSent = now;
+      }
 
       // Check for a command, busy waiting.
       std::shared_ptr<CommandPacket> command;
@@ -6740,7 +6782,6 @@ void CoreServerBase::doSetStreamStatePeriod(const CommandPacketSetStreamStatePer
   }
 
   std::lock_guard<std::recursive_mutex> lock(m_mutex);
-
   client.m_statePeriod = period;
 }
 

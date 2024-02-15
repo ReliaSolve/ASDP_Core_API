@@ -325,6 +325,29 @@ public:
     microseconds -= other.microseconds;
     return *this;
   };
+
+  /// @brief Set to a floating-point value in seconds.
+  Time& operator =(float value) {
+    if (value < 0) {
+      seconds = 0;
+      microseconds = 0;
+    } else {
+      seconds = static_cast<uint32_t>(value);
+      microseconds = static_cast<uint32_t>((value - seconds) * 1000000);
+    }
+    return *this;
+  }
+
+  /// @brief Construct with a floating-point value in seconds.
+  Time(float value) {
+    *this = value;
+  }
+
+  /// @brief Construct with two values
+  Time(uint32_t sec, uint32_t usec) : seconds(sec), microseconds(usec) { }
+
+  /// @brief Default constructor
+  Time() : seconds(0), microseconds(0) {};
 };
 
 //---------------------------------------------------------------------------
@@ -1130,7 +1153,6 @@ public:
   /// @param [in] totalDiskSpace Total disk space in bytes.
   /// @param [in] remainingDiskSpace Remaining disk space in bytes.
   /// @param [in] streamReplayTime Time code of the stream replay.
-  /// @param [in] streams Vector of active streams.
   MessageState(StreamPacket& packet, Time timeCode,
     std::vector<FeatureID> features, std::vector<CameraInfo> cameras,
     uint32_t numTempSensorsPerCamera, uint32_t numExternalTempSensors,
@@ -1138,7 +1160,7 @@ public:
     uint8_t recordOnReset,
     std::vector<TriggerInfo> triggerConfigs,
     uint64_t totalDiskSpace, uint64_t remainingDiskSpace,
-    Time streamReplayTime, std::vector<StreamEndpoint> streams);
+    Time streamReplayTime);
 
   /// @brief Type-cast a base Message into a MessageState packet, re-using its buffer.
   /// @param [in] baseMessage The base Message to convert from.
@@ -1208,11 +1230,6 @@ public:
   /// @param [out] streamReplayTime Time code of the stream replay.
   /// @return OKAY if successful, otherwise an error code.
   Status GetStreamReplayTime(Time& streamReplayTime) const;
-
-  /// @brief Get the active streams.
-  /// @param [out] streams Vector of active streams.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetStreams(std::vector<StreamEndpoint>& streams) const;
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
@@ -2235,7 +2252,7 @@ public:
 
   ~CoreServerBase() override {};
 
-  /// @brief Run the server, not returning unless an error occurs.
+  /// @brief Run the server, not returning unless an error occurs.  Not expected to be overridden.
   ///
   /// This function runs the server, handling all incoming commands and
   /// returning only when an error occurs.  The error message is returned.
@@ -2246,7 +2263,7 @@ public:
   virtual std::string run();
 
 protected:
-  /// @brief Function to be called every time through the run loop.
+  /// @brief Function to be called every time through the run loop, override in derived class.
   ///
   /// This function is called every time through the run loop.  It can be used
   /// to service devices, implement periodic tasks that are not handled by
@@ -2268,8 +2285,21 @@ protected:
 
   int m_verbosity; ///< The verbosity level of the server, 0 for no verbosity, higher for more verbosity.
 
-  // State variables that are per server
-  std::vector<uint16_t> m_features; ///< The features of the server (filled in when added)
+  // State variables that are per server.  These should be overridden in the constructor if needed
+  // and maintained by the derived class.  These are used to fill in the state packet.
+  std::vector<FeatureID> m_features;    ///< The features of the server (filled in by derived class)
+  std::vector<CameraInfo> m_cameras;    ///< Cameras available on the server (filled in by derived class)
+  uint32_t m_numTemperaturesPerCamera;  ///< Number of temperature sensors per camera (filled in by derived class)
+  uint32_t m_numSystemTemperatures;     ///< Number of system temperature sensors (filled in by derived class)
+  uint8_t m_storing;                    ///< The state of storing (filled in by derived class)
+  uint8_t m_camerasStreaming;           ///< The state of cameras streaming (filled in by derived class)
+  uint8_t m_replaying;                  ///< The state of replaying (filled in by derived class)
+  uint8_t m_replayAtEnd;                ///< The state of replay at end (filled in by derived class)
+  uint8_t m_recordOnReset;              ///< The state of start-up recording (filled in by derived class)
+  std::vector<TriggerInfo> m_triggers;  ///< Trigger information (filled in by derived class)
+  uint64_t m_totalDiskSpace;            ///< Total disk space (filled in by derived class)
+  uint64_t m_remainingDiskSpace;        ///< Free disk space (filled in by derived class)
+  Time m_streamReplayTime;              ///< The current replay time (filled in by derived class)
 
   /// @brief Hold per-client state information.
   /// @todo Will need to associate UDP streams with each so they can be closed when their client is closed.
@@ -2278,7 +2308,7 @@ protected:
   public:
     std::shared_ptr<ClientInfo> m_client;   ///< The client information from connection
     std::shared_ptr<StreamWriter> m_writer; ///< The StreamWriter for the client
-    float m_statePeriod;                    ///< The period for state streaming
+    Time m_statePeriod;                     ///< The period for state streaming
     Time m_lastStateSent;                   ///< The time the last state was sent
     uint8_t m_eventVerbosity;               ///< The minimum numbered priority of events to send
     bool m_streamingTemperatures;           ///< Are we streaming temperature data?
@@ -2337,6 +2367,10 @@ protected:
   /// @param opCode The invalid command opcode.
   /// @param client The client that the command is coming from.
   virtual void sendUnrecognizedOpcodeMessage(OpCode opCode, ClientState& client);
+
+  /// @brief Helper method to send state message to the event stream.
+  /// @param client The client that the command is coming from.
+  virtual Status SendStateMessage(ClientState& client);
 
   //=============================================================================
   // Methods to implement the commands. NOTE: These are each implemented to send
