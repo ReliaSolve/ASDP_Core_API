@@ -2268,21 +2268,47 @@ protected:
 
   int m_verbosity; ///< The verbosity level of the server, 0 for no verbosity, higher for more verbosity.
 
-  /// A list of current clients that we will receive commands from and send responses to.
-  /// @todo Will need state for each.
-  /// @todo Will need to associate UDP streams with each so they can be closed when their client is closed.
-  std::vector< std::shared_ptr<ClientInfo> > m_clients;
-
-  // State variables
+  // State variables that are per server
   std::vector<uint16_t> m_features; ///< The features of the server (filled in when added)
-  float m_statePeriod;              ///< The period for state streaming
-  Time m_lastStateSent;             ///< The time the last state was sent
-  uint8_t m_eventVerbosity;         ///< The minimum numbered priority of events to send
-  bool m_streamingTemperatures;     ///< Are we streaming temperature data?
-  bool m_streamingPoses;            ///< Are we streaming poses?
+
+  /// @brief Hold per-client state information.
+  /// @todo Will need to associate UDP streams with each so they can be closed when their client is closed.
+  /// There is only one per camera.
+  class ClientState {
+  public:
+    std::shared_ptr<ClientInfo> m_client;   ///< The client information from connection
+    std::shared_ptr<StreamWriter> m_writer; ///< The StreamWriter for the client
+    float m_statePeriod;                    ///< The period for state streaming
+    Time m_lastStateSent;                   ///< The time the last state was sent
+    uint8_t m_eventVerbosity;               ///< The minimum numbered priority of events to send
+    bool m_streamingTemperatures;           ///< Are we streaming temperature data?
+    bool m_streamingPoses;                  ///< Are we streaming poses?
+
+    /// @brief Constructor
+    /// @param [in] client Client to talk with.
+    /// @param [in] writer StreamWriter to use to talk with the client.
+    ClientState(std::shared_ptr<ClientInfo> client, std::shared_ptr<StreamWriter> writer)
+      : m_client(client), m_writer(writer), m_statePeriod(0.5), m_lastStateSent({ 0, 0 }), m_eventVerbosity(0)
+      , m_streamingTemperatures(false), m_streamingPoses(false) {};
+
+    /// @brief Equality operator just judges by the client pointer
+    bool operator==(const ClientState& rhs) const {
+      return m_client.get() == rhs.m_client.get();
+    }
+
+    /// @brief Inequality operator
+    bool operator!=(const ClientState& rhs) const {
+      return !(*this == rhs);
+    }
+
+  protected:
+    ClientState() = delete;
+  };
+
+  /// A list of current clients that we will receive commands from and send responses to.
+  std::vector<ClientState> m_clients;
 
   /// @todo Implement streaming of state at the specified interval
-  /// @todo Implement event sending on TCP, checking verbosities
   /// @todo Implement streaming of clock events
 
   //=============================================================================
@@ -2294,57 +2320,14 @@ protected:
 
   std::recursive_mutex m_mutex;     ///< Mutex to protect operations on internal structures.
 
-  /// @brief Information about a writer for a stream.
-  ///
-  /// This structure contains the endpoint for the writer and the StreamWriter for the stream.
-  /// It also contains entries specific to each time of stream, with only the ones that are
-  /// relevant to the stream being used.  This enables us to use common code to handle the
-  /// different types of streams.
-  struct WriterInfo {
-    // Common things
-    StreamEndpoint                endpoint; ///< The endpoint for the writer.
-    std::shared_ptr<StreamWriter> writer;   ///< The StreamWriter for the stream.
-
-    // Stream-type specific things that are filled in by the partcular command function.
-    uint32_t                      verbosity;  ///< For event stream.
-
-    float                         period;     ///< For state, temperature, pose streams.
-    Time                          lastSent;   ///< Time last report sent
-  };
-
-  /// @todo Implement state streaming within run() using period and lastSent
-
-  std::list<WriterInfo> m_stateWriters;       ///< The StreamWriters for state, if any.
-  std::list<WriterInfo> m_eventWriters;       ///< The StreamWriters for events, if any.
-  std::list<WriterInfo> m_subregionWriters;   ///< The StreamWriters for subregion, if any.
-  std::list<WriterInfo> m_listWriters;        ///< The StreamWriters for stored stream lists, if any.
-  std::list<WriterInfo> m_temperatureWriters; ///< The StreamWriters for temperatures, if any.
-  std::list<WriterInfo> m_poseWriters;        ///< The StreamWriters for poses, if any.
-
-  /// @brief Create or get an existing StreamWriter for the specified endpoint.
-  /// 
-  /// This function looks through all of the existing StreamWriters to see if there is
-  /// one for the specified endpoint.  If there is, it re-uses it.  If not, it creates
-  /// a new one and adds it to the list.
-  /// 
-  /// This function also sets the timeout for the StreamWriter to the current time plus
-  /// the keep-alive interval, unless the keep-alive interval is zero or negative, in
-  /// which case it is set to end end of time.
-  /// @param endpoint The endpoint for the sender.
-  /// @param baseList The list that the writer will be added to.  If the writer is
-  /// already in this particular list, it is not added again.
-  /// @return A pointer to the StreamWriter for the endpoint in the specified list, so that its
-  /// specific entries can be filled in. If there is an error, nullptr is returned.
-  /// The pointer cannot be used after the mutex is released because the list may be changed.
-  virtual WriterInfo *getWriter(const StreamEndpoint& endpoint, std::list<WriterInfo>& baseList);
-
   /// @brief Helper method to send an invalid-command event to the event stream.
   /// 
   /// This base-class implementation uses the m_eventWriters list to send the event.
   /// A derived class that does not use the above list will need to override this
   /// method to send the event message in a different way.
   /// @param opCode The invalid command opcode.
-  virtual void sendInvalidCommandMessage(OpCode opCode);
+  /// @param client The client that the command is coming from.
+  virtual void sendInvalidCommandMessage(OpCode opCode, ClientState& client);
 
   /// @brief Helper method to send an unrecognized-opcode event to the event stream.
   /// 
@@ -2352,99 +2335,142 @@ protected:
   /// A derived class that does not use the above list will need to override this
   /// method to send the event message in a different way.
   /// @param opCode The invalid command opcode.
-  virtual void sendUnrecognizedOpcodeMessage(OpCode opCode);
+  /// @param client The client that the command is coming from.
+  virtual void sendUnrecognizedOpcodeMessage(OpCode opCode, ClientState& client);
 
   //=============================================================================
   // Methods to implement the commands. NOTE: These are each implemented to send
   // an invalid-command event message.  A derived class will need to override these
   // methods to implement the actual command.  It can leave the ones as is for
   // commands supporting features that it does not have.
+  // These include the client that they are coming from, in case there is the need
+  // to perform per-client actions.
 
   /// @brief Implement the specified command.
-  virtual void doReset(const CommandPacketReset&) {
-    sendInvalidCommandMessage(RESET);
+  /// @param command The command packet to implement.
+  /// @param client The client that the command is coming from.
+  virtual void doReset(const CommandPacketReset& command, ClientState& client) {
+    sendInvalidCommandMessage(RESET, client);
   }
 
   /// @brief Implement the specified command.
-  virtual void doStartRecording(const CommandPacketStartRecording&) {
-    sendInvalidCommandMessage(START_RECORDING);
+  /// @param command The command packet to implement.
+  /// @param client The client that the command is coming from.
+  virtual void doStartRecording(const CommandPacketStartRecording& command, ClientState& client) {
+    sendInvalidCommandMessage(START_RECORDING, client);
   }
 
   /// @brief Implement the specified command.
-  virtual void doStopRecording(const CommandPacketStopRecording&) {
-    sendInvalidCommandMessage(STOP_RECORDING);
+  /// @param command The command packet to implement.
+  /// @param client The client that the command is coming from.
+  virtual void doStopRecording(const CommandPacketStopRecording& command, ClientState& client) {
+    sendInvalidCommandMessage(STOP_RECORDING, client);
   }
 
   /// @brief Implement the specified command.
-  virtual void doSetStartUpRecordingState(const CommandPacketSetStartUpRecordingState&) {
-    sendInvalidCommandMessage(SET_START_UP_RECORDING_STATE);
+  /// @param command The command packet to implement.
+  /// @param client The client that the command is coming from.
+  virtual void doSetStartUpRecordingState(const CommandPacketSetStartUpRecordingState& command, ClientState& client) {
+    sendInvalidCommandMessage(SET_START_UP_RECORDING_STATE, client);
   }
 
   /// @brief Implement the specified command.
-  virtual void doStartReplay(const CommandPacketStartReplay&) {
-    sendInvalidCommandMessage(START_REPLAY);
+  /// @param command The command packet to implement.
+  /// @param client The client that the command is coming from.
+  virtual void doStartReplay(const CommandPacketStartReplay& command, ClientState& client) {
+    sendInvalidCommandMessage(START_REPLAY, client);
   }
 
   /// @brief Implement the specified command.
-  virtual void doPauseReplay(const CommandPacketPauseReplay&) {
-    sendInvalidCommandMessage(PAUSE_REPLAY);
+  /// @param command The command packet to implement.
+  /// @param client The client that the command is coming from.
+  virtual void doPauseReplay(const CommandPacketPauseReplay& command, ClientState& client) {
+    sendInvalidCommandMessage(PAUSE_REPLAY, client);
   }
 
   /// @brief Implement the specified command.
-  virtual void doStopReplay(const CommandPacketStopReplay&) {
-    sendInvalidCommandMessage(STOP_REPLAY);
+  /// @param command The command packet to implement.
+  /// @param client The client that the command is coming from.
+  virtual void doStopReplay(const CommandPacketStopReplay& command, ClientState& client) {
+    sendInvalidCommandMessage(STOP_REPLAY, client);
   }
 
   /// @brief Implement the specified command.
-  virtual void doSetStreamStatePeriod(const CommandPacketSetStreamStatePeriod&);
+  /// @param command The command packet to implement.
+  /// @param client The client that the command is coming from.
+  virtual void doSetStreamStatePeriod(const CommandPacketSetStreamStatePeriod& command, ClientState& client);
 
   /// @brief Implement the specified command.
-  virtual void doConfigureTrigger(const CommandPacketConfigureTrigger&) {
-    sendInvalidCommandMessage(CONFIGURE_TRIGGER);
+  /// @param command The command packet to implement.
+  /// @param client The client that the command is coming from.
+  virtual void doConfigureTrigger(const CommandPacketConfigureTrigger& command, ClientState& client) {
+    sendInvalidCommandMessage(CONFIGURE_TRIGGER, client);
   }
 
   /// @brief Implement the specified command.
-  virtual void doSoftwareTrigger(const CommandPacketSoftwareTrigger&) {
-    sendInvalidCommandMessage(SOFTWARE_TRIGGER);
+  /// @param command The command packet to implement.
+  /// @param client The client that the command is coming from.
+  virtual void doSoftwareTrigger(const CommandPacketSoftwareTrigger& command, ClientState& client) {
+    sendInvalidCommandMessage(SOFTWARE_TRIGGER, client);
   }
 
   /// @brief Implement the specified command.
-  virtual void doSetEventVerbosity(const CommandPacketSetEventVerbosity&);
+  /// @param command The command packet to implement.
+  /// @param client The client that the command is coming from.
+  virtual void doSetEventVerbosity(const CommandPacketSetEventVerbosity& command, ClientState& client);
 
   /// @brief Implement the specified command.
-  virtual void doStreamSubregion(const CommandPacketStreamSubregion&) {
-    sendInvalidCommandMessage(STREAM_SUBREGION);
+  virtual void doStreamSubregion(const CommandPacketStreamSubregion& command, ClientState& client) {
+    sendInvalidCommandMessage(STREAM_SUBREGION, client);
   }
 
   /// @brief Implement the specified command.
-  virtual void doCancelSubregion(const CommandPacketCancelSubregion&) {
-    sendInvalidCommandMessage(CANCEL_SUBREGION);
+  /// @param command The command packet to implement.
+  /// @param client The client that the command is coming from.
+  virtual void doCancelSubregion(const CommandPacketCancelSubregion& command, ClientState& client) {
+    sendInvalidCommandMessage(CANCEL_SUBREGION, client);
   }
 
   /// @brief Implement the specified command.
-  virtual void doEraseAllStoredStreams(const CommandPacketEraseAllStoredStreams&) {
-    sendInvalidCommandMessage(ERASE_ALL_STORED_STREAMS);
+  /// @param command The command packet to implement.
+  /// @param client The client that the command is coming from.
+  virtual void doEraseAllStoredStreams(const CommandPacketEraseAllStoredStreams& command, ClientState& client) {
+    sendInvalidCommandMessage(ERASE_ALL_STORED_STREAMS, client);
   }
 
   /// @brief Implement the specified command.
-  virtual void doListStoredStreams(const CommandPacketListStoredStreams&);
-
-  /// @brief Implement the specified command.
-  virtual void doEraseStoredStream(const CommandPacketEraseStoredStream&) {
-    sendInvalidCommandMessage(ERASE_STORED_STREAM);
+  /// @param command The command packet to implement.
+  /// @param client The client that the command is coming from.
+  virtual void doListStoredStreams(const CommandPacketListStoredStreams& command, ClientState& client) {
+    sendInvalidCommandMessage(LIST_STORED_STREAMS, client);
   }
 
   /// @brief Implement the specified command.
-  virtual void doStreamTemperatures(const CommandPacketStreamTemperatures&);
+  /// @param command The command packet to implement.
+  /// @param client The client that the command is coming from.
+  virtual void doEraseStoredStream(const CommandPacketEraseStoredStream& command, ClientState& client) {
+    sendInvalidCommandMessage(ERASE_STORED_STREAM, client);
+  }
 
   /// @brief Implement the specified command.
-  virtual void doCancelTemperatures(const CommandPacketCancelTemperatures&);
+  /// @param command The command packet to implement.
+  /// @param client The client that the command is coming from.
+  virtual void doStreamTemperatures(const CommandPacketStreamTemperatures& command, ClientState& client);
 
   /// @brief Implement the specified command.
-  virtual void doStreamPoses(const CommandPacketStreamPoses&);
+  /// @param command The command packet to implement.
+  /// @param client The client that the command is coming from.
+  virtual void doCancelTemperatures(const CommandPacketCancelTemperatures& command, ClientState& client);
 
   /// @brief Implement the specified command.
-  virtual void doCancelPoses(const CommandPacketCancelPoses&);
+  /// @param command The command packet to implement.
+  /// @param client The client that the command is coming from.
+  virtual void doStreamPoses(const CommandPacketStreamPoses& command, ClientState& client);
+
+  /// @brief Implement the specified command.
+  /// @param command The command packet to implement.
+  /// @param client The client that the command is coming from.
+  virtual void doCancelPoses(const CommandPacketCancelPoses& command, ClientState& client);
 };
 
 //---------------------------------------------------------------------------

@@ -1689,8 +1689,7 @@ Status StreamPacket::GetNextMessage(std::shared_ptr<Message>& message) const
   }
 
   // Construct a message from the buffer.
-  Message *messagePtr = new Message(m_buffer, offset);
-  message.reset(messagePtr);
+  message.reset(new Message(m_buffer, offset));
   if (message->GetConstructorStatus() != OKAY) {
     message.reset();
     return message->GetConstructorStatus();
@@ -4402,8 +4401,7 @@ Status ReceiverUDP::ReceiveCommandPacket(double timeout_seconds, std::shared_ptr
   }
 
   // Construct the packet using the buffer.
-  CommandPacket *commandPacketPtr = new CommandPacket(buffer);
-  packet.reset(commandPacketPtr);
+  packet.reset(new CommandPacket(buffer));
   if (packet->GetConstructorStatus() != OKAY) {
     return packet->GetConstructorStatus();
   }
@@ -4432,8 +4430,7 @@ Status ReceiverUDP::ReceiveStreamPacket(double timeout_seconds, std::shared_ptr<
   }
 
   // Construct the packet using the buffer.
-  StreamPacket *streamPacketPtr = new StreamPacket(buffer);
-  packet.reset(streamPacketPtr);
+  packet.reset(new StreamPacket(buffer));
   if (packet->GetConstructorStatus() != OKAY) {
     return packet->GetConstructorStatus();
   }
@@ -4666,8 +4663,7 @@ Status ReceiverFile::ReceiveCommandPacket(double timeout_seconds, std::shared_pt
   }
 
   // Construct the packet using the buffer.
-  CommandPacket* commandPacketPtr = new CommandPacket(buffer);
-  packet.reset(commandPacketPtr);
+  packet.reset(new CommandPacket(buffer));
   if (packet->GetConstructorStatus() != OKAY) {
     return packet->GetConstructorStatus();
   }
@@ -4713,8 +4709,7 @@ Status ReceiverFile::ReceiveStreamPacket(double timeout_seconds, std::shared_ptr
   }
 
   // Construct the packet using the buffer.
-  StreamPacket* streamPacketPtr = new StreamPacket(buffer);
-  packet.reset(streamPacketPtr);
+  packet.reset(new StreamPacket(buffer));
   if (packet->GetConstructorStatus() != OKAY) {
     return packet->GetConstructorStatus();
   }
@@ -5144,8 +5139,7 @@ Status SenderReceiverTCP::ReceiveCommandPacket(double timeout_seconds, std::shar
   }
 
   // Construct the packet using the buffer.
-  CommandPacket* commandPacketPtr = new CommandPacket(buffer);
-  packet.reset(commandPacketPtr);
+  packet.reset(new CommandPacket(buffer));
   if (packet->GetConstructorStatus() != OKAY) {
     return packet->GetConstructorStatus();
   }
@@ -5193,8 +5187,7 @@ Status SenderReceiverTCP::ReceiveStreamPacket(double timeout_seconds, std::share
   }
 
   // Construct the packet using the buffer.
-  StreamPacket* streamPacketPtr = new StreamPacket(buffer);
-  packet.reset(streamPacketPtr);
+  packet.reset(new StreamPacket(buffer));
   if (packet->GetConstructorStatus() != OKAY) {
     return packet->GetConstructorStatus();
   }
@@ -5290,8 +5283,7 @@ Status TCPListener::AcceptConnection(std::shared_ptr<SenderReceiverTCP>& newConn
   }
 
   // Create a new SenderReceiverTCP object for the new connection.
-  SenderReceiverTCP* pSRTCP = new SenderReceiverTCP(socket, ntohl(addr.sin_addr.s_addr), ntohs(addr.sin_port));
-  newConnection.reset(pSRTCP);
+  newConnection.reset(new SenderReceiverTCP(socket, ntohl(addr.sin_addr.s_addr), ntohs(addr.sin_port)));
   if (newConnection->GetConstructorStatus() != OKAY) {
     return newConnection->GetConstructorStatus();
   }
@@ -5470,8 +5462,7 @@ StreamWriter::StreamWriter(std::shared_ptr<Sender> sender,
   }
 
   // Construct the current packet.
-  StreamPacket *packetPtr = new StreamPacket(m_maxPayloadSize, m_sequenceNumber);
-  m_currentPacket.reset(packetPtr);
+  m_currentPacket.reset(new StreamPacket(m_maxPayloadSize, m_sequenceNumber));
   if (m_currentPacket->GetConstructorStatus() != OKAY) {
     m_constructorStatus = m_currentPacket->GetConstructorStatus();
     return;
@@ -5571,9 +5562,8 @@ std::string StreamWriter::Test()
   }
 
   // Create a Timer
-  Timer *timerPtr = new Timer();
   std::shared_ptr<Timer> timer;
-  timer.reset(timerPtr);
+  timer.reset(new Timer());
 
   // Create a StreamWriter.
   std::shared_ptr<StreamWriter> streamWriter = std::make_shared<StreamWriter>(sender);
@@ -5679,8 +5669,7 @@ Core::Core(uint32_t maxPayloadSize)
   }
 
   // Construct our timer.
-  Timer *timerPtr = new Timer();
-  m_timer.reset(timerPtr);
+  m_timer.reset(new Timer());
 }
 
 Status Core::GetConstructorStatus() const
@@ -6357,169 +6346,76 @@ CoreServerBase::CoreServerBase(uint32_t serialNumber, const std::string& IP,
   int verbosity)
   : CoreServer(serialNumber, IP)
   , m_verbosity(verbosity)
-  , m_statePeriod(1.0)
-  , m_lastStateSent({0, 0})
-  , m_eventVerbosity(0)
-  , m_streamingTemperatures(false)
-  , m_streamingPoses(false)
 {
 }
 
-asdp::CoreServerBase::WriterInfo *CoreServerBase::getWriter(
-  const StreamEndpoint& endpoint, std::list<WriterInfo>& baseList)
-{
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
-
-  // See if there is already an entry for this endpoint in the list we're trying to add
-  // it to.  If there is, we're done.
-  auto it = std::find_if(baseList.begin(), baseList.end(),
-    [&endpoint](const WriterInfo& info) { return info.endpoint == endpoint; });
-  if (it != baseList.end()) {
-    return &*it;
-  }
-
-  // See if there is already an entry for this endpoint in the other lists.  If there is,
-  // add it to the list above.
-  if (&baseList != &m_stateWriters) if (m_stateWriters.size() > 0) {
-    it = std::find_if(m_stateWriters.begin(), m_stateWriters.end(),
-      [&endpoint](const WriterInfo& info) { return info.endpoint == endpoint; });
-    if (it != m_stateWriters.end()) {
-      baseList.push_back(*it);
-      return &*it;
-    }
-  }
-  if (&baseList != &m_eventWriters) if (m_eventWriters.size() > 0) {
-    it = std::find_if(m_eventWriters.begin(), m_eventWriters.end(),
-      [&endpoint](const WriterInfo& info) { return info.endpoint == endpoint; });
-    if (it != m_eventWriters.end()) {
-      baseList.push_back(*it);
-      return &*it;
-    }
-  }
-  if (&baseList != &m_subregionWriters) if (m_subregionWriters.size() > 0) {
-    it = std::find_if(m_subregionWriters.begin(), m_subregionWriters.end(),
-      [&endpoint](const WriterInfo& info) { return info.endpoint == endpoint; });
-    if (it != m_subregionWriters.end()) {
-      baseList.push_back(*it);
-      return &*it;
-    }
-  }
-  if (&baseList != &m_listWriters) if (m_listWriters.size() > 0) {
-    it = std::find_if(m_listWriters.begin(), m_listWriters.end(),
-           [&endpoint](const WriterInfo& info) { return info.endpoint == endpoint; });
-    if (it != m_listWriters.end()) {
-      baseList.push_back(*it);
-      return &*it;
-    }
-  }
-  if (&baseList != &m_temperatureWriters) if (m_temperatureWriters.size() > 0) {
-    it = std::find_if(m_temperatureWriters.begin(), m_temperatureWriters.end(),
-      [&endpoint](const WriterInfo& info) { return info.endpoint == endpoint; });
-    if (it != m_temperatureWriters.end()) {
-      baseList.push_back(*it);
-      return &*it;
-    }
-  }
-  if (&baseList != &m_poseWriters) if (m_poseWriters.size() > 0) {
-    it = std::find_if(m_poseWriters.begin(), m_poseWriters.end(),
-      [&endpoint](const WriterInfo& info) { return info.endpoint == endpoint; });
-    if (it != m_poseWriters.end()) {
-      baseList.push_back(*it);
-      return &*it;
-    }
-  }
-
-  // Create a new sender and writer for the endpoint because there is not one.
-  // Add it to the list.
-  std::shared_ptr<Sender> sender(new SenderUDP(endpoint));
-  Status status = sender->GetConstructorStatus();
-  if (status != OKAY) {
-    m_error = "Failed to create SenderUDP: " + ErrorMessage(status);
-  }
-  std::shared_ptr<StreamWriter> writer(new StreamWriter(sender));
-  status = writer->GetConstructorStatus();
-  if (status != OKAY) {
-    m_error = "Failed to create StreamWriter: " + ErrorMessage(status);
-  }
-  WriterInfo wi;
-  wi.endpoint = endpoint;
-  wi.writer = writer;
-  if (m_verbosity >= 1) {
-    std::cout << "Created StreamWriter for " << endpoint << std::endl;
-  }
-  baseList.push_back(wi);
-  return &baseList.back();
-}
-
-void CoreServerBase::sendInvalidCommandMessage(OpCode opCode)
+void CoreServerBase::sendInvalidCommandMessage(OpCode opCode, ClientState& client)
 {
   if (m_verbosity >= 1) {
     std::cout << "Invalid opcode received: " << opCode << std::endl;
   }
 
   std::lock_guard<std::recursive_mutex> lock(m_mutex);
-  for (auto writer : m_eventWriters) {
-    uint8_t priority = 0;
-    EventID type = INVALID_OPERATION;
-    if (writer.verbosity < type) {
-      continue;
-    }
-    std::shared_ptr<StreamPacket> packet;
-    Status status = writer.writer->GetCurrentPacket(packet);
-    if (status != OKAY) {
-      m_error = "Error getting current packet from m_eventWriters: " + ErrorMessage(status);
-      return;
-    }
-    Time timeCode;
-    m_timer->GetCoreTime(timeCode);
-    MessageEvent message(*packet, timeCode, priority, type, std::to_string(opCode));
-    if (message.GetConstructorStatus() != OKAY) {
-      m_error = "Error constructing MessageEvent: " + ErrorMessage(message.GetConstructorStatus());
-      return;
-    }
+  std::shared_ptr<StreamWriter> writer = client.m_writer;
+  uint8_t priority = 0;
+  EventID type = INVALID_OPERATION;
+  if (client.m_eventVerbosity < priority) {
+    return;
+  }
+  std::shared_ptr<StreamPacket> packet;
+  Status status = writer->GetCurrentPacket(packet);
+  if (status != OKAY) {
+    m_error = "Error getting current packet from StreamWriter: " + ErrorMessage(status);
+    return;
+  }
+  Time timeCode;
+  m_timer->GetCoreTime(timeCode);
+  MessageEvent message(*packet, timeCode, priority, type, std::to_string(opCode));
+  if (message.GetConstructorStatus() != OKAY) {
+    m_error = "Error constructing MessageEvent: " + ErrorMessage(message.GetConstructorStatus());
+    return;
+  }
 
-    // Send the packet immediately.
-    status = writer.writer->Flush();
-    if (status != OKAY) {
-      m_error = "Error flushing m_eventWriters: " + ErrorMessage(status);
-      return;
-    }
+  // Send the packet immediately.
+  status = writer->Flush();
+  if (status != OKAY) {
+    m_error = "Error flushing StreamWriter: " + ErrorMessage(status);
+    return;
   }
 }
 
-void CoreServerBase::sendUnrecognizedOpcodeMessage(OpCode opCode)
+void CoreServerBase::sendUnrecognizedOpcodeMessage(OpCode opCode, ClientState& client)
 {
   if (m_verbosity >= 1) {
-    std::cout << "Unrecognized OpCode received: " << opCode << std::endl;
+    std::cout << "Unrecognized opcode received: " << opCode << std::endl;
   }
 
   std::lock_guard<std::recursive_mutex> lock(m_mutex);
-  for (auto writer : m_eventWriters) {
-    uint8_t priority = 0;
-    EventID type = UNRECOGNIZED_OPCODE;
-    if (writer.verbosity < type) {
-      continue;
-    }
-    std::shared_ptr<StreamPacket> packet;
-    Status status = writer.writer->GetCurrentPacket(packet);
-    if (status != OKAY) {
-      m_error = "Error getting current packet from m_eventWriters: " + ErrorMessage(status);
-      return;
-    }
-    Time timeCode;
-    m_timer->GetCoreTime(timeCode);
-    MessageEvent message(*packet, timeCode, priority, type, std::to_string(opCode));
-    if (message.GetConstructorStatus() != OKAY) {
-      m_error = "Error constructing MessageEvent: " + ErrorMessage(message.GetConstructorStatus());
-      return;
-    }
+  std::shared_ptr<StreamWriter> writer = client.m_writer;
+  uint8_t priority = 0;
+  EventID type = UNRECOGNIZED_OPCODE;
+  if (client.m_eventVerbosity < priority) {
+    return;
+  }
+  std::shared_ptr<StreamPacket> packet;
+  Status status = writer->GetCurrentPacket(packet);
+  if (status != OKAY) {
+    m_error = "Error getting current packet from StreamWriter: " + ErrorMessage(status);
+    return;
+  }
+  Time timeCode;
+  m_timer->GetCoreTime(timeCode);
+  MessageEvent message(*packet, timeCode, priority, type, std::to_string(opCode));
+  if (message.GetConstructorStatus() != OKAY) {
+    m_error = "Error constructing MessageEvent: " + ErrorMessage(message.GetConstructorStatus());
+    return;
+  }
 
-    // Send the packet immediately.
-    status = writer.writer->Flush();
-    if (status != OKAY) {
-      m_error = "Error flushing m_eventWriters: " + ErrorMessage(status);
-      return;
-    }
+  // Send the packet immediately.
+  status = writer->Flush();
+  if (status != OKAY) {
+    m_error = "Error flushing StreamWriter: " + ErrorMessage(status);
+    return;
   }
 }
 
@@ -6547,29 +6443,40 @@ std::string CoreServerBase::run()
     if (status != OKAY) {
       return "Failed to get new TCP links: " + ErrorMessage(status);
     }
-    for (auto newClient : newClients) {
-      if (m_verbosity >= 1) {
-        std::cout << "Got new client, version "
-          << newClient->major << "." << newClient->minor << "." << newClient->patch << std::endl;
+    if (newClients.size() > 0)
+    {
+      std::lock_guard<std::recursive_mutex> lock(m_mutex);
+      for (auto newClient : newClients) {
+        if (m_verbosity >= 1) {
+          std::cout << "Got new client, version "
+            << newClient->major << "." << newClient->minor << "." << newClient->patch << std::endl;
+        }
+
+        // Construct a StreamWriter for the client and then fill in its state.
+        std::shared_ptr<StreamWriter> writer(new StreamWriter(newClient->stream));
+        if (writer->GetConstructorStatus() != OKAY) {
+          return "Failed to construct StreamWriter: " + ErrorMessage(writer->GetConstructorStatus());
+        }
+        ClientState client(newClient, writer);
+        m_clients.push_back(client);
       }
-      m_clients.push_back(newClient);
     }
 
     // Run through each active client and see if we get a command from it.
     // If we get a failure on a client, remove it from the list.
-    std::vector< std::shared_ptr<ClientInfo> > badClients;
-    for (auto receiver : m_clients) {
+    std::vector<ClientState> badClients;
+    for (auto &client : m_clients) {
 
       // Check for a command, busy waiting.
       std::shared_ptr<CommandPacket> command;
-      status = receiver->stream->ReceiveCommandPacket(0.0, command);
+      status = client.m_client->stream->ReceiveCommandPacket(0.0, command);
       if (status == TIMEOUT) {
         // Skip this client.
         continue;
       }
       if (status != OKAY) {
         // The client is dead, remove it from the list(s).
-        badClients.push_back(receiver);
+        badClients.push_back(client);
         continue;
       }
 
@@ -6590,7 +6497,7 @@ std::string CoreServerBase::run()
         if (status != OKAY) {
           return "Failed to construct reset command: " + ErrorMessage(status);
         }
-        doReset(resetCommand);
+        doReset(resetCommand, client);
       }
       break;
       case START_RECORDING:
@@ -6600,7 +6507,7 @@ std::string CoreServerBase::run()
         if (status != OKAY) {
           return "Failed to construct start recording command: " + ErrorMessage(status);
         }
-        doStartRecording(startRecordingCommand);
+        doStartRecording(startRecordingCommand, client);
       }
       break;
       case STOP_RECORDING:
@@ -6610,7 +6517,7 @@ std::string CoreServerBase::run()
         if (status != OKAY) {
           return "Failed to construct stop recording command: " + ErrorMessage(status);
         }
-        doStopRecording(stopRecordingCommand);
+        doStopRecording(stopRecordingCommand, client);
       }
       break;
       case SET_START_UP_RECORDING_STATE:
@@ -6620,7 +6527,7 @@ std::string CoreServerBase::run()
         if (status != OKAY) {
           return "Failed to construct set start up recording state command: " + ErrorMessage(status);
         }
-        doSetStartUpRecordingState(setStartUpRecordingStateCommand);
+        doSetStartUpRecordingState(setStartUpRecordingStateCommand, client);
       }
       break;
       case START_REPLAY:
@@ -6630,7 +6537,7 @@ std::string CoreServerBase::run()
         if (status != OKAY) {
           return "Failed to construct start replay command: " + ErrorMessage(status);
         }
-        doStartReplay(startReplayCommand);
+        doStartReplay(startReplayCommand, client);
       }
       break;
       case PAUSE_REPLAY:
@@ -6640,7 +6547,7 @@ std::string CoreServerBase::run()
         if (status != OKAY) {
           return "Failed to construct pause replay command: " + ErrorMessage(status);
         }
-        doPauseReplay(pauseReplayCommand);
+        doPauseReplay(pauseReplayCommand, client);
       }
       break;
       case STOP_REPLAY:
@@ -6650,7 +6557,7 @@ std::string CoreServerBase::run()
         if (status != OKAY) {
           return "Failed to construct stop replay command: " + ErrorMessage(status);
         }
-        doStopReplay(stopReplayCommand);
+        doStopReplay(stopReplayCommand, client);
       }
       break;
       case SET_STREAM_STATE_PERIOD:
@@ -6660,7 +6567,7 @@ std::string CoreServerBase::run()
         if (status != OKAY) {
           return "Failed to construct stream state command: " + ErrorMessage(status);
         }
-        doSetStreamStatePeriod(streamStateCommand);
+        doSetStreamStatePeriod(streamStateCommand, client);
       }
       break;
       case CONFIGURE_TRIGGER:
@@ -6670,7 +6577,7 @@ std::string CoreServerBase::run()
         if (status != OKAY) {
           return "Failed to construct configure trigger command: " + ErrorMessage(status);
         }
-        doConfigureTrigger(configureTriggerCommand);
+        doConfigureTrigger(configureTriggerCommand, client);
       }
       break;
       case SOFTWARE_TRIGGER:
@@ -6680,7 +6587,7 @@ std::string CoreServerBase::run()
         if (status != OKAY) {
           return "Failed to construct software trigger command: " + ErrorMessage(status);
         }
-        doSoftwareTrigger(softwareTriggerCommand);
+        doSoftwareTrigger(softwareTriggerCommand, client);
       }
       break;
       case SET_EVENT_VERBOSITY:
@@ -6690,7 +6597,7 @@ std::string CoreServerBase::run()
         if (status != OKAY) {
           return "Failed to construct stream events command: " + ErrorMessage(status);
         }
-        doSetEventVerbosity(streamEventsCommand);
+        doSetEventVerbosity(streamEventsCommand, client);
       }
       break;
       case STREAM_SUBREGION:
@@ -6700,7 +6607,7 @@ std::string CoreServerBase::run()
         if (status != OKAY) {
           return "Failed to construct stream subregion command: " + ErrorMessage(status);
         }
-        doStreamSubregion(streamSubregionCommand);
+        doStreamSubregion(streamSubregionCommand, client);
       }
       break;
       case CANCEL_SUBREGION:
@@ -6710,7 +6617,7 @@ std::string CoreServerBase::run()
         if (status != OKAY) {
           return "Failed to construct cancel subregion command: " + ErrorMessage(status);
         }
-        doCancelSubregion(cancelSubregionCommand);
+        doCancelSubregion(cancelSubregionCommand, client);
       }
       break;
       case ERASE_ALL_STORED_STREAMS:
@@ -6720,7 +6627,7 @@ std::string CoreServerBase::run()
         if (status != OKAY) {
           return "Failed to construct erase all stored streams command: " + ErrorMessage(status);
         }
-        doEraseAllStoredStreams(eraseAllStoredStreamsCommand);
+        doEraseAllStoredStreams(eraseAllStoredStreamsCommand, client);
       }
       break;
       case LIST_STORED_STREAMS:
@@ -6730,7 +6637,7 @@ std::string CoreServerBase::run()
         if (status != OKAY) {
           return "Failed to construct list stored streams command: " + ErrorMessage(status);
         }
-        doListStoredStreams(ListStoredStreamsCommand);
+        doListStoredStreams(ListStoredStreamsCommand, client);
       }
       break;
       case ERASE_STORED_STREAM:
@@ -6740,7 +6647,7 @@ std::string CoreServerBase::run()
         if (status != OKAY) {
           return "Failed to construct erase stored stream command: " + ErrorMessage(status);
         }
-        doEraseStoredStream(eraseStoredStreamCommand);
+        doEraseStoredStream(eraseStoredStreamCommand, client);
       }
       break;
       case STREAM_TEMPERATURES:
@@ -6750,7 +6657,7 @@ std::string CoreServerBase::run()
         if (status != OKAY) {
           return "Failed to construct stream temperatures command: " + ErrorMessage(status);
         }
-        doStreamTemperatures(streamTemperaturesCommand);
+        doStreamTemperatures(streamTemperaturesCommand, client);
       }
       break;
       case CANCEL_TEMPERATURES:
@@ -6760,7 +6667,7 @@ std::string CoreServerBase::run()
         if (status != OKAY) {
           return "Failed to construct cancel temperatures command: " + ErrorMessage(status);
         }
-        doCancelTemperatures(cancelTemperaturesCommand);
+        doCancelTemperatures(cancelTemperaturesCommand, client);
       }
       break;
       case STREAM_POSES:
@@ -6770,7 +6677,7 @@ std::string CoreServerBase::run()
         if (status != OKAY) {
           return "Failed to construct stream poses command: " + ErrorMessage(status);
         }
-        doStreamPoses(streamPosesCommand);
+        doStreamPoses(streamPosesCommand, client);
       }
       break;
       case CANCEL_POSES:
@@ -6780,12 +6687,12 @@ std::string CoreServerBase::run()
         if (status != OKAY) {
           return "Failed to construct cancel poses command: " + ErrorMessage(status);
         }
-        doCancelPoses(cancelPosesCommand);
+        doCancelPoses(cancelPosesCommand, client);
       }
       break;
       default:
         // Tell the client that we don't recognize this opcode (they may be a later version)
-        sendUnrecognizedOpcodeMessage(opCode);
+        sendUnrecognizedOpcodeMessage(opCode, client);
       }
     }
 
@@ -6810,7 +6717,7 @@ std::string CoreServerBase::run()
   }
 }
 
-void CoreServerBase::doSetEventVerbosity(const CommandPacketSetEventVerbosity& command)
+void CoreServerBase::doSetEventVerbosity(const CommandPacketSetEventVerbosity& command, ClientState& client)
 {
   uint8_t verbosity;
   Status status = command.GetVerbosity(verbosity);
@@ -6820,10 +6727,10 @@ void CoreServerBase::doSetEventVerbosity(const CommandPacketSetEventVerbosity& c
   }
 
   std::lock_guard<std::recursive_mutex> lock(m_mutex);
-  m_eventVerbosity = verbosity;
+  client.m_eventVerbosity = verbosity;
 }
 
-void CoreServerBase::doSetStreamStatePeriod(const CommandPacketSetStreamStatePeriod& command)
+void CoreServerBase::doSetStreamStatePeriod(const CommandPacketSetStreamStatePeriod& command, ClientState& client)
 {
   float period;
   Status status = command.GetInterval(period);
@@ -6834,69 +6741,57 @@ void CoreServerBase::doSetStreamStatePeriod(const CommandPacketSetStreamStatePer
 
   std::lock_guard<std::recursive_mutex> lock(m_mutex);
 
-  m_statePeriod = period;
+  client.m_statePeriod = period;
 }
 
-
-void CoreServerBase::doListStoredStreams(const CommandPacketListStoredStreams& command)
-{
-  // If we don't have the storage feature, this command is in error.
-  if (find(m_features.begin(), m_features.end(), STORAGE_API_AVAILABLE) == m_features.end()) {
-    sendInvalidCommandMessage(LIST_STORED_STREAMS);
-    return;
-  }
-
-  /// @todo Send the list of stored streams.
-}
-
-void CoreServerBase::doStreamTemperatures(const CommandPacketStreamTemperatures& command)
+void CoreServerBase::doStreamTemperatures(const CommandPacketStreamTemperatures& command, ClientState& client)
 {
   // If we don't have the temperature feature, this command is in error.
   if (find(m_features.begin(), m_features.end(), TEMPERATURE_API_AVAILBLE) == m_features.end()) {
-    sendInvalidCommandMessage(STREAM_TEMPERATURES);
+    sendInvalidCommandMessage(STREAM_TEMPERATURES, client);
     return;
   }
 
   std::lock_guard<std::recursive_mutex> lock(m_mutex);
-  m_streamingTemperatures = true;
+  client.m_streamingTemperatures = true;
 }
 
-void CoreServerBase::doCancelTemperatures(const CommandPacketCancelTemperatures& command)
+void CoreServerBase::doCancelTemperatures(const CommandPacketCancelTemperatures& command, ClientState& client)
 {
   // If we don't have the temperature feature, this command is in error.
   if (find(m_features.begin(), m_features.end(), TEMPERATURE_API_AVAILBLE) == m_features.end()) {
-    sendInvalidCommandMessage(STREAM_TEMPERATURES);
+    sendInvalidCommandMessage(STREAM_TEMPERATURES, client);
     return;
   }
 
   std::lock_guard<std::recursive_mutex> lock(m_mutex);
-  m_streamingTemperatures = false;
+  client.m_streamingTemperatures = false;
 }
 
-void CoreServerBase::doStreamPoses(const CommandPacketStreamPoses& command)
+void CoreServerBase::doStreamPoses(const CommandPacketStreamPoses& command, ClientState& client)
 {
   // If we don't have the pose features, this command is in error.
   if ((find(m_features.begin(), m_features.end(), POSE_API_ORIENTATION_AVAILABLE) == m_features.end()
       && find(m_features.begin(), m_features.end(), POSE_API_POSITION_AVAILABLE) == m_features.end())) {
-    sendInvalidCommandMessage(STREAM_POSES);
+    sendInvalidCommandMessage(STREAM_POSES, client);
     return;
   }
 
   std::lock_guard<std::recursive_mutex> lock(m_mutex);
-  m_streamingPoses = true;
+  client.m_streamingPoses = true;
 }
 
-void CoreServerBase::doCancelPoses(const CommandPacketCancelPoses& command)
+void CoreServerBase::doCancelPoses(const CommandPacketCancelPoses& command, ClientState& client)
 {
   // If we don't have the pose features, this command is in error.
   if ((find(m_features.begin(), m_features.end(), POSE_API_ORIENTATION_AVAILABLE) == m_features.end()
     && find(m_features.begin(), m_features.end(), POSE_API_POSITION_AVAILABLE) == m_features.end())) {
-    sendInvalidCommandMessage(STREAM_POSES);
+    sendInvalidCommandMessage(STREAM_POSES, client);
     return;
   }
 
   std::lock_guard<std::recursive_mutex> lock(m_mutex);
-  m_streamingPoses = false;
+  client.m_streamingPoses = false;
 }
 
 std::string asdp::Test()
