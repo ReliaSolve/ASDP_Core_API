@@ -2197,7 +2197,7 @@ MessageState::MessageState(StreamPacket& packet, Time timeCode,
         + sizeof(uint32_t) + triggerConfigs.size() * sizeof(TriggerInfo)
         + sizeof(totalDiskSpace) + sizeof(remainingDiskSpace)
         + 2 * sizeof(uint32_t) /* Time */,
-      timeCode, DISCOVERY)
+      timeCode, STATE)
 {
   // See if our subobject failed. If so, we're done.
   if (m_constructorStatus != OKAY) {
@@ -2533,7 +2533,7 @@ std::string MessageState::Test()
     if (status != OKAY) {
       return "Error getting type from MessageState for MessageState test: " + ErrorMessage(status);
     }
-    if (type != DISCOVERY) {
+    if (type != STATE) {
       return "Error getting type from MessageState for MessageState test: type is not DISCOVERY";
     }
 
