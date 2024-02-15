@@ -2308,6 +2308,8 @@ protected:
   public:
     std::shared_ptr<ClientInfo> m_client;   ///< The client information from connection
     std::shared_ptr<StreamWriter> m_writer; ///< The StreamWriter for the client
+    Time m_clockPeriod;                     ///< The between clock events
+    Time m_lastClockSent;                   ///< The time the last clock was sent
     Time m_statePeriod;                     ///< The period for state streaming
     Time m_lastStateSent;                   ///< The time the last state was sent
     uint8_t m_eventVerbosity;               ///< The minimum numbered priority of events to send
@@ -2318,7 +2320,9 @@ protected:
     /// @param [in] client Client to talk with.
     /// @param [in] writer StreamWriter to use to talk with the client.
     ClientState(std::shared_ptr<ClientInfo> client, std::shared_ptr<StreamWriter> writer)
-      : m_client(client), m_writer(writer), m_statePeriod(0.5), m_lastStateSent({ 0, 0 }), m_eventVerbosity(0)
+      : m_client(client), m_writer(writer)
+      , m_clockPeriod(0.1), m_lastClockSent({0, 0})
+      , m_statePeriod(0.5), m_lastStateSent({ 0, 0 }), m_eventVerbosity(0)
       , m_streamingTemperatures(false), m_streamingPoses(false) {};
 
     /// @brief Equality operator just judges by the client pointer
@@ -2337,8 +2341,6 @@ protected:
 
   /// A list of current clients that we will receive commands from and send responses to.
   std::vector<ClientState> m_clients;
-
-  /// @todo Implement streaming of clock events
 
   //=============================================================================
   // There are a number of sets of StreamWriters that are created and managed by the server.
@@ -2370,6 +2372,10 @@ protected:
   /// @brief Helper method to send state message to the event stream.
   /// @param client The client that the command is coming from.
   virtual Status SendStateMessage(ClientState& client);
+
+  /// @brief Helper method to send clock-sync message to the event stream.
+  /// @param client The client that the command is coming from.
+  virtual Status SendClockSyncMessage(ClientState& client);
 
   //=============================================================================
   // Methods to implement the commands. NOTE: These are each implemented to send

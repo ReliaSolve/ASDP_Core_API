@@ -254,6 +254,18 @@ static size_t PaddingToAdd(const std::string& str)
   return padding;
 }
 
+/// @brief Helper function to determine the size of a buffer needed to hold a string Event parameter.
+static size_t PaddedSize(const std::string& str)
+{
+  // If the string is empty, the entire size is 0.
+  if (str.size() == 0) {
+    return 0;
+  }
+
+  // Otherwise, add the size of the string plus 1 for the null terminator and padding.
+  return str.size() + 1 + PaddingToAdd(str);
+}
+
 /// @brief Helper function to unpack the version sections.
 static void UnpackVersion(const uint8_t *version, uint16_t& major, uint16_t& minor, uint16_t& patch)
 {
@@ -2688,7 +2700,7 @@ Status MessageState::GetAfterTriggerConfigsOffset(uint32_t& offset) const
 }
 
 MessageEvent::MessageEvent(StreamPacket& packet, Time timeCode, uint8_t priority, EventID type, std::string param)
-  : Message(packet, 4 + sizeof(uint32_t) + param.size() + 1 + PaddingToAdd(param), timeCode, EVENT)
+  : Message(packet, 4 + sizeof(uint32_t) + PaddedSize(param), timeCode, EVENT)
 {
   // See if our subobject failed. If so, we're done.
   if (m_constructorStatus != OKAY) {
@@ -2703,11 +2715,14 @@ MessageEvent::MessageEvent(StreamPacket& packet, Time timeCode, uint8_t priority
   // Record the offset from the event base to the character array.
   uint32_t paramOffset = 8;
   memcpy(bufPtr, &paramOffset, sizeof(paramOffset)); bufPtr += sizeof(paramOffset);
-  // Copy the parameter string into the buffer and pad it to a multiple of 4 bytes.
-  memcpy(bufPtr, param.c_str(), param.size()); bufPtr += param.size();
-  *bufPtr = 0; bufPtr++;  // Null-terminate the string.
-  for (uint32_t i = 0; i < PaddingToAdd(param); i++) {
-    *bufPtr = 0; bufPtr++;
+  // Copy the parameter string into the buffer and pad it to a multiple of 4 bytes
+  // unless there is no parameter.
+  if (param.size() > 0) {
+    memcpy(bufPtr, param.c_str(), param.size()); bufPtr += param.size();
+    *bufPtr = 0; bufPtr++;  // Null-terminate the string.
+    for (uint32_t i = 0; i < PaddingToAdd(param); i++) {
+      *bufPtr = 0; bufPtr++;
+    }
   }
 }
 
@@ -6444,6 +6459,57 @@ Status CoreServerBase::SendStateMessage(ClientState& client)
   return OKAY;
 }
 
+Status CoreServerBase::SendClockSyncMessage(ClientState& client)
+{
+  if (m_verbosity >= 100) {
+    std::cout << "Sending clock sync" << std::endl;
+  }
+
+  std::shared_ptr<StreamWriter> writer = client.m_writer;
+  std::shared_ptr<StreamPacket> packet;
+  Status status = writer->GetCurrentPacket(packet);
+  if (status != OKAY) {
+    m_error = "Error getting current packet from StreamWriter: " + ErrorMessage(status);
+    return status;
+  }
+  uint8_t priority = 0;
+  EventID type = CLOCK_SYNC;
+  if (client.m_eventVerbosity < priority) {
+    return OKAY;
+  }
+  Time timeCode;
+  m_timer->GetCoreTime(timeCode);
+  MessageEvent message(*packet, timeCode, priority, type, "");
+  if (message.GetConstructorStatus() != OKAY) {
+    // Retry after flushing the buffer.
+    status = writer->Flush();
+    if (status != OKAY) {
+      m_error = "Error flushing StreamWriter: " + ErrorMessage(status);
+      return status;
+    }
+    status = writer->GetCurrentPacket(packet);
+    if (status != OKAY) {
+      m_error = "Error getting current packet from StreamWriter: " + ErrorMessage(status);
+      return status;
+    }
+    message = MessageEvent(*packet, timeCode, priority, type, "");
+    status = message.GetConstructorStatus();
+    if (status != OKAY) {
+      m_error = "Error constructing MessageEvent: " + ErrorMessage(message.GetConstructorStatus());
+      return status;
+    }
+  }
+
+  // Send the packet immediately.
+  status = writer->Flush();
+  if (status != OKAY) {
+    m_error = "Error flushing StreamWriter: " + ErrorMessage(status);
+    return status;
+  }
+
+  return OKAY;
+}
+
 std::string CoreServerBase::run()
 {
   Status status;
@@ -6492,8 +6558,21 @@ std::string CoreServerBase::run()
     std::vector<ClientState> badClients;
     for (auto &client : m_clients) {
 
-      // See if it is time to send a state packet to this client and do so if it is.
+      // See if it is time to send a clock sync packet to this client and do so if it is.
       Time now;
+      status = m_timer->GetCoreTime(now);
+      if (status != OKAY) {
+        return "Failed to get core time: " + ErrorMessage(status);
+      }
+      if (client.m_lastClockSent + client.m_clockPeriod < now) {
+        status = SendClockSyncMessage(client);
+        if (status != OKAY) {
+          return "Failed to send clock sync packet: " + ErrorMessage(status);
+        }
+        client.m_lastClockSent = now;
+      }
+
+      // See if it is time to send a state packet to this client and do so if it is.
       status = m_timer->GetCoreTime(now);
       if (status != OKAY) {
         return "Failed to get core time: " + ErrorMessage(status);
