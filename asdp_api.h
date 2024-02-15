@@ -2338,7 +2338,6 @@ protected:
   /// A list of current clients that we will receive commands from and send responses to.
   std::vector<ClientState> m_clients;
 
-  /// @todo Implement streaming of state at the specified interval
   /// @todo Implement streaming of clock events
 
   //=============================================================================

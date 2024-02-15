@@ -6322,7 +6322,6 @@ void CoreServerBase::sendInvalidCommandMessage(OpCode opCode, ClientState& clien
     std::cout << "Invalid opcode received: " << opCode << std::endl;
   }
 
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
   std::shared_ptr<StreamWriter> writer = client.m_writer;
   uint8_t priority = 0;
   EventID type = INVALID_OPERATION;
@@ -6357,7 +6356,6 @@ void CoreServerBase::sendUnrecognizedOpcodeMessage(OpCode opCode, ClientState& c
     std::cout << "Unrecognized opcode received: " << opCode << std::endl;
   }
 
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
   std::shared_ptr<StreamWriter> writer = client.m_writer;
   uint8_t priority = 0;
   EventID type = UNRECOGNIZED_OPCODE;
@@ -6392,7 +6390,6 @@ Status CoreServerBase::SendStateMessage(ClientState& client)
     std::cout << "  Sending state message" << std::endl;
   }
 
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
   std::shared_ptr<StreamWriter> writer = client.m_writer;
   std::shared_ptr<StreamPacket> packet;
   Status status = writer->GetCurrentPacket(packet);
@@ -6768,7 +6765,6 @@ void CoreServerBase::doSetEventVerbosity(const CommandPacketSetEventVerbosity& c
     return;
   }
 
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
   client.m_eventVerbosity = verbosity;
 }
 
@@ -6781,7 +6777,6 @@ void CoreServerBase::doSetStreamStatePeriod(const CommandPacketSetStreamStatePer
     return;
   }
 
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
   client.m_statePeriod = period;
 }
 
@@ -6793,7 +6788,6 @@ void CoreServerBase::doStreamTemperatures(const CommandPacketStreamTemperatures&
     return;
   }
 
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
   client.m_streamingTemperatures = true;
 }
 
@@ -6805,7 +6799,6 @@ void CoreServerBase::doCancelTemperatures(const CommandPacketCancelTemperatures&
     return;
   }
 
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
   client.m_streamingTemperatures = false;
 }
 
@@ -6818,7 +6811,6 @@ void CoreServerBase::doStreamPoses(const CommandPacketStreamPoses& command, Clie
     return;
   }
 
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
   client.m_streamingPoses = true;
 }
 
@@ -6831,7 +6823,6 @@ void CoreServerBase::doCancelPoses(const CommandPacketCancelPoses& command, Clie
     return;
   }
 
-  std::lock_guard<std::recursive_mutex> lock(m_mutex);
   client.m_streamingPoses = false;
 }
 
