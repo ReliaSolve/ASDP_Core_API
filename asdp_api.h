@@ -400,7 +400,7 @@ protected:
   BasicPacket& operator=(BasicPacket&&) = delete;
 
   /// @brief Construct a basic packet with its own buffer and fill its values in.
-  /// @param [in] extraHeaderSize Size of the packet beyond the basic packet size.
+  /// @param [in] extraSize Size of the packet beyond the basic packet size.
   /// This includes all extra header information and the parameter portion of the packet.
   BasicPacket(uint32_t extraSize);
 
