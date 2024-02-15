@@ -2845,6 +2845,35 @@ std::string MessageEvent::Test()
       return "Error getting param from MessageEvent for MessageEvent test: param is not \"" + param
         + "\" but \"" + rParam + "\"";
     }
+
+    // Now make an actual clock-sync event with no parameters and ensure that this also works.
+    StreamPacket packet2;
+    if (packet2.GetConstructorStatus() != OKAY) {
+      return "Error constructing second stream packet for MessageEvent test: " + ErrorMessage(packet2.GetConstructorStatus());
+    }
+    priority = 0;
+    param = "";
+    type = CLOCK_SYNC;
+    MessageEvent message2(packet2, timeCode, priority, type, param);
+    if (message2.GetConstructorStatus() != OKAY) {
+      return "Error constructing second MessageEvent: " + ErrorMessage(message2.GetConstructorStatus());
+    }
+    status = packet2.GetTotalLength(totalLength);
+    if (status != OKAY) {
+      return "Error checking message size for second MessageEvent test: " + ErrorMessage(status);
+    }
+    if (totalLength != STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE + 4 + sizeof(uint32_t)) {
+      return "Error constructing second MessageEvent from buffer: packet length is not " +
+        std::to_string(STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE + 4 + sizeof(uint32_t)) + " but " +
+        std::to_string(totalLength);
+    }
+    status = message2.GetParam(rParam);
+    if (status != OKAY) {
+      return "Error getting param from second MessageEvent for second MessageEvent test: " + ErrorMessage(status);
+    }
+    if (param != rParam) {
+      return "Parameter of second MessageEvent is not empty";
+    }
   }
   return "";
 }
