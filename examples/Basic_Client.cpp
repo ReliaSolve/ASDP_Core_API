@@ -66,7 +66,7 @@ int main(int argc, char** argv)
     return 6;
   }
   if (servers.empty()) {
-    std::cerr << "No servers found" << std::endl;
+    std::cerr << "No servers found; be sure to run Base_Server or another first." << std::endl;
     return 7;
   }
   std::cout << "Servers found: " << servers.size() << std::endl;

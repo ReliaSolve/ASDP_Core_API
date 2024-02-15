@@ -2238,7 +2238,7 @@ protected:
 /// number of helper functions to handle the commands.
 /// 
 /// It should be tested by running the Base_Server example program and then running
-/// the Validating_Client example program.
+/// the Base_Validating_Client example program.
 
 class CoreServerBase : public CoreServer {
 public:

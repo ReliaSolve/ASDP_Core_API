@@ -18,5 +18,6 @@ takes in an asdp::Status and provides a string description of the status.
 \example ASDP_Core_Speed_Measurements.cpp
 \example Basic_Server.cpp
 \example Basic_Client.cpp
+\example Validating_Client.cpp
 
 \example ASDP_Core_Test.cpp
