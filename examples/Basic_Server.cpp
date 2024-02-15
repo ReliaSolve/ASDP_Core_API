@@ -8,6 +8,7 @@
 
 #include <iostream>
 #include <chrono>
+#include <algorithm>
 #include <asdp_api.h>
 
 using namespace asdp;
