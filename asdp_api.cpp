@@ -2254,7 +2254,7 @@ MessageState::MessageState(Message& baseMessage)
 {
   MessageID type;
   baseMessage.GetType(type);
-  if (type != DISCOVERY) {
+  if (type != STATE) {
     m_constructorStatus = BAD_PARAMETER;
   }
 }
