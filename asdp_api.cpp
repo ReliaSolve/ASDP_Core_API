@@ -3928,78 +3928,6 @@ public:
   }
 };
 
-/// @brief Get the local IP addresses of the machine.
-/// @return A vector of the local IP addresses of the machine.
-static std::vector<uint32_t> GetLocalIPs()
-{
-  std::vector<uint32_t> IPs;
-#ifdef ASDP_USE_WINSOCK_SOCKETS
-  PIP_ADAPTER_ADDRESSES pAddresses = NULL;
-  ULONG outBufLen = 0;
-  ULONG Iterations = 0;
-  ULONG family = AF_INET;
-  DWORD dwRetVal = 0;
-  ULONG flags = GAA_FLAG_INCLUDE_PREFIX;
-  ULONG familySize = sizeof(family);
-  PIP_ADAPTER_ADDRESSES pCurrAddresses = NULL;
-  PIP_ADAPTER_UNICAST_ADDRESS pUnicast = NULL;
-  PIP_ADAPTER_ANYCAST_ADDRESS pAnycast = NULL;
-  PIP_ADAPTER_MULTICAST_ADDRESS pMulticast = NULL;
-  IP_ADAPTER_DNS_SERVER_ADDRESS* pDnServer = NULL;
-  IP_ADAPTER_PREFIX* pPrefix = NULL;
-  outBufLen = 15000;
-  do {
-    pAddresses = (IP_ADAPTER_ADDRESSES*)malloc(outBufLen);
-    if (pAddresses == NULL) {
-      return IPs;
-    }
-    dwRetVal = GetAdaptersAddresses(family, flags, NULL, pAddresses, &outBufLen);
-    if (dwRetVal == ERROR_BUFFER_OVERFLOW) {
-      free(pAddresses);
-      pAddresses = NULL;
-    }
-    else {
-      break;
-    }
-    Iterations++;
-  } while ((dwRetVal == ERROR_BUFFER_OVERFLOW) && (Iterations < 3));
-  if (dwRetVal != NO_ERROR) {
-    free(pAddresses);
-    return IPs;
-  }
-  for (pCurrAddresses = pAddresses; pCurrAddresses != NULL; pCurrAddresses = pCurrAddresses->Next) {
-    for (pUnicast = pCurrAddresses->FirstUnicastAddress; pUnicast != NULL; pUnicast = pUnicast->Next) {
-      if (pUnicast->Address.lpSockaddr->sa_family == AF_INET) {
-        IPs.push_back(((struct sockaddr_in*)pUnicast->Address.lpSockaddr)->sin_addr.s_addr);
-      }
-    }
-  }
-  if (pAddresses) {
-    free(pAddresses);
-  }
-#else
-  struct ifaddrs* ifAddrStruct = nullptr;
-  struct ifaddrs* ifa = nullptr;
-  void* tmpAddrPtr = nullptr;
-
-  getifaddrs(&ifAddrStruct);
-
-  for (ifa = ifAddrStruct; ifa != nullptr; ifa = ifa->ifa_next) {
-    if (!ifa->ifa_addr) {
-      continue;
-    }
-    // check it is IP4
-    if (ifa->ifa_addr->sa_family == AF_INET) {
-      IPs.push_back(((struct sockaddr_in*)ifa->ifa_addr)->sin_addr.s_addr);
-    }
-  }
-  if (ifAddrStruct != nullptr) {
-    freeifaddrs(ifAddrStruct);
-  }
-#endif
-  return IPs;
-}
-
 SenderUDP::SenderUDP(std::string host, uint16_t port, bool broadcast)
   : SenderUDP(StreamEndpoint(host, port), broadcast)
 {
@@ -4801,59 +4729,10 @@ SenderReceiverTCP::SenderReceiverTCP(const StreamEndpoint& endpoint)
     return;
   }
 
-  // Set up to bind to a local socket that uses any available port on the interface that would be
-  // used to send to the requested address.  The assumption is that we're on the same sublan as the
-  // host we're sending to, so we can do a best match between all of our NIC addresses and the server
-  // address to determine which one we should use.
-
   // Open the socket to use for sending TCP packets.
   m_socket->socket = socket(AF_INET, SOCK_STREAM, 0);
   if (m_socket->socket == BAD_SOCKET) {
     Receiver::m_constructorStatus = BAD_PARAMETER;
-    return;
-  }
-
-  // Find the list of our NIC addresses.
-  std::vector<uint32_t> localIPs = GetLocalIPs();
-  if (localIPs.size() == 0) {
-    Receiver::m_constructorStatus = SOCKET_FAILURE;
-    return;
-  }
-
-  // Find the entry from our list of addresses that most closely matches the address we're sending to.
-  uint32_t bestMatch = 0;
-  uint32_t bestMatchCount = 0;
-  for (uint32_t localIP : localIPs) {
-    uint32_t count = 0;
-    for (uint32_t mask = 0x80000000; mask != 0; mask >>= 1) {
-      if ((localIP & mask) == (htonl(endpoint.IP) & mask)) {
-        count++;
-      }
-    }
-    if (count > bestMatchCount) {
-      bestMatch = localIP;
-      bestMatchCount = count;
-    }
-  }
-
-  // Bind to the best match.
-  struct sockaddr_in addr;
-  memset(&addr, 0, sizeof(addr));
-  addr.sin_family = AF_INET;
-  addr.sin_addr.s_addr = bestMatch;
-  addr.sin_port = 0;
-
-  // Bind the socket to use the requested interface and any port.  Then find out
-  // what port we are using.
-  if (0 != bind(m_socket->socket, (struct sockaddr*)&addr, sizeof(addr))) {
-    Receiver::m_constructorStatus = SOCKET_FAILURE;
-    m_socket.reset();
-    return;
-  }
-  socklen_t sockLen = sizeof(addr);
-  if (0 != getsockname(m_socket->socket, (struct sockaddr*)&addr, &sockLen)) {
-    Receiver::m_constructorStatus = SOCKET_FAILURE;
-    m_socket.reset();
     return;
   }
 
@@ -4864,6 +4743,7 @@ SenderReceiverTCP::SenderReceiverTCP(const StreamEndpoint& endpoint)
 
   // Connect the socket to the specified host and to the port we want to use.
   // The address is already in network byte order, just convert the port.
+  struct sockaddr_in addr;
   memset(&addr, 0, sizeof(addr));
   addr.sin_family = AF_INET;
   addr.sin_addr.s_addr = ntohl(m_IP);
