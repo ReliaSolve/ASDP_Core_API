@@ -4301,7 +4301,7 @@ ReceiverUDP::ReceiverUDP(const StreamEndpoint& endpoint, uint32_t maxLen)
   // If the address is the any address, we want to listen for broadcasts.
   if (endpoint.IP == INADDR_ANY) {
     int broadcast = 1;
-    if (setsockopt(m_socket->socket, SOL_SOCKET, SO_BROADCAST, (char*)&broadcast, sizeof broadcast) == -1) {
+    if (0 != setsockopt(m_socket->socket, SOL_SOCKET, SO_BROADCAST, (char*)&broadcast, sizeof broadcast)) {
       m_constructorStatus = SOCKET_FAILURE;
       m_socket.reset();
       return;
