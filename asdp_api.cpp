@@ -4007,8 +4007,6 @@ SenderUDP::SenderUDP(std::string host, uint16_t port, bool broadcast)
 
 SenderUDP::SenderUDP(const StreamEndpoint& endpoint, bool broadcast)
   : m_socket(std::make_shared<Socket>())
-  , m_IP(0)
-  , m_port(0)
 {
   // Problem if the enpoint has been set to all zeros.
   if (endpoint.IP == 0) {
@@ -4027,55 +4025,6 @@ SenderUDP::SenderUDP(const StreamEndpoint& endpoint, bool broadcast)
     m_constructorStatus = BAD_PARAMETER;
     return;
   }
-
-  // Find the list of our NIC addresses.
-  std::vector<uint32_t> localIPs = GetLocalIPs();
-  if (localIPs.size() == 0) {
-    m_constructorStatus = SOCKET_FAILURE;
-    return;
-  }
-
-  // Find the entry from our list of addresses that most closely matches the address we're sending to.
-  uint32_t bestMatch = 0;
-  uint32_t bestMatchCount = 0;
-  for (uint32_t localIP : localIPs) {
-    uint32_t count = 0;
-    for (uint32_t mask = 0x80000000; mask != 0; mask >>= 1) {
-      if ((localIP & mask) == (htonl(endpoint.IP) & mask)) {
-        count++;
-      }
-    }
-    if (count > bestMatchCount) {
-      bestMatch = localIP;
-      bestMatchCount = count;
-    }
-  }
-
-  // Bind to the best match.
-  struct sockaddr_in addr;
-  memset(&addr, 0, sizeof(addr));
-  addr.sin_family = AF_INET;
-  addr.sin_addr.s_addr = bestMatch;
-  addr.sin_port = 0;
-
-  // Bind the socket to use the requested interface and any port.  Then find out
-  // what port we are using.
-  if (0 != bind(m_socket->socket, (struct sockaddr*)&addr, sizeof(addr))) {
-    m_constructorStatus = SOCKET_FAILURE;
-    m_socket.reset();
-    return;
-  }
-  socklen_t sockLen = sizeof(addr);
-  if (0 != getsockname(m_socket->socket, (struct sockaddr*)&addr, &sockLen)) {
-    m_constructorStatus = SOCKET_FAILURE;
-    m_socket.reset();
-    return;
-  }
-
-  // Record the IP address of our NIC and the port we are using to send on.
-  // Convert the IP address and port to host byte order.
-  m_IP = ntohl(addr.sin_addr.s_addr);
-  m_port = ntohs(addr.sin_port);
 
   // If we're doing broadcast, set the socket to allow broadcast and set the
   // host name to the broadcast address.
@@ -4098,6 +4047,7 @@ SenderUDP::SenderUDP(const StreamEndpoint& endpoint, bool broadcast)
 
   // Connect the socket to the specified host and to the port we want to use.
   // The address is already in network byte order, just convert the port.
+  struct sockaddr_in addr;
   memset(&addr, 0, sizeof(addr));
   addr.sin_family = AF_INET;
   addr.sin_addr.s_addr = addressToUse;
@@ -4169,30 +4119,6 @@ Status SenderUDP::SendStreamPacket(const StreamPacket& packet)
   }
 
   // Everything worked.
-  return OKAY;
-}
-
-Status SenderUDP::GetIP(uint32_t &IP) const
-{
-  // Make sure we have a valid socket.
-  if ((m_socket == nullptr) || (m_socket->socket == BAD_SOCKET)) {
-    return m_constructorStatus;
-  }
-
-  // Return the IP address.
-  IP = m_IP;
-  return OKAY;
-}
-
-Status SenderUDP::GetPort(uint16_t& port) const
-{
-  // Make sure we have a valid socket.
-  if ((m_socket == nullptr) || (m_socket->socket == BAD_SOCKET)) {
-    return m_constructorStatus;
-  }
-
-  // Return the port.
-  port = m_port;
   return OKAY;
 }
 
@@ -4488,22 +4414,6 @@ std::string ReceiverUDP::Test()
   if (sender.GetConstructorStatus() != OKAY) {
     return "Error constructing SenderUDP: " + ErrorMessage(sender.GetConstructorStatus());
   }
-
-  // Verify that we can get the IP address and port from the sender.
-  uint32_t IP;
-  status = sender.GetIP(IP);
-  if (status != OKAY) {
-    return "Error getting IP address from SenderUDP: " + ErrorMessage(status);
-  }
-  if (IP != 0x7f000001) {
-    return "Error getting IP address from SenderUDP: IP address is not Localhost";
-  }
-  uint16_t port;
-  status = sender.GetPort(port);
-  if (status != OKAY) {
-    return "Error getting port from SenderUDP: " + ErrorMessage(status);
-  }
-  // We don't know what port it will be, because it gets any available port, so we can't check it.
 
   // Send a packet.
   std::vector<uint8_t> sendBuffer(1000, 0);
@@ -5741,11 +5651,8 @@ CoreServer::CoreServer(uint32_t serial, std::string NICName, uint16_t sendPort, 
     m_constructorStatus = m_discoverySender->GetConstructorStatus();
     return;
   }
-  Status status = m_discoverySender->GetIP(m_IP);
-  if (status != OKAY) {
-    m_constructorStatus = status;
-    return;
-  }
+  StreamEndpoint endpoint(NICName, sendPort);
+  m_IP = endpoint.IP;
 
   // Make a thread to send discovery packets on, sending them to the broadcast address.
   // It will also fill in new connections in m_newStreams.
@@ -6186,14 +6093,11 @@ std::string CoreClient::Test()
 {
   /// Test URLFromServerInfo on an IP gotten from localhost
   SenderUDP sender("localhost", 10102);
+  StreamEndpoint endpoint("localhost", 10102);
   if (sender.GetConstructorStatus() != OKAY) {
     return "Error constructing SenderUDP: " + ErrorMessage(sender.GetConstructorStatus());
   }
-  uint32_t IP;
-  Status status = sender.GetIP(IP);
-  if (status != OKAY) {
-    return "Error getting IP: " + ErrorMessage(status);
-  }
+  uint32_t IP = endpoint.IP;
   uint16_t port = 10102;
   uint32_t serial = 123456789;
   ServerInfo serverInfo(IP, port, serial);
@@ -6205,7 +6109,7 @@ std::string CoreClient::Test()
   // Test ServerInfoFromURL on the URL we just created.
   std::string IPString;
   uint16_t port2;
-  status = ServerInfoFromURL(URL, IPString, port2);
+  Status status = ServerInfoFromURL(URL, IPString, port2);
   if (status != OKAY) {
     return "Error parsing URL: " + ErrorMessage(status);
   }
