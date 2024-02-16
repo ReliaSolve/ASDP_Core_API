@@ -3958,13 +3958,7 @@ SenderUDP::SenderUDP(const StreamEndpoint& endpoint, bool broadcast)
   // host name to the broadcast address.
   uint32_t addressToUse = htonl(endpoint.IP);
   if (broadcast) {
-    // We don't change the address if we're using the
-    // loopback network interface because you can't connect to broadcast when
-    // bound to loopback on MacOS (and it doesn't really make sense anyway).
-    const uint32_t LOOPBACK = htonl(0x7F000001);
-    if (addressToUse != LOOPBACK) {
-      addressToUse = INADDR_BROADCAST;
-    }
+    addressToUse = INADDR_BROADCAST;
     int broadcastEnable = 1;
     if (0 != setsockopt(m_socket->socket, SOL_SOCKET, SO_BROADCAST, (char*)&broadcastEnable, sizeof(broadcastEnable))) {
       m_constructorStatus = SOCKET_FAILURE;
