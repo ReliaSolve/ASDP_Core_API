@@ -5891,8 +5891,8 @@ CoreClient::CoreClient(std::string NICName, uint16_t listenPort, uint32_t maxPay
   , m_serial(0)
 {
   // Open a socket on our NICName to receive Discovery packets.
-  // Listen on any address.
-  m_discoveryReceiver = std::make_shared<ReceiverUDP>("0.0.0.0", listenPort);
+  // Listen on any address.  The special name "" means this.
+  m_discoveryReceiver = std::make_shared<ReceiverUDP>("", listenPort);
   if (m_discoveryReceiver->GetConstructorStatus() != OKAY) {
     m_constructorStatus = m_discoveryReceiver->GetConstructorStatus();
     return;
