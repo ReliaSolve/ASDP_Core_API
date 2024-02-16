@@ -5760,10 +5760,11 @@ CoreServer::CoreServer(uint32_t serial, std::string NICName, uint16_t sendPort, 
 
 void CoreServer::DiscoveryThread()
 {
-  m_threadStarted = true;
-
-  /// Store a status to notify the caller if this thread fails.
+  // Store a status to notify the caller if this thread fails.
   m_threadStatus = OKAY;
+
+  // Mark the thread as started now that its status has been set.
+  m_threadStarted = true;
 
   // Make a StreamWriter to send the discovery packets.
   if (m_discoverySender->GetConstructorStatus() != OKAY) {

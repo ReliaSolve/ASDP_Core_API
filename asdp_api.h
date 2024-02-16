@@ -2103,7 +2103,7 @@ protected:
   void DiscoveryThread();           ///< Thread that sends discovery packets.
   std::atomic_bool m_threadStarted; ///< Thread uses to let us know that has started running.
   std::atomic_bool m_stopThread;    ///< Flag to tell the thread to stop.
-  Status m_threadStatus;            ///< Status of the thread.
+  std::atomic<Status> m_threadStatus;            ///< Status of the thread.
   std::recursive_mutex m_mutex;     ///< Mutex to protect the new links vector.
 
   std::shared_ptr<SenderUDP> m_discoverySender;     ///< Sender object to use to send Discovery packets.
