@@ -4298,6 +4298,16 @@ ReceiverUDP::ReceiverUDP(const StreamEndpoint& endpoint, uint32_t maxLen)
     return;
   }
 
+  // If the address is the any address, we want to listen for broadcasts.
+  if (endpoint.IP == INADDR_ANY) {
+    int broadcast = 1;
+    if (setsockopt(m_socket->socket, SOL_SOCKET, SO_BROADCAST, (char*)&broadcast, sizeof broadcast) == -1) {
+      m_constructorStatus = SOCKET_FAILURE;
+      m_socket.reset();
+      return;
+    }
+  }
+
   // Bind the socket to the specified NIC and port.
   struct sockaddr_in addr;
   memset(&addr, 0, sizeof(addr));
@@ -5881,13 +5891,8 @@ CoreClient::CoreClient(std::string NICName, uint16_t listenPort, uint32_t maxPay
   , m_serial(0)
 {
   // Open a socket on our NICName to receive Discovery packets.
-#ifdef ASDP_USE_WINSOCK_SOCKETS
-  // On Windows, we cannot listen on all addresses, and we don't have to.
-  m_discoveryReceiver = std::make_shared<ReceiverUDP>(NICName, listenPort);
-#else
-  // On Linux, we need to listen on all addresses to receive broadcast packets.
-  m_discoveryReceiver = std::make_shared<ReceiverUDP>("255.255.255.255", listenPort);
-#endif
+  // Listen on any address.
+  m_discoveryReceiver = std::make_shared<ReceiverUDP>("0.0.0.0", listenPort);
   if (m_discoveryReceiver->GetConstructorStatus() != OKAY) {
     m_constructorStatus = m_discoveryReceiver->GetConstructorStatus();
     return;
