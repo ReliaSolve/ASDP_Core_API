@@ -4078,13 +4078,16 @@ SenderUDP::SenderUDP(const StreamEndpoint& endpoint, bool broadcast)
   m_port = ntohs(addr.sin_port);
 
   // If we're doing broadcast, set the socket to allow broadcast and set the
-  // host name the broadcast address.  We don't do this if we're using the
-  // loopback network interface because you can't connect to broadcast when
-  // bound to loopback on MacOS (and it doesn't really make sense anyway).
+  // host name the broadcast address.
   uint32_t addressToUse = htonl(endpoint.IP);
-  const uint32_t loopback = htonl(0x7F000001);
-  if (broadcast && (addressToUse != loopback)) {
-    addressToUse = INADDR_BROADCAST;
+  if (broadcast) {
+    // We don't change the address if we're using the
+    // loopback network interface because you can't connect to broadcast when
+    // bound to loopback on MacOS (and it doesn't really make sense anyway).
+    const uint32_t LOOPBACK = htonl(0x7F000001);
+    if (addressToUse != LOOPBACK) {
+      addressToUse = INADDR_BROADCAST;
+    }
     int broadcastEnable = 1;
     if (0 != setsockopt(m_socket->socket, SOL_SOCKET, SO_BROADCAST, (char*)&broadcastEnable, sizeof(broadcastEnable))) {
       m_constructorStatus = SOCKET_FAILURE;
