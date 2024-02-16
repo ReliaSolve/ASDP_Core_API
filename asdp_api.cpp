@@ -5559,8 +5559,8 @@ Status StreamWriter::Flush()
   // Construct a new packet with an incremented sequence number.
   m_sequenceNumber++;
   StreamPacket *packetPtr = new StreamPacket(m_maxPayloadSize, m_sequenceNumber);
-  if (m_currentPacket->GetConstructorStatus() != OKAY) {
-    return m_currentPacket->GetConstructorStatus();
+  if (packetPtr->GetConstructorStatus() != OKAY) {
+    return packetPtr->GetConstructorStatus();
   }
   m_currentPacket.reset(packetPtr);
 
