@@ -4078,7 +4078,7 @@ SenderUDP::SenderUDP(const StreamEndpoint& endpoint, bool broadcast)
   m_port = ntohs(addr.sin_port);
 
   // If we're doing broadcast, set the socket to allow broadcast and set the
-  // host name the broadcast address.
+  // host name to the broadcast address.
   uint32_t addressToUse = htonl(endpoint.IP);
   if (broadcast) {
     // We don't change the address if we're using the
