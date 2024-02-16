@@ -69,7 +69,11 @@ int main(int argc, char** argv)
     return 3;
   }
   std::cout << "Server opened on " << ip_address << " with serial number " << serial_number << std::endl;
-  server.run();
+  std::string ret = server.run();
+  if (ret.size() > 0) {
+    std::cerr << "Server failed: " << ret << std::endl;
+    return 4;
+  }
 
   return 0;
 }
