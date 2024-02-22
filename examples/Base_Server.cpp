@@ -63,7 +63,7 @@ int main(int argc, char** argv)
   }
 
   // Open a server, specifying the serial number and IP address to broadcast on.
-  CoreServerBase server(serial_number, ip_address, verbosity);
+  CoreServerBase server(serial_number, ip_address, 10102, 10101, 9000 - 28, verbosity);
   if (server.GetConstructorStatus() != OKAY) {
     std::cerr << "Failed to open server: " << ErrorMessage(server.GetConstructorStatus()) << std::endl;
     return 3;

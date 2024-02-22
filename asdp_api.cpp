@@ -108,7 +108,7 @@ static std::string OpCodeName(OpCode opCode)
 // Definitions of static constants used below.
 
 static const unsigned char MAGIC_COOKIE[4] = { 'A', 'S', 'D', 'P' };
-static const unsigned char VERSION[4] = { 2, 2, 0, 0 };
+static const unsigned char VERSION[4] = { 2, 3, 0, 0 };
 
 static const uint32_t PACKET_HEADER_TOTAL_SIZE_OFFSET = 0;
 static const uint32_t PACKET_BASIC_HEADER_SIZE = sizeof(uint32_t);
@@ -5507,7 +5507,7 @@ std::string Core::GetVersion()
 
 Core::~Core() {}
 
-CoreServer::CoreServer(uint32_t serial, std::string NICName, uint16_t sendPort, uint16_t listenPort, uint32_t maxPayloadSize)
+CoreServer::CoreServer(uint32_t serial, const std::string& NICName, uint16_t sendPort, uint16_t listenPort, uint32_t maxPayloadSize)
   : Core(maxPayloadSize)
   , m_discoverySender(std::make_shared<SenderUDP>(NICName, sendPort, true))
   , m_stopThread(false)
@@ -6148,9 +6148,10 @@ std::string CoreClient::Test()
   return "";
 }
 
-CoreServerBase::CoreServerBase(uint32_t serialNumber, const std::string& IP,
+CoreServerBase::CoreServerBase(uint32_t serialNumber, const std::string& NICName,
+  uint16_t sendPort, uint16_t listenPort, uint32_t maxPayloadSize,
   int verbosity)
-  : CoreServer(serialNumber, IP)
+  : CoreServer(serialNumber, NICName, sendPort, listenPort, maxPayloadSize)
   , m_verbosity(verbosity)
   , m_numTemperaturesPerCamera(0)
   , m_numSystemTemperatures(0)

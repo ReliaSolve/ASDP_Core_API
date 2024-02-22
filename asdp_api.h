@@ -2056,7 +2056,7 @@ public:
   /// @param [in] sendPort Port number to send Discovery packets to.
   /// @param [in] listenPort Port number to listen for Command packets on.
   /// @param [in] maxPayloadSize Maximum size of a packet payload to send.
-  CoreServer(uint32_t serial, std::string NICName, uint16_t sendPort = 10102, uint16_t listenPort = 10101,
+  CoreServer(uint32_t serial, const std::string &NICName, uint16_t sendPort = 10102, uint16_t listenPort = 10101,
     uint32_t maxPayloadSize = 9000 - 28);
 
   /// @brief Class to hold the information about a client that has connected.
@@ -2232,11 +2232,15 @@ class CoreServerBase : public CoreServer {
 public:
   /// @brief Constructor
   /// @param serialNumber The serial number of the server
-  /// @param IP The IP address of the server
+  /// @param [in] NICName Name of the network interface to use.
+  /// @param [in] sendPort Port number to send Discovery packets to.
+  /// @param [in] listenPort Port number to listen for Command packets on.
+  /// @param [in] maxPayloadSize Maximum size of a packet payload to send.
   /// @param verbosity The verbosity level of the server, 0 for no verbosity, higher for more verbosity.
   /// Verbosity above 0 will print messages to std::cout.
-  CoreServerBase(uint32_t serialNumber, const std::string& IP,
-    int verbosity = 0);
+  CoreServerBase(uint32_t serialNumber, const std::string &NICName,
+    uint16_t sendPort = 10102, uint16_t listenPort = 10101,
+    uint32_t maxPayloadSize = 9000 - 28, int verbosity = 0);
 
   ~CoreServerBase() override {};
 
