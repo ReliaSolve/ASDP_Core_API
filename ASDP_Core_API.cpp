@@ -275,6 +275,70 @@ static void UnpackVersion(const uint8_t *version, uint16_t& major, uint16_t& min
   patch = version[3];
 }
 
+/// @brief Helper function to determine the subnet mask for a given IP address.
+/// @param [in] ipAddress Address of one of our local NICs.
+/// @return The subnet mask for the NIC, or full mask for address not found.
+/// This is returned in host byte order.
+static uint32_t FindSubnetMask(std::string ipAddress)
+{
+  // We return the fully-filled mask if we can't find the address.
+  uint32_t ret = ntohl(INADDR_BROADCAST);
+
+#ifdef ASDP_USE_WINSOCK_SOCKETS
+  // Get the list of all network interfaces on the system
+  ULONG bufferLength = 0;
+  GetAdaptersInfo(NULL, &bufferLength);
+
+  IP_ADAPTER_INFO* adapterInfo = (IP_ADAPTER_INFO*)malloc(bufferLength);
+  if (GetAdaptersInfo(adapterInfo, &bufferLength) == NO_ERROR) {
+    // Iterate over all network interfaces
+    for (IP_ADAPTER_INFO* adapter = adapterInfo; adapter; adapter = adapter->Next) {
+      // Iterate over all IP addresses for this network interface
+      for (IP_ADDR_STRING* ipAddr = &adapter->IpAddressList; ipAddr; ipAddr = ipAddr->Next) {
+        // Check if this is the IP address we're interested in
+        if (ipAddress == ipAddr->IpAddress.String) {
+          // Convert the subnet mask from string to host-ordered 4-byte unsigned
+          unsigned long subnetMask;
+          if (inet_pton(AF_INET, ipAddr->IpMask.String, &subnetMask) == 1) {
+            ret = ntohl(subnetMask);
+          }
+        }
+      }
+    }
+  }
+
+  free(adapterInfo);
+#else
+  struct ifaddrs* ifAddrStruct = NULL;
+  struct ifaddrs* ifa = NULL;
+  void* tmpAddrPtr = NULL;
+
+  getifaddrs(&ifAddrStruct);
+
+  for (ifa = ifAddrStruct; ifa != NULL; ifa = ifa->ifa_next) {
+    if (!ifa->ifa_addr) {
+      continue;
+    }
+    // check it is IP4
+    if (ifa->ifa_addr->sa_family == AF_INET) {
+      tmpAddrPtr = &((struct sockaddr_in*)ifa->ifa_addr)->sin_addr;
+      char addressBuffer[INET_ADDRSTRLEN];
+      inet_ntop(AF_INET, tmpAddrPtr, addressBuffer, INET_ADDRSTRLEN);
+      if (strcmp(addressBuffer, ipAddress.c_str()) == 0) {
+        // found the network interface associated with the IP. Return in host
+        // byte order.
+        ret = ntohl(((struct sockaddr_in*)ifa->ifa_netmask)->sin_addr.s_addr);
+      }
+    }
+  }
+  if (ifAddrStruct != NULL) {
+    freeifaddrs(ifAddrStruct);
+  }
+#endif
+
+  return ret;
+}
+
 //----------------------------------------------------------------------------
 // API functions
 
