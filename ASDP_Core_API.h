@@ -216,6 +216,7 @@ public:
   /// @brief Construct a stream endpoint from a host name/IP and port.
   /// @param [in] host Host name or IP address being streamed to. Sets
   /// the IP to 0 if the host name is not a valid name or IP address.
+  /// Sets it to INADDR_ANY (which is also 0) if the host name is "".
   /// @param [in] port Port being streamed to in host byte order.
   StreamEndpoint(const std::string &host, uint16_t port);
 

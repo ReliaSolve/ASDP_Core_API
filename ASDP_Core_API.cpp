@@ -366,6 +366,8 @@ StreamEndpoint::StreamEndpoint(const std::string& host, uint16_t port)
   : IP(0)
   , port(0)
 {
+  StreamEndpoint::port = port;
+
   if (host == "") {
     IP = INADDR_ANY;
   } else {
@@ -386,8 +388,6 @@ StreamEndpoint::StreamEndpoint(const std::string& host, uint16_t port)
     IP = ntohl(address->sin_addr.s_addr);
     freeaddrinfo(result);
   }
-
-  StreamEndpoint::port = port;
 }
 
 std::string StreamEndpoint::Test()
