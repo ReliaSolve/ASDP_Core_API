@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.18.0)
-project(ASDP_Core LANGUAGES CXX)
+project(ASDP_Core_API LANGUAGES CXX)
 
 #-----------------------------------------------------------------------------
 # Set your favorite C++ standard for compiling the internal files.  The library
@@ -68,32 +68,32 @@ if(WIN32)
 else()
 	set(asdp_SHARED_LIBRARY_DIR "${CMAKE_INSTALL_LIBDIR}")
 endif()
-set (asdp_SOURCES asdp_api.cpp)
+set (asdp_SOURCES ASDP_Core_API.cpp)
 
 #-----------------------------------------------------------------------------
 # Build the library.
 
 set (asdp_HEADERS
-  asdp_api.h
+  ASDP_Core_API.h
 )
 
-add_library(ASDP_Core STATIC ${asdp_SOURCES} ${asdp_HEADERS})
+add_library(ASDP_Core_API STATIC ${asdp_SOURCES} ${asdp_HEADERS})
 # Hide all symbols that are not explicitly exported from the library
-set_target_properties(ASDP_Core PROPERTIES C_VISIBILITY_PRESET hidden)
-set_target_properties(ASDP_Core PROPERTIES CXX_VISIBILITY_PRESET hidden)
-set_target_properties(ASDP_Core PROPERTIES VISIBILITY_INLINES_HIDDEN 1)
-target_include_directories(ASDP_Core PUBLIC
+set_target_properties(ASDP_Core_API PROPERTIES C_VISIBILITY_PRESET hidden)
+set_target_properties(ASDP_Core_API PROPERTIES CXX_VISIBILITY_PRESET hidden)
+set_target_properties(ASDP_Core_API PROPERTIES VISIBILITY_INLINES_HIDDEN 1)
+target_include_directories(ASDP_Core_API PUBLIC
   #${CMAKE_CURRENT_SOURCE_DIR}
   #${CMAKE_BINARY_DIR}
   ${CMAKE_INSTALL_PREFIX}/include
 )
 if(UNIX)
-    target_link_libraries(ASDP_Core PUBLIC pthread)
+  target_link_libraries(ASDP_Core_API PUBLIC pthread)
 endif(UNIX)
-set_target_properties(ASDP_Core PROPERTIES PUBLIC_HEADER "${asdp_HEADERS}")
-# generate_export_header(ASDP_Core)
+set_target_properties(ASDP_Core_API PROPERTIES PUBLIC_HEADER "${asdp_HEADERS}")
+# generate_export_header(ASDP_Core_API)
 
-install(TARGETS ASDP_Core EXPORT ${PROJECT_NAME}
+install(TARGETS ASDP_Core_API EXPORT ${PROJECT_NAME}
   RUNTIME DESTINATION bin COMPONENT lib
   LIBRARY DESTINATION lib${LIB_SUFFIX} COMPONENT lib
   ARCHIVE DESTINATION lib${LIB_SUFFIX} COMPONENT lib
@@ -123,7 +123,7 @@ if(BUILD_EXAMPLES)
       ${CMAKE_CURRENT_SOURCE_DIR}
     )
     set_target_properties(${APP} PROPERTIES FOLDER examples/C++)
-    target_link_libraries(${APP} ASDP_Core)
+    target_link_libraries(${APP} ASDP_Core_API)
     #install(TARGETS ${APP} EXPORT ${PROJECT_NAME}
     #  RUNTIME DESTINATION bin
     #)
@@ -149,7 +149,7 @@ if(BUILD_TESTS)
       ${CMAKE_CURRENT_SOURCE_DIR}
     )
     target_link_libraries(${APP}
-      ASDP_Core
+      ASDP_Core_API
     )
     install(TARGETS ${APP} EXPORT ${PROJECT_NAME}
       RUNTIME DESTINATION bin
@@ -184,6 +184,6 @@ install(FILES
   DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}"
 )
 #install(FILES
-#  "${CMAKE_CURRENT_BINARY_DIR}/ASDP_Core_EXPORT.h"
+#  "${CMAKE_CURRENT_BINARY_DIR}/ASDP_Core_API_EXPORT.h"
 #  DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
 #)

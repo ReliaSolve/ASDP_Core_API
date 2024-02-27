@@ -2,7 +2,7 @@
  * Copyright (C) 2024: Arizona Board of Regents on Behalf of the University of Arizona
  */
 
-#include "asdp_api.h"
+#include "ASDP_Core_API.h"
 #include <string.h>   // For memcpy
 #include <iostream>
 #include <algorithm>

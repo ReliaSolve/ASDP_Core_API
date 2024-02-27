@@ -5,7 +5,7 @@
 #pragma once
 
 /**
- * @file asdp_api.h
+ * @file ASDP_Core_API.h
  * @brief Apache Strap-Down Pilotage Core C++ API exposed as a static library.
  *
 * @author Russell Taylor.

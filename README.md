@@ -1,4 +1,4 @@
-# ASDP_Core
+# ASDP_Core_API
 
 This repository contains the source code for the core communications protocol library
 for the Apache Strap-Down Pilotage program.
@@ -8,13 +8,13 @@ using the approach described in the [ASDP API Implementation](TR-009v06_Core_API
 
 ## Getting Started
 
-**Build:** ASDP_Core uses CMake to configure the builds (though other build
+**Build:** ASDP_Corei_API uses CMake to configure the builds (though other build
 systems could be used).  On Ubuntu Linux, this can be done as follows
 
     sudo apt install cmake
-    cd; mkdir src; cd src; git clone https://github.com/arizonaCameraLab/ASDP_Core
-    cd; mkdir -p build/ASDP_Core; cd build/ASDP_Core
-    cmake ../../src/ASDP_Core
+    cd; mkdir src; cd src; git clone https://github.com/arizonaCameraLab/ASDP_Core_API
+    cd; mkdir -p build/ASDP_Core_API; cd build/ASDP_Core_API
+    cmake ../../src/ASDP_Core_API
     make
 
 **Documentation:** The primary documentation is available in DOxygen, and
@@ -33,15 +33,15 @@ When using CMake, the following lines in the CMakeLists.txt file will set the in
 and link the program against the installed library:
 
 ```
-find_package(ASDP_Core REQUIRED)
+find_package(ASDP_Core_API REQUIRED)
 
 add_executable(ASDP_Core_Test ASDP_Core_Test.cpp)
-target_link_libraries(test ASDP_Core::ASDP_Core)
+target_link_libraries(test ASDP_Core_API::ASDP_Core_API)
 ```
 
 Compiling a C++ program by hand consists of including the header files (which are installed
-in /usr/local/include on Linux) and linking against the ASDP_Core library (installed in /usr/local/lib)
+in /usr/local/include on Linux) and linking against the ASDP_Core_API library (installed in /usr/local/lib)
 and its dependencies.  The C++ programs use C++-11.  An example compilation for the
 ASDP_Core_Test.cpp program follows:
 
-``c++ --std=c++11 ASDP_Core_Test.cpp -o ASDP_Core_Test -lASDP_Core -lpthread``
+``c++ --std=c++11 ASDP_Core_Test.cpp -o ASDP_Core_Test -lASDP_Core_API -lpthread``

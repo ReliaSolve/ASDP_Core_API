@@ -8,7 +8,7 @@ code snippets to perform some desired actions.
 Most functions return a asdp_Status value indicating whether a warning or error occurred during
 their call.
 
-The asdp::Status values are defined in \ref asdp_api.h, with OKAY indicating
+The asdp::Status values are defined in \ref ASDP_Core_API.h, with OKAY indicating
 no warnings or errors.  Values above it and less than or equal to HIGHEST_WARNING
 are warnings, and values above it are errors.  The helper function asdp::ErrorMessage()
 takes in an asdp::Status and provides a string description of the status.
