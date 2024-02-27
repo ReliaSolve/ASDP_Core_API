@@ -1,17 +1,17 @@
-# - Config file for the ASDP_Core package
+# - Config file for the ASDP_Core_API package
 # It defines the following variables
-#  ASDP_Core_INCLUDE_DIRS - include directories for ASDP_Core
-#  ASDP_Core_LIBRARIES    - libraries to link against
-#  ASDP_Core_EXECUTABLE   - the bar executable
+#  ASDP_Core_API_INCLUDE_DIRS - include directories for ASDP_Core_API
+#  ASDP_Core_API_LIBRARIES    - libraries to link against
+#  ASDP_Core_API_EXECUTABLE   - the bar executable
 
 # Compute paths
-get_filename_component(ASDP_Core_CMAKE_DIR "${CMAKE_CURRENT_LIST_FILE}" PATH)
-set(ASDP_Core_INCLUDE_DIRS "@CONF_INCLUDE_DIRS@")
+get_filename_component(ASDP_Core_API_CMAKE_DIR "${CMAKE_CURRENT_LIST_FILE}" PATH)
+set(ASDP_Core_API_INCLUDE_DIRS "@CONF_INCLUDE_DIRS@")
 
 # Our library dependencies (contains definitions for IMPORTED targets)
-if(NOT TARGET ASDP_Core AND NOT ASDP_Core_BINARY_DIR)
-  include("${ASDP_Core_CMAKE_DIR}/ASDP_CoreTargets.cmake")
+if(NOT TARGET ASDP_Core_API AND NOT ASDP_Core_API_BINARY_DIR)
+  include("${ASDP_Core_API_CMAKE_DIR}/ASDP_Core_APITargets.cmake")
 endif()
 
-# These are IMPORTED targets created by ASDP_CoreTargets.cmake
-set(ASDP_Core_LIBRARIES ASDP_Core)
+# These are IMPORTED targets created by ASDP_Core_APITargets.cmake
+set(ASDP_Core_API_LIBRARIES ASDP_Core_API)
