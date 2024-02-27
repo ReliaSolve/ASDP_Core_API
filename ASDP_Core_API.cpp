@@ -351,7 +351,6 @@ static uint32_t MakeBroadcastAddress(uint32_t IP)
 
   // Find the subnet mask for the IP.
   uint32_t subnetMask = FindSubnetMask(ipString);
-  std::cout << "XXX subnetMask: " << std::hex << subnetMask << std::dec << std::endl;
 
   // Invert all of the bits in the subnet mask to find the bits belonging to the address.
   uint32_t invertedMask = ~subnetMask;
@@ -4048,8 +4047,6 @@ SenderUDP::SenderUDP(const StreamEndpoint& endpoint, bool broadcast)
   uint32_t addressToUse = htonl(endpoint.IP);
   if (broadcast) {
     addressToUse = htonl(MakeBroadcastAddress(endpoint.IP));
-    std::cout << "XXX IP address: " << std::hex << endpoint.IP << std::dec << "\n";
-    std::cout << "XXX Broadcast address: " << std::hex << addressToUse << std::dec << "\n";
     int broadcastEnable = 1;
     if (0 != setsockopt(m_socket->socket, SOL_SOCKET, SO_BROADCAST, (char*)&broadcastEnable, sizeof(broadcastEnable))) {
       m_constructorStatus = SOCKET_FAILURE;
@@ -4123,7 +4120,6 @@ Status SenderUDP::SendStreamPacket(const StreamPacket& packet)
   }
 
   // Send the data.
-  std::cout << "XXX Sending to " << std::hex << ntohl(m_socket->addr.sin_addr.s_addr) << std::dec << ":" << ntohs(m_socket->addr.sin_port) << "\n";
   int result = sendto(m_socket->socket, (const char*)packet.m_buffer->data(), length, 0,
     (const sockaddr*)&(m_socket->addr), sizeof(m_socket->addr));
   if (result == SOCKET_ERROR) {
@@ -4252,7 +4248,6 @@ ReceiverUDP::ReceiverUDP(const StreamEndpoint& endpoint, uint32_t maxLen, bool b
     myEndpoint.IP = MakeBroadcastAddress(myEndpoint.IP);
 #endif
   }
-  std::cout << "XXX Listening on " << std::hex << myEndpoint.IP << std::dec << ":" << myEndpoint.port << "\n";
 
   // Bind the socket to the specified NIC and port.
   struct sockaddr_in addr;
@@ -4277,7 +4272,6 @@ ReceiverUDP::ReceiverUDP(const StreamEndpoint& endpoint, uint32_t maxLen, bool b
     }
     m_port = ntohs(sin.sin_port);
   }
-  std::cout << "XXX ReceiverUDP fully constructed" << std::endl;
 }
 
 Status ReceiverUDP::IsPacketAvailable(double timeout_seconds, bool& available)
