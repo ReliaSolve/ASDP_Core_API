@@ -4010,6 +4010,10 @@ public:
       socket = BAD_SOCKET;
     }
   }
+
+  /// Address that is associated with the socket, used by SenderUDP to remember
+  /// where to send to.
+  struct sockaddr_in addr;
 };
 
 SenderUDP::SenderUDP(std::string host, uint16_t port, bool broadcast)
@@ -4053,20 +4057,12 @@ SenderUDP::SenderUDP(const StreamEndpoint& endpoint, bool broadcast)
     }
   }
 
-  // Connect the socket to the specified host and to the port we want to use.
+  // Store the specified IP and port we want to use.
   // The address is already in network byte order, just convert the port.
-  struct sockaddr_in addr;
-  memset(&addr, 0, sizeof(addr));
-  addr.sin_family = AF_INET;
-  addr.sin_addr.s_addr = addressToUse;
-  addr.sin_port = htons(endpoint.port);
-  if (0 != connect(m_socket->socket, (struct sockaddr*)&addr, sizeof(addr))) {
-    perror("XXX problem");
-    m_constructorStatus = SOCKET_FAILURE;
-    m_socket.reset();
-    return;
-  }
-  std::cout << "XXX okay SenderUDP" << std::endl;
+  memset(&m_socket->addr, 0, sizeof(m_socket->addr));
+  m_socket->addr.sin_family = AF_INET;
+  m_socket->addr.sin_addr.s_addr = addressToUse;
+  m_socket->addr.sin_port = htons(endpoint.port);
 }
 
 Status SenderUDP::Send(const void* buffer, uint32_t length)
@@ -4082,8 +4078,10 @@ Status SenderUDP::Send(const void* buffer, uint32_t length)
   }
 
   // Send the data.
-  int result = send(m_socket->socket, (const char*)buffer, length, 0);
+  int result = sendto(m_socket->socket, (const char*)buffer, length, 0,
+    (const sockaddr *)&(m_socket->addr), sizeof(m_socket->addr));
   if (result == SOCKET_ERROR) {
+    std::cerr << "XXX send failed: " << WSAGetLastError() << "\n";
     return SOCKET_FAILURE;
   }
 
@@ -4099,7 +4097,9 @@ Status SenderUDP::SendCommandPacket(const CommandPacket& packet)
   }
 
   // Send the data.
-  int result = send(m_socket->socket, (const char*)packet.m_buffer->data(), packet.m_buffer->size(), 0);
+  int result = sendto(m_socket->socket,
+    (const char*)packet.m_buffer->data(), packet.m_buffer->size(), 0,
+    (const sockaddr*)&(m_socket->addr), sizeof(m_socket->addr));
   if (result == SOCKET_ERROR) {
     return SOCKET_FAILURE;
   }
@@ -4123,7 +4123,8 @@ Status SenderUDP::SendStreamPacket(const StreamPacket& packet)
   }
 
   // Send the data.
-  int result = send(m_socket->socket, (const char*)packet.m_buffer->data(), length, 0);
+  int result = sendto(m_socket->socket, (const char*)packet.m_buffer->data(), length, 0,
+    (const sockaddr*)&(m_socket->addr), sizeof(m_socket->addr));
   if (result == SOCKET_ERROR) {
     return SOCKET_FAILURE;
   }
