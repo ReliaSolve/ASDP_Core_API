@@ -4081,7 +4081,6 @@ Status SenderUDP::Send(const void* buffer, uint32_t length)
   int result = sendto(m_socket->socket, (const char*)buffer, length, 0,
     (const sockaddr *)&(m_socket->addr), sizeof(m_socket->addr));
   if (result == SOCKET_ERROR) {
-    std::cerr << "XXX send failed: " << WSAGetLastError() << "\n";
     return SOCKET_FAILURE;
   }
 
