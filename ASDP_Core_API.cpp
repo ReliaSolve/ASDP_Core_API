@@ -282,7 +282,7 @@ static void UnpackVersion(const uint8_t *version, uint16_t& major, uint16_t& min
 static uint32_t FindSubnetMask(std::string ipAddress)
 {
   // We return the fully-filled mask if we can't find the address.
-  uint32_t ret = ntohl(INADDR_BROADCAST);
+  uint32_t ret = ntohl(0xffffffff);
 
 #ifdef ASDP_USE_WINSOCK_SOCKETS
   // Get the list of all network interfaces on the system
@@ -337,6 +337,26 @@ static uint32_t FindSubnetMask(std::string ipAddress)
 #endif
 
   return ret;
+}
+
+/// @brief Helper function to make a broadcast address for the NIC associated with an IP address.
+/// @param [in] IP The IP address to find the broadcast address for.
+/// @return The broadcast address for the NIC associated with the given IP.
+static uint32_t MakeBroadcastAddress(uint32_t IP)
+{
+  // Convert the host-ordered address into a dotted-decimal string.
+  struct in_addr addr;
+  addr.s_addr = htonl(IP);
+  std::string ipString = inet_ntoa(addr);
+
+  // Find the subnet mask for the IP.
+  uint32_t subnetMask = FindSubnetMask(ipString);
+
+  // Invert all of the bits in the subnet mask to find the bits belonging to the address.
+  uint32_t invertedMask = ~subnetMask;
+
+  // Or the inverted mask with the IP to find the return value.
+  return IP | invertedMask;
 }
 
 //----------------------------------------------------------------------------
@@ -4019,10 +4039,12 @@ SenderUDP::SenderUDP(const StreamEndpoint& endpoint, bool broadcast)
   }
 
   // If we're doing broadcast, set the socket to allow broadcast and set the
-  // host name to the broadcast address.
+  // host name to the broadcast address for the NIC we are using.
   uint32_t addressToUse = htonl(endpoint.IP);
   if (broadcast) {
-    addressToUse = INADDR_BROADCAST;
+    addressToUse = MakeBroadcastAddress(endpoint.IP);
+    std::cout << "XXX IP address: " << std::hex << endpoint.IP << std::dec << "\n";
+    std::cout << "XXX Broadcast address: " << std::hex << addressToUse << std::dec << "\n";
     int broadcastEnable = 1;
     if (0 != setsockopt(m_socket->socket, SOL_SOCKET, SO_BROADCAST, (char*)&broadcastEnable, sizeof(broadcastEnable))) {
       m_constructorStatus = SOCKET_FAILURE;
@@ -4039,10 +4061,12 @@ SenderUDP::SenderUDP(const StreamEndpoint& endpoint, bool broadcast)
   addr.sin_addr.s_addr = addressToUse;
   addr.sin_port = htons(endpoint.port);
   if (0 != connect(m_socket->socket, (struct sockaddr*)&addr, sizeof(addr))) {
+    perror("XXX problem");
     m_constructorStatus = SOCKET_FAILURE;
     m_socket.reset();
     return;
   }
+  std::cout << "XXX okay SenderUDP" << std::endl;
 }
 
 Status SenderUDP::Send(const void* buffer, uint32_t length)
@@ -6824,6 +6848,20 @@ std::string asdp::Test()
   }
   if (ErrorMessage(HIGHEST_WARNING) != "Unrecognized error code: 1000") {
     return "Error message for HIGHEST_WARNING is incorrect: " + ErrorMessage(HIGHEST_WARNING);
+  }
+
+  //-------------------------------------------------------------------
+  // Tests for helper functions.
+  {
+    uint32_t subnetMask = FindSubnetMask("localhost");
+    if (subnetMask != 0xffffffff) {
+      return "Error finding subnet mask: " + std::to_string(subnetMask);
+    }
+    uint32_t localHostIP = 127 << 24 + 1;
+    uint32_t broadcastAddress = MakeBroadcastAddress(localHostIP);
+    if (broadcastAddress != localHostIP) {
+      return "Error making broadcast address: " + std::to_string(broadcastAddress);
+    }
   }
 
   //-------------------------------------------------------------------
