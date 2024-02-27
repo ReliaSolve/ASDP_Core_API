@@ -4245,7 +4245,12 @@ ReceiverUDP::ReceiverUDP(const StreamEndpoint& endpoint, uint32_t maxLen, bool b
   // If we're listening for broadcast, set the address to use for broadcast.
   StreamEndpoint myEndpoint = endpoint;
   if (broadcast) {
+#ifndef ASDP_USE_WINSOCK_SOCKETS
+    // On Windows, we cannot bind to the broadcast address, so we need to bind to the local address.
+    // If we bind to this, it receives broadcast messages on Windows.
+    // On Linux, we need to bind to the broadcast address to receive broadcast messages.
     myEndpoint.IP = MakeBroadcastAddress(myEndpoint.IP);
+#endif
   }
   std::cout << "XXX Listening on " << std::hex << myEndpoint.IP << std::dec << ":" << myEndpoint.port << "\n";
 
@@ -4272,6 +4277,7 @@ ReceiverUDP::ReceiverUDP(const StreamEndpoint& endpoint, uint32_t maxLen, bool b
     }
     m_port = ntohs(sin.sin_port);
   }
+  std::cout << "XXX ReceiverUDP fully constructed" << std::endl;
 }
 
 Status ReceiverUDP::IsPacketAvailable(double timeout_seconds, bool& available)
