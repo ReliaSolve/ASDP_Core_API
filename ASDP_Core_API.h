@@ -1710,12 +1710,15 @@ public:
   /// @param [in] interfaceName Name of the interface to listen on.
   /// @param [in] port Port number to listen on (default of 0 means any available port).
   /// @param [in] maxLen Maximum length of a packet to receive (default of 1472 is the maximum for Ethernet).
-  ReceiverUDP(std::string interfaceName = "localhost", uint16_t port = 0, uint32_t maxLen = 9000 - 28);
+  /// @param [in] broadcast Whether to use the broadcast address from the specified address.
+  ReceiverUDP(std::string interfaceName = "localhost", uint16_t port = 0,
+    uint32_t maxLen = 9000 - 28, bool broadcast = false);
 
   /// @brief Construct a ReceiverUDP object given and endpoint.
   /// @param [in] endpoint Endpoint to listen on.
   /// @param [in] maxLen Maximum length of a packet to receive (default of 1472 is the maximum for Ethernet).
-  ReceiverUDP(const StreamEndpoint& endpoint, uint32_t maxLen = 9000 - 28);
+  /// @param [in] broadcast Whether to use the broadcast address from the specified address.
+  ReceiverUDP(const StreamEndpoint& endpoint, uint32_t maxLen = 9000 - 28, bool broadcast = false);
 
   /// @brief Get the port associated with this receiver in host byte order.
   /// @return The port associated with this receiver, or 0 for failure.

@@ -351,6 +351,7 @@ static uint32_t MakeBroadcastAddress(uint32_t IP)
 
   // Find the subnet mask for the IP.
   uint32_t subnetMask = FindSubnetMask(ipString);
+  std::cout << "XXX subnetMask: " << std::hex << subnetMask << std::dec << std::endl;
 
   // Invert all of the bits in the subnet mask to find the bits belonging to the address.
   uint32_t invertedMask = ~subnetMask;
@@ -4036,7 +4037,7 @@ SenderUDP::SenderUDP(const StreamEndpoint& endpoint, bool broadcast)
   // address to determine which one we should use.
 
   // Open the socket to use for sending UDP packets.
-  m_socket->socket = socket(AF_INET, SOCK_DGRAM, 0);
+  m_socket->socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
   if (m_socket->socket == BAD_SOCKET) {
     m_constructorStatus = BAD_PARAMETER;
     return;
@@ -4046,7 +4047,7 @@ SenderUDP::SenderUDP(const StreamEndpoint& endpoint, bool broadcast)
   // host name to the broadcast address for the NIC we are using.
   uint32_t addressToUse = htonl(endpoint.IP);
   if (broadcast) {
-    addressToUse = MakeBroadcastAddress(endpoint.IP);
+    addressToUse = htonl(MakeBroadcastAddress(endpoint.IP));
     std::cout << "XXX IP address: " << std::hex << endpoint.IP << std::dec << "\n";
     std::cout << "XXX Broadcast address: " << std::hex << addressToUse << std::dec << "\n";
     int broadcastEnable = 1;
@@ -4122,6 +4123,7 @@ Status SenderUDP::SendStreamPacket(const StreamPacket& packet)
   }
 
   // Send the data.
+  std::cout << "XXX Sending to " << std::hex << ntohl(m_socket->addr.sin_addr.s_addr) << std::dec << ":" << ntohs(m_socket->addr.sin_port) << "\n";
   int result = sendto(m_socket->socket, (const char*)packet.m_buffer->data(), length, 0,
     (const sockaddr*)&(m_socket->addr), sizeof(m_socket->addr));
   if (result == SOCKET_ERROR) {
@@ -4222,40 +4224,37 @@ Status SenderFile::SendStreamPacket(const StreamPacket& packet)
   return OKAY;
 }
 
-ReceiverUDP::ReceiverUDP(std::string host, uint16_t port, uint32_t maxLen)
-  : ReceiverUDP(StreamEndpoint(host, port), maxLen)
+ReceiverUDP::ReceiverUDP(std::string host, uint16_t port, uint32_t maxLen, bool broadcast)
+  : ReceiverUDP(StreamEndpoint(host, port), maxLen, broadcast)
 {
 }
 
-ReceiverUDP::ReceiverUDP(const StreamEndpoint& endpoint, uint32_t maxLen)
+ReceiverUDP::ReceiverUDP(const StreamEndpoint& endpoint, uint32_t maxLen, bool broadcast)
   : Receiver(maxLen)
   , m_socket(std::make_shared<Socket>())
   , m_port(endpoint.port)
 {
   // Open the socket to use for receiving UDP packets.
-  m_socket->socket = socket(AF_INET, SOCK_DGRAM, 0);
+  m_socket->socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
   if (m_socket->socket == BAD_SOCKET) {
     m_constructorStatus = BAD_PARAMETER;
     m_socket.reset();
     return;
   }
 
-  // If the address is the any address, we want to listen for broadcasts.
-  if (endpoint.IP == INADDR_ANY) {
-    int broadcast = 1;
-    if (0 != setsockopt(m_socket->socket, SOL_SOCKET, SO_BROADCAST, (char*)&broadcast, sizeof broadcast)) {
-      m_constructorStatus = SOCKET_FAILURE;
-      m_socket.reset();
-      return;
-    }
+  // If we're listening for broadcast, set the address to use for broadcast.
+  StreamEndpoint myEndpoint = endpoint;
+  if (broadcast) {
+    myEndpoint.IP = MakeBroadcastAddress(myEndpoint.IP);
   }
+  std::cout << "XXX Listening on " << std::hex << myEndpoint.IP << std::dec << ":" << myEndpoint.port << "\n";
 
   // Bind the socket to the specified NIC and port.
   struct sockaddr_in addr;
   memset(&addr, 0, sizeof(addr));
   addr.sin_family = AF_INET;
-  addr.sin_addr.s_addr = htonl(endpoint.IP);
-  addr.sin_port = htons(endpoint.port);
+  addr.sin_addr.s_addr = htonl(myEndpoint.IP);
+  addr.sin_port = htons(myEndpoint.port);
   if (0 != bind(m_socket->socket, (struct sockaddr*)&addr, sizeof(addr))) {
     m_constructorStatus = SOCKET_FAILURE;
     m_socket.reset();
@@ -5767,8 +5766,8 @@ CoreClient::CoreClient(std::string NICName, uint16_t listenPort, uint32_t maxPay
   , m_serial(0)
 {
   // Open a socket on our NICName to receive Discovery packets.
-  // Listen on any address.  The special name "" means this.
-  m_discoveryReceiver = std::make_shared<ReceiverUDP>("", listenPort);
+  // Listen for broadcasts on this subnet.
+  m_discoveryReceiver = std::make_shared<ReceiverUDP>(NICName, listenPort, maxPayloadSize, true);
   if (m_discoveryReceiver->GetConstructorStatus() != OKAY) {
     m_constructorStatus = m_discoveryReceiver->GetConstructorStatus();
     return;
