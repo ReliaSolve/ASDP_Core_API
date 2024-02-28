@@ -827,8 +827,9 @@ public:
 class CommandPacketCancelSubregion : public CommandPacket {
 public:
   /// @brief Construct a brand-new command buffer with the CANCEL_SUBREGION opcode.
-    /// @param [in] camera Camera to stop streaming to.
-  CommandPacketCancelSubregion(uint32_t camera);
+  /// @param [in] camera Camera to stop streaming to.
+  /// @param [in] endpoint Endpoint to stop streaming to.
+  CommandPacketCancelSubregion(uint32_t camera, StreamEndpoint endpoint);
 
   /// @brief Type-cast a base CommandPacket, re-using its buffer.
   /// @param [in] basePacket The base packet to convert from.
@@ -838,6 +839,11 @@ public:
   /// @param [out] camera Camera to stop streaming to.
   /// @return OKAY if successful, otherwise an error code.
   Status GetCamera(uint32_t& camera);
+
+  /// @brief Get the endpoint.
+  /// @param [out] endpoint Endpoint to stop streaming to.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetEndpoint(StreamEndpoint& endpoint) const;
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.

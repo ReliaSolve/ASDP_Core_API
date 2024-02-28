@@ -108,7 +108,7 @@ static std::string OpCodeName(OpCode opCode)
 // Definitions of static constants used below.
 
 static const unsigned char MAGIC_COOKIE[4] = { 'A', 'S', 'D', 'P' };
-static const unsigned char VERSION[4] = { 2, 3, 0, 0 };
+static const unsigned char VERSION[4] = { 3, 0, 0, 0 };
 
 static const uint32_t PACKET_HEADER_TOTAL_SIZE_OFFSET = 0;
 static const uint32_t PACKET_BASIC_HEADER_SIZE = sizeof(uint32_t);
@@ -1477,11 +1477,14 @@ std::string CommandPacketStreamSubregion::Test()
   return "";
 }
 
-CommandPacketCancelSubregion::CommandPacketCancelSubregion(uint32_t camera)
-  : CommandPacket(sizeof(camera), CANCEL_SUBREGION)
+CommandPacketCancelSubregion::CommandPacketCancelSubregion(uint32_t camera, StreamEndpoint endpoint)
+  : CommandPacket(sizeof(camera) + 2 * sizeof(uint32_t), CANCEL_SUBREGION)
 {
   unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
   memcpy(bufPtr, &camera, sizeof(uint32_t)); bufPtr += sizeof(camera);
+  memcpy(bufPtr, &endpoint.IP, sizeof(endpoint.IP)); bufPtr += sizeof(endpoint.IP);
+  uint32_t portField = endpoint.port;
+  memcpy(bufPtr, &portField, sizeof(portField)); bufPtr += sizeof(portField);
 }
 
 CommandPacketCancelSubregion::CommandPacketCancelSubregion(CommandPacket& basePacket)
@@ -1499,10 +1502,26 @@ Status CommandPacketCancelSubregion::GetCamera(uint32_t& camera)
   return OKAY;
 }
 
+Status CommandPacketCancelSubregion::GetEndpoint(StreamEndpoint& endpoint) const
+{
+  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + 3 * sizeof(uint32_t)) {
+    return READ_PAST_END;
+  }
+  unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
+  // Skip the camera ID
+  bufPtr += sizeof(uint32_t);
+  memcpy(&endpoint.IP, bufPtr, sizeof(endpoint.IP)); bufPtr += sizeof(endpoint.IP);
+  uint32_t portField;
+  memcpy(&portField, bufPtr, sizeof(portField)); bufPtr += sizeof(portField);
+  endpoint.port = portField;
+  return OKAY;
+}
+
 std::string CommandPacketCancelSubregion::Test()
 {
   // Construct a command and verify that we can read its values.
-  CommandPacketCancelSubregion packet(1);
+  StreamEndpoint endpoint = { 0x01020304, 1234 };
+  CommandPacketCancelSubregion packet(1, endpoint);
   if (packet.GetConstructorStatus() != OKAY) {
     return "Error constructing CommandPacketCancelSubregion packet: " + ErrorMessage(packet.GetConstructorStatus());
   }
@@ -1513,6 +1532,14 @@ std::string CommandPacketCancelSubregion::Test()
   }
   if (camera != 1) {
     return "Error getting camera from CommandPacketCancelSubregion packet: camera doesn't match";
+  }
+  StreamEndpoint rEndpoint;
+  status = packet.GetEndpoint(rEndpoint);
+  if (status != OKAY) {
+    return "Error getting endpoint from CommandPacketCancelSubregion packet: " + ErrorMessage(status);
+  }
+  if (rEndpoint.IP != endpoint.IP || rEndpoint.port != endpoint.port) {
+    return "Error getting endpoint from CommandPacketCancelSubregion packet: endpoint doesn't match";
   }
 
   return "";
