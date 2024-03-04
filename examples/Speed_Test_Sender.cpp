@@ -136,7 +136,7 @@ int main(int argc, char* argv[])
   for (unsigned i = 0; i < threads; i++) {
     std::vector<SenderUDP> mySendSockets;
     for (unsigned j = 0; j < sendsPerThread; j++) {
-      mySendSockets.push_back(SenderUDP("localhost", port + j + i * sendsPerThread));
+      mySendSockets.push_back(SenderUDP(IP, port + j + i * sendsPerThread));
       if (mySendSockets.back().GetConstructorStatus() != OKAY) {
         std::cerr << "Error creating send socket: " << mySendSockets.back().GetConstructorStatus() << std::endl;
         return 1;

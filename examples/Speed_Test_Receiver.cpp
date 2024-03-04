@@ -94,7 +94,7 @@ int main(int argc, char* argv[])
   // Create the receive sockets.
   std::vector<ReceiverUDP> receiveSockets;
   for (unsigned i = 0; i < cameras; i++) {
-    receiveSockets.push_back(ReceiverUDP("localhost", port + i));
+    receiveSockets.push_back(ReceiverUDP(IP, port + i));
     if (receiveSockets.back().GetConstructorStatus() != OKAY) {
       std::cerr << "Error creating receive socket: " << receiveSockets.back().GetConstructorStatus() << std::endl;
       return 2;
