@@ -4030,6 +4030,14 @@ std::string MessagePose::Test()
 class asdp::Socket {
 public:
   SOCKET socket = BAD_SOCKET;    ///< The socket to use, initially not open.
+
+  /// @brief Default constructor
+  Socket() {
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(0); // default port
+    inet_pton(AF_INET, "0.0.0.0", &(addr.sin_addr)); // default IP address
+  }
+
   /// @brief Destructor closes the socket if it is open.
   ~Socket() {
     if (socket != BAD_SOCKET) {
@@ -4043,12 +4051,12 @@ public:
   struct sockaddr_in addr;
 };
 
-SenderUDP::SenderUDP(std::string host, uint16_t port, bool broadcast)
-  : SenderUDP(StreamEndpoint(host, port), broadcast)
+SenderUDP::SenderUDP(std::string host, uint16_t port, bool broadcast, std::string const& NICName)
+  : SenderUDP(StreamEndpoint(host, port), broadcast, NICName)
 {
 }
 
-SenderUDP::SenderUDP(const StreamEndpoint& endpoint, bool broadcast)
+SenderUDP::SenderUDP(const StreamEndpoint& endpoint, bool broadcast, std::string const& NICName)
   : m_socket(std::make_shared<Socket>())
 {
   // Problem if the enpoint has been set to all zeros.
@@ -4067,6 +4075,33 @@ SenderUDP::SenderUDP(const StreamEndpoint& endpoint, bool broadcast)
   if (m_socket->socket == BAD_SOCKET) {
     m_constructorStatus = BAD_PARAMETER;
     return;
+  }
+
+  // If we have specified a NIC name, bind to the address of that NIC using any available port.
+  if (!NICName.empty()) {
+    // Look up the IPV4 address of the host.
+    struct addrinfo* result = nullptr;
+    struct addrinfo hints;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_DGRAM;
+    hints.ai_flags |= AI_CANONNAME;
+    const char* hostName = NICName.c_str();
+    int status = getaddrinfo(hostName, nullptr, &hints, &result);
+    if (status != 0) {
+      return;
+    }
+    struct sockaddr_in* address = (struct sockaddr_in*)result->ai_addr;
+    // Convert to host byte order
+    uint32_t IP = ntohl(address->sin_addr.s_addr);
+    freeaddrinfo(result);
+
+    // Store the specified IP and port we want to use.
+    // The address is already in network byte order, just convert the port.
+    memset(&m_socket->addr, 0, sizeof(m_socket->addr));
+    m_socket->addr.sin_family = AF_INET;
+    m_socket->addr.sin_addr.s_addr = htonl(IP);
+    m_socket->addr.sin_port = htons(0); // any available port
   }
 
   // If we're doing broadcast, set the socket to allow broadcast and set the
@@ -4446,7 +4481,8 @@ std::string ReceiverUDP::Test()
   if (status != OKAY) {
     return "Error getting port from ReceiverUDP: " + ErrorMessage(status);
   }
-  SenderUDP sender("localhost", receiverPort);
+  // Explicitly bind the sender to the same NIC as the receiver so we test that code path.
+  SenderUDP sender("localhost", receiverPort, false, "localhost");
   if (sender.GetConstructorStatus() != OKAY) {
     return "Error constructing SenderUDP: " + ErrorMessage(sender.GetConstructorStatus());
   }

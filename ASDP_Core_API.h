@@ -1596,12 +1596,14 @@ public:
   /// @param [in] host Name of the host to send to.
   /// @param [in] port Port number to send to.
   /// @param [in] broadcast Whether to use the broadcast address from the specified address.
-  SenderUDP(std::string host, uint16_t port, bool broadcast = false);
+  /// @param [in] NICName Name of the network interface to use for sending, "" for system chooses.
+  SenderUDP(std::string host, uint16_t port, bool broadcast = false, std::string const& NICName = "");
 
   /// @brief Construct a SenderUDP object that will send to a specific endpoint.
   /// @param [in] endpoint Endpoint to send to.
   /// @param [in] broadcast Whether to use the broadcast address from the specified address.
-  SenderUDP(const StreamEndpoint& endpoint, bool broadcast = false);
+  /// @param [in] NICName Name of the network interface to use for sending, "" for system chooses.
+  SenderUDP(const StreamEndpoint& endpoint, bool broadcast = false, std::string const& NICName = "");
 
   /// @brief Send a buffer full of data.
   /// @param [in] buffer Pointer to the buffer containing the packet to send.
