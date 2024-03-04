@@ -8,6 +8,7 @@
 #include <thread>
 #include <chrono>
 #include <mutex>
+#include <string.h>
 #include <ASDP_Core_API.h>
 using namespace asdp;
 
