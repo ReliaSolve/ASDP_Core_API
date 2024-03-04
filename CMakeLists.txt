@@ -114,6 +114,8 @@ if(BUILD_EXAMPLES)
     Basic_Client
     Base_Validating_Client
     Base_Server
+    Speed_Test_Sender
+    Speed_Test_Receiver
   )
   foreach (BASE ${EXAMPLES})
     # C++ example
