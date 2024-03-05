@@ -1654,7 +1654,7 @@ public:
   Status SendStreamPacket(const StreamPacket& packet) override;
 
 protected:
-  std::shared_ptr<std::ofstream> m_file;    ///< Pointer to the file object to write to.
+  int m_file;    ///< File object to write to.
 };
 
 //---------------------------------------------------------------------------

@@ -6,6 +6,11 @@
 #include <string.h>   // For memcpy
 #include <iostream>
 #include <algorithm>
+#include <stdio.h>
+#include <fcntl.h>
+#ifdef _WIN32
+#include <io.h>
+#endif
 
 // Must be defined outside of the namespace.
 std::ostream& operator<<(std::ostream& os, const asdp::StreamEndpoint& endpoint) {
@@ -4193,10 +4198,20 @@ Status SenderUDP::SendStreamPacket(const StreamPacket& packet)
 }
 
 SenderFile::SenderFile(std::string fileName)
+  : m_file(-1)
 {
-  // Open the file.
-  m_file = std::make_shared<std::ofstream>(fileName.c_str(), std::ios::binary);
-  if (m_file == nullptr) {
+  // Open the file using the low-level open() call so that we can request direct I/O
+  // on Linux, which bypasses the system buffers and makes writes faster for sequential
+  // writes on our SSD RAID system.  If this flag is not available, we define it here locally
+  // to be zero so that it is ignored.
+#ifndef O_DIRECT
+  static uint32_t O_DIRECT = 0;
+#endif
+#ifndef O_BINARY
+  static uint32_t O_BINARY = 0;
+#endif
+  m_file = open(fileName.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_BINARY | O_DIRECT, 0644);
+  if (m_file < 0) {
     m_constructorStatus = BAD_PARAMETER;
     return;
   }
@@ -4204,8 +4219,8 @@ SenderFile::SenderFile(std::string fileName)
 
 SenderFile::~SenderFile()
 {
-  if (m_file != nullptr) {
-    m_file->close();
+  if (m_file != -1) {
+    close(m_file);
   }
 }
 
@@ -4217,16 +4232,15 @@ Status SenderFile::Send(const void* buffer, uint32_t length)
   }
 
   // Make sure we have a valid file.
-  if (m_file == nullptr) {
+  if (m_file == -1) {
     return m_constructorStatus;
-  }
-  if (!(*m_file)) {
-    return FILE_FAILURE;
   }
 
   // Send the data.
-  m_file->write(reinterpret_cast<const char*>(buffer), length);
-  if (!(*m_file)) {
+  int ret = write(m_file, reinterpret_cast<const char*>(buffer), length);
+  if (ret != length) {
+    close(m_file);
+    m_file = -1;
     return FILE_FAILURE;
   }
 
@@ -4237,31 +4251,18 @@ Status SenderFile::Send(const void* buffer, uint32_t length)
 Status SenderFile::SendCommandPacket(const CommandPacket& packet)
 {
   // Make sure we have a valid file.
-  if (m_file == nullptr) {
+  if (m_file == -1) {
     return m_constructorStatus;
   }
-  if (!(*m_file)) {
-    return FILE_FAILURE;
-  }
 
-  // Send the data.
-  m_file->write(reinterpret_cast<const char*>(packet.m_buffer->data()), packet.m_buffer->size());
-  if (!(*m_file)) {
-    return FILE_FAILURE;
-  }
-
-  // Everything worked.
-  return OKAY;
+  return Send(packet.m_buffer->data(), packet.m_buffer->size());
 }
 
 Status SenderFile::SendStreamPacket(const StreamPacket& packet)
 {
   // Make sure we have a valid file.
-  if (m_file == nullptr) {
+  if (m_file == -1) {
     return m_constructorStatus;
-  }
-  if (!(*m_file)) {
-    return FILE_FAILURE;
   }
 
   // Find out how large the data in the packet is.
@@ -4272,14 +4273,7 @@ Status SenderFile::SendStreamPacket(const StreamPacket& packet)
   }
 
   // Send the data.
-  // Send the data.
-  m_file->write(reinterpret_cast<const char*>(packet.m_buffer->data()), length);
-  if (!(*m_file)) {
-    return FILE_FAILURE;
-  }
-
-  // Everything worked.
-  return OKAY;
+  return Send(packet.m_buffer->data(), length);
 }
 
 ReceiverUDP::ReceiverUDP(std::string host, uint16_t port, uint32_t maxLen, bool broadcast)
