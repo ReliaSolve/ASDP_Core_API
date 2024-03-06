@@ -13,11 +13,22 @@
 using namespace asdp;
 
 static void receiveDataThread(ReceiverUDP& receiveSocket, size_t bytesPerPacket, size_t totalPackets,
-  std::mutex& printMutex, std::atomic<bool> &broken)
+  std::mutex& printMutex, std::atomic<bool> &broken, std::string fileName)
 {
   std::vector<uint8_t> buffer(bytesPerPacket);
   unsigned packetsReceived = 0;
   std::vector<char> copyBuffer(bytesPerPacket);
+
+  std::shared_ptr<asdp::SenderFile> sender;
+  if (fileName.size() > 0) {
+    sender = std::make_shared<asdp::SenderFile>(fileName);
+    if (sender->GetConstructorStatus() != OKAY) {
+      std::cerr << "Error creating sender to file " << fileName
+        << ": " << ErrorMessage(sender->GetConstructorStatus()) << std::endl;
+      broken = true;
+      return;
+    }
+  }
 
   // Loop through and receive packets until we've gotten them all or an error occurs
   while (packetsReceived < totalPackets) {
@@ -34,9 +45,14 @@ static void receiveDataThread(ReceiverUDP& receiveSocket, size_t bytesPerPacket,
       std::lock_guard<std::mutex> lock(printMutex);
       std::cerr << "Error: Expected " << (packetsReceived % 256) << " but got " << (int)buffer[0] << std::endl;
       broken = true;
-      break;
+      return;
     }
-    memcpy(copyBuffer.data(), buffer.data(), bytesPerPacket);
+
+    if (sender) {
+      sender->Send(buffer.data(), bytesPerPacket);
+    } else {
+      memcpy(copyBuffer.data(), buffer.data(), bytesPerPacket);
+    }
 
     // Increment the number of packets received
     packetsReceived++;
@@ -50,6 +66,8 @@ int main(int argc, char* argv[])
   int secondsWorth = 10;
   std::string IP = "localhost";
   int port = 12000;
+  std::string directory;
+  size_t realParams = 0;
 
   for (int i = 1; i < argc; i++) {
     std::string arg = argv[i];
@@ -67,22 +85,35 @@ int main(int argc, char* argv[])
       std::cerr << "Unknown option: " << arg << std::endl;
       return 1;
     } else {
-      std::cerr << "Unknown argument: " << arg << std::endl;
-      return 1;
+      ++realParams;
+      switch (realParams) {
+      case 1:
+        directory = arg;
+        break;
+      default:
+        std::cerr << "Unexpected argument: " << arg << std::endl;
+        return 1;
+      }
     }
   }
 
   std::cout << "ASDP Speed Test Receiver" << std::endl;
   std::cout << "Listens for data from the Speed_Test_Sender and checks for dropped packets" << std::endl;
   std::cout << "Run this before running the sender." << std::endl;
-  std::cout << "Usage: Speed_Test_Receiver [--cameras <number>] [--fps <number>] [--secondsWorth <number>] [--IP <string>] [--port <number>]" << std::endl;
+  std::cout << "Usage: Speed_Test_Receiver [--cameras <number>] [--fps <number>] [--secondsWorth <number>] [--IP <string>] [--port <number>] [directory]" << std::endl;
   std::cout << "       It listens on the port specified and a number above it for each camera." << std::endl;
   std::cout << "The parameters here must match those used by the sender." << std::endl;
+  std::cout << "If directory is not specified, the data is copied to a memory buffer" << std::endl;
+  std::cout << "If directory is /dev/null or NUL:, the data is written to the null device" << std::endl;
+  std::cout << "If directory is specified, the data is written to files in that directory" << std::endl;
   std::cout << std::endl;
   std::cout << "Cameras: " << cameras << std::endl;
   std::cout << "FPS: " << fps << std::endl;
   std::cout << "Seconds worth of data: " << secondsWorth << std::endl;
   std::cout << "Listening on IP:Port and following " << IP << ":" << port << std::endl;
+  if (directory.size() > 0) {
+    std::cout << "Writing data to files in " << directory << std::endl;
+  }
 
   // Compute the total number of packets to receive, where we send 342 packets per frame.
   size_t packetsPerFrame = 342;
@@ -106,8 +137,15 @@ int main(int argc, char* argv[])
   std::atomic<bool> broken(false);
   std::vector<std::thread> receivers;
   for (unsigned i = 0; i < cameras; i++) {
+    std::string fileName;
+    if (directory.size() > 0) {
+      fileName = directory + "/" + std::to_string(i + 1) + ".asdp";
+      if ((directory == "/dev/null") || (directory == "NUL:")) {
+        fileName = directory;
+      }
+    }
     std::thread receiver(receiveDataThread, std::ref(receiveSockets[i]), bytesPerPacket,
-      totalPacketsPerCamera, std::ref(printMutex), std::ref(broken));
+      totalPacketsPerCamera, std::ref(printMutex), std::ref(broken), fileName);
     receivers.push_back(std::move(receiver));
   }
 

@@ -12,7 +12,7 @@
 using namespace asdp;
 
 static void sendDataThread(std::vector<SenderUDP> sendSockets, std::atomic<bool> &beginSending,
-  size_t bytesPerPacket, size_t totalPackets, double packetPeriod,
+  size_t bytesPerPacket, size_t totalPackets, size_t packetsPerFrame, double packetPeriod,
   std::mutex &printMutex)
 {
   // Get a vector of data to send
@@ -64,9 +64,9 @@ static void sendDataThread(std::vector<SenderUDP> sendSockets, std::atomic<bool>
   auto now = std::chrono::steady_clock::now();
   double seconds = std::chrono::duration_cast<std::chrono::duration<double>>(now - startTime).count();
   std::lock_guard<std::mutex> lock(printMutex);
-  std::cout << "Sent " << totalPackets << " packets in " << seconds << " seconds, or "
-    << totalPackets / seconds << " packets per second to each of "
-    << sendSockets.size() << " cameras" << std::endl;
+  std::cout << "Sent " << totalPackets << " packets in " << seconds << " seconds: "
+    << totalPackets / seconds << " packets/sec; " << totalPackets / seconds / packetsPerFrame
+    << " frames/sec to each of " << sendSockets.size() << " cameras" << std::endl;
 }
 
 int main(int argc, char* argv[])
@@ -152,7 +152,8 @@ int main(int argc, char* argv[])
   for (int i = 0; i < threads; ++i) {
     SenderUDP sendSocket(IP, port + i, false, NICName);
     senders.push_back(std::thread(sendDataThread, sendSockets[i], std::ref(beginSending),
-           bytesPerPacket, totalPacketsPerCamera, 1.0 / (packetsPerFrame * fps), std::ref(printMutex)));
+            bytesPerPacket, totalPacketsPerCamera, packetsPerFrame,
+            1.0 / (packetsPerFrame * fps), std::ref(printMutex)));
   }
   std::this_thread::sleep_for(std::chrono::seconds(1));
 
