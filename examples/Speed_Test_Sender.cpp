@@ -13,13 +13,32 @@ using namespace asdp;
 
 static void sendDataThread(std::vector<SenderUDP> sendSockets, std::atomic<bool> &beginSending,
   size_t bytesPerPacket, size_t totalPackets, size_t packetsPerFrame, double packetPeriod,
-  std::mutex &printMutex)
+  std::mutex &printMutex, std::vector<std::string> fileNames)
 {
   // Get a vector of data to send
-  std::vector<uint8_t> imageData(bytesPerPacket);
+  std::vector< std::vector<uint8_t> > imageDatas;
+  for (size_t i = 0; i < sendSockets.size(); ++i) {
+    std::vector<uint8_t> imageData(bytesPerPacket);
+    imageDatas.push_back(imageData);
+  }
 
   // Determine the floating-point number of microseconds between packets
   double packetPeriodMicroseconds = packetPeriod * 1e6;
+
+  std::vector< std::shared_ptr<asdp::ReceiverFile> > receivers;
+  for (auto &fileName : fileNames) {
+    if (fileName.size() > 0) {
+      std::shared_ptr<asdp::ReceiverFile>receiver = std::make_shared<asdp::ReceiverFile>(fileName);
+      if (receiver->GetConstructorStatus() != OKAY) {
+        std::cerr << "Error creating receiver from file " << fileName
+          << ": " << ErrorMessage(receiver->GetConstructorStatus()) << std::endl;
+        return;
+      }
+      receivers.push_back(receiver);
+    } else {
+      receivers.push_back(nullptr);
+    }
+  }
 
   // Wait for the trigger signal and then go
   while (!beginSending) {}
@@ -29,11 +48,6 @@ static void sendDataThread(std::vector<SenderUDP> sendSockets, std::atomic<bool>
 
   // Loop through the packets and send each when it is time
   for (int packetNum = 0; packetNum < totalPackets; ++packetNum) {
-    // Prepare image data (replace this with your image data source)
-    // For simplicity, we use a placeholder array here
-    uint8_t* data = imageData.data();
-    // Fill the first entry in the image data with the packet number mod 128
-    imageData[0] = (packetNum) % 256;
 
     // Determine the time when the next packet should be sent by adding the
     // number of packets sent times the period between packets to the start time
@@ -50,8 +64,23 @@ static void sendDataThread(std::vector<SenderUDP> sendSockets, std::atomic<bool>
       std::cout << "Sent" << std::endl;
     }
 
-    // Send the data
-    for (auto& sendSocket : sendSockets) {
+    // Read or fill in and send the data
+    for (size_t i = 0; i < sendSockets.size(); ++i) {
+      auto& imageData = imageDatas[i];
+      auto& receiver = receivers[i];
+      if (receiver) {
+        Status status = receiver->ReceiveBuffer(imageData);
+        if (status != OKAY) {
+          std::cerr << "Error receiving data: " << ErrorMessage(status) << std::endl;
+          return;
+        }
+      } else {
+        // Fill the first entry in the image data with the packet number mod 256
+        imageData[0] = (packetNum) % 256;
+      }
+
+      uint8_t* data = imageData.data();
+      auto& sendSocket = sendSockets[i];
       Status status = sendSocket.Send(data, bytesPerPacket);
       if (status != OKAY) {
         std::cerr << "Error sending data: " << ErrorMessage(status) << std::endl;
@@ -78,6 +107,8 @@ int main(int argc, char* argv[])
   std::string IP = "localhost";
   int port = 12000;
   std::string NICName;
+  std::string directory;
+  size_t realParams = 0;
 
   for (int i = 1; i < argc; i++) {
     std::string arg = argv[i];
@@ -99,8 +130,15 @@ int main(int argc, char* argv[])
       std::cerr << "Unknown option: " << arg << std::endl;
       return 1;
     } else {
-      std::cerr << "Unknown argument: " << arg << std::endl;
-      return 1;
+      ++realParams;
+      switch (realParams) {
+      case 1:
+        directory = arg;
+        break;
+      default:
+        std::cerr << "Unexpected argument: " << arg << std::endl;
+        return 1;
+      }
     }
   }
 
@@ -112,16 +150,24 @@ int main(int argc, char* argv[])
   std::cout << "ASDP Speed Test Sender" << std::endl;
   std::cout << "Sends data to a Speed_Test_Receiver at the requested rate" << std::endl;
   std::cout << "Run this after running the receiver." << std::endl;
-  std::cout << "Usage: Speed_Test_Sender [--cameras <number>] [--threads <number>] [--fps <number>] [--secondsWorth <number>] [--IP <string>] [--port <number>] [--NIC <string>]" << std::endl;
+  std::cout << "Usage: Speed_Test_Sender [--cameras <number>] [--threads <number>] [--fps <number>] [--secondsWorth <number>] [--IP <string>] [--port <number>] [--NIC <string>] [directory]" << std::endl;
   std::cout << "       It sends to the port specified and a number above it for each camera." << std::endl;
   std::cout << "The parameters here must match those used by the receiver except for threads must evenly divide cameras." << std::endl;
   std::cout << "NICName specifies the IP address on a NIC to be used for sending, default uses the system-selected port" << std::endl;
+  std::cout << "If directory is not specified, the data is all zeroes." << std::endl;
+  std::cout << "If directory is specified, the data is read to files in that directory." << std::endl;
   std::cout << std::endl;
   std::cout << "Cameras: " << cameras << std::endl;
   std::cout << "Threads: " << threads << std::endl;
   std::cout << "FPS: " << fps << std::endl;
   std::cout << "Seconds worth of data: " << secondsWorth << std::endl;
   std::cout << "Sending to IP:Port and following: " << IP << ":" << port << std::endl;
+  if (NICName.size() > 0) {
+    std::cout << "Using NIC: " << NICName << std::endl;
+  }
+  if (directory.size() > 0) {
+    std::cout << "Reading data from files in " << directory << std::endl;
+  }
 
   // Compute the total number of packets to send, where we send 342 packets per frame.
   size_t packetsPerFrame = 342;
@@ -132,17 +178,25 @@ int main(int argc, char* argv[])
 
   // Create sockets for sending and receiving. There is a batch of them for each sending thread.
   std::vector< std::vector<SenderUDP> > sendSockets;
+  std::vector< std::vector<std::string> > fileNames;
   size_t sendsPerThread = cameras / threads;
   for (unsigned i = 0; i < threads; i++) {
     std::vector<SenderUDP> mySendSockets;
+    std::vector<std::string> myFileNames;
     for (unsigned j = 0; j < sendsPerThread; j++) {
       mySendSockets.push_back(SenderUDP(IP, port + j + i * sendsPerThread));
       if (mySendSockets.back().GetConstructorStatus() != OKAY) {
         std::cerr << "Error creating send socket: " << mySendSockets.back().GetConstructorStatus() << std::endl;
         return 1;
       }
+      std::string fileName;
+      if (directory.size() > 0) {
+        fileName = directory + "/" + std::to_string(i*threads + j + 1) + ".asdp";
+      }
+      myFileNames.push_back(fileName);
     }
     sendSockets.push_back(mySendSockets);
+    fileNames.push_back(myFileNames);
   }
 
   // Start the specified number of threads and wait a second for them to get ready.
@@ -153,7 +207,7 @@ int main(int argc, char* argv[])
     SenderUDP sendSocket(IP, port + i, false, NICName);
     senders.push_back(std::thread(sendDataThread, sendSockets[i], std::ref(beginSending),
             bytesPerPacket, totalPacketsPerCamera, packetsPerFrame,
-            1.0 / (packetsPerFrame * fps), std::ref(printMutex)));
+            1.0 / (packetsPerFrame * fps), std::ref(printMutex), fileNames[i]));
   }
   std::this_thread::sleep_for(std::chrono::seconds(1));
 

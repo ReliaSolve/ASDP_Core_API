@@ -8,9 +8,114 @@
 #include <thread>
 #include <chrono>
 #include <mutex>
+#include <list>
 #include <string.h>
 #include <ASDP_Core_API.h>
 using namespace asdp;
+
+#include <atomic>
+#include <memory>
+#include <chrono>
+#include <condition_variable>
+#include <mutex>
+
+template<typename T>
+class LockFreeQueue {
+private:
+  struct Node {
+    T data;
+    std::atomic<Node*> next;
+
+    Node(T value) : data(value), next(nullptr) {}
+  };
+
+  std::atomic<Node*> head;
+  std::atomic<Node*> tail;
+  std::condition_variable cv;
+  std::mutex cv_m;
+  std::atomic<size_t> count;
+
+public:
+  LockFreeQueue() {
+    Node* newNode = new Node(T());
+    head.store(newNode, std::memory_order_relaxed);
+    tail.store(newNode, std::memory_order_relaxed);
+    count.store(0, std::memory_order_relaxed);
+  }
+
+  ~LockFreeQueue() {
+    while (Node* node = head.load(std::memory_order_relaxed)) {
+      head.store(node->next, std::memory_order_relaxed);
+      delete node;
+    }
+  }
+
+  void enqueue(T value) {
+    Node* newNode = new Node(value);
+    Node* prevTail = tail.exchange(newNode, std::memory_order_acq_rel);
+
+    prevTail->next.store(newNode, std::memory_order_release);
+
+    cv.notify_one();
+
+    count.fetch_add(1, std::memory_order_relaxed);
+  }
+
+  bool dequeue(T& value, const std::chrono::milliseconds& timeout) {
+    Node* node = head.load(std::memory_order_relaxed);
+    auto start = std::chrono::high_resolution_clock::now();
+    while (node != tail.load(std::memory_order_acquire)) {
+      if (head.compare_exchange_weak(node, node->next, std::memory_order_relaxed)) {
+        value = node->next.load(std::memory_order_relaxed)->data;
+        delete node;
+        count.fetch_sub(1, std::memory_order_relaxed);
+        return true;
+      }
+      node = head.load(std::memory_order_relaxed);
+
+      auto end = std::chrono::high_resolution_clock::now();
+      std::chrono::duration<double, std::milli> elapsed = end - start;
+      if (elapsed > timeout) {
+        return false;
+      }
+    }
+
+    std::unique_lock<std::mutex> lk(cv_m);
+    if (cv.wait_for(lk, timeout, [&] { return node != tail.load(std::memory_order_acquire); })) {
+      if (head.compare_exchange_weak(node, node->next, std::memory_order_relaxed)) {
+        value = node->next.load(std::memory_order_relaxed)->data;
+        delete node;
+        count.fetch_sub(1, std::memory_order_relaxed);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  size_t size() const {
+    return count.load(std::memory_order_relaxed);
+  }
+};
+
+
+/// @brief Separate thread per receive-data thread to write data to file.
+/// @details This is used to enable the receive thread to continue receiving data while the
+/// file is being written to disk, enabling the system to keep up with the incoming data.
+/// @param done Atomic boolean to signal the thread to stop.
+/// @param sender The sender object to use to write data to file.
+/// @param queue The queue of data to write to file.
+/// @return None
+static void saveDataThread(std::atomic<bool>& done,
+  std::shared_ptr<asdp::SenderFile> sender,
+  LockFreeQueue< std::shared_ptr< std::vector<uint8_t> > >& queue)
+{
+  std::shared_ptr< std::vector<uint8_t> > data;
+  while (!done) {
+    if (queue.dequeue(data, std::chrono::milliseconds(100))) {
+      sender->Send(data->data(), data->size());
+    }
+  }
+}
 
 static void receiveDataThread(ReceiverUDP& receiveSocket, size_t bytesPerPacket, size_t totalPackets,
   std::mutex& printMutex, std::atomic<bool> &broken, std::string fileName)
@@ -18,6 +123,11 @@ static void receiveDataThread(ReceiverUDP& receiveSocket, size_t bytesPerPacket,
   std::vector<uint8_t> buffer(bytesPerPacket);
   unsigned packetsReceived = 0;
   std::vector<char> copyBuffer(bytesPerPacket);
+
+  // Thread to handle saving data to file and associated resources
+  std::thread saveThread;
+  std::atomic<bool> done(false);
+  LockFreeQueue< std::shared_ptr< std::vector<uint8_t> > > queue;
 
   std::shared_ptr<asdp::SenderFile> sender;
   if (fileName.size() > 0) {
@@ -28,6 +138,7 @@ static void receiveDataThread(ReceiverUDP& receiveSocket, size_t bytesPerPacket,
       broken = true;
       return;
     }
+    saveThread = std::thread(saveDataThread, std::ref(done), sender, std::ref(queue));
   }
 
   // Loop through and receive packets until we've gotten them all or an error occurs
@@ -38,9 +149,7 @@ static void receiveDataThread(ReceiverUDP& receiveSocket, size_t bytesPerPacket,
       return;
     }
 
-    // Process the received data (replace this with your processing logic).
-    // Here, we check the data and then copy it to an external buffer on the heap, which would be a
-    // pinned GPU memory buffer for the real code.
+    // Verify that the data is correct and we haven't missed any packets
     if (buffer[0] != (packetsReceived % 256)) {
       std::lock_guard<std::mutex> lock(printMutex);
       std::cerr << "Error: Expected " << (packetsReceived % 256) << " but got " << (int)buffer[0] << std::endl;
@@ -49,13 +158,30 @@ static void receiveDataThread(ReceiverUDP& receiveSocket, size_t bytesPerPacket,
     }
 
     if (sender) {
-      sender->Send(buffer.data(), bytesPerPacket);
+      // Copy the data to file.
+      std::shared_ptr< std::vector<uint8_t> > data = std::make_shared< std::vector<uint8_t> >(buffer);
+      queue.enqueue(data);
     } else {
+      // Here, we check the data and then copy it to an external buffer on the heap, which would be a
+      // pinned GPU memory buffer for the real code.
       memcpy(copyBuffer.data(), buffer.data(), bytesPerPacket);
     }
 
     // Increment the number of packets received
     packetsReceived++;
+  }
+
+  // If we have a thread, time how long it takes it to finish
+  if (saveThread.joinable()) {
+    size_t queueSize = queue.size();
+    std::chrono::time_point<std::chrono::steady_clock> start = std::chrono::steady_clock::now();
+    done = true;
+    saveThread.join();
+    std::chrono::time_point<std::chrono::steady_clock> end = std::chrono::steady_clock::now();
+    std::chrono::duration<double> elapsed = end - start;
+    std::lock_guard<std::mutex> lock(printMutex);
+    std::cout << "Save thread had " << queueSize << " items in the queue" << std::endl;
+    std::cout << "  Time to save data: " << elapsed.count() << " seconds" << std::endl;
   }
 }
 
