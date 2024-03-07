@@ -172,6 +172,10 @@ static void receiveDataThread(ReceiverUDP& receiveSocket, size_t bytesPerPacket,
   if (saveThread.joinable()) {
     size_t queueSize = queue.size();
     std::chrono::time_point<std::chrono::steady_clock> start = std::chrono::steady_clock::now();
+    // Wait for the queue to empty
+    while (queue.size() > 0) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
     done = true;
     saveThread.join();
     std::chrono::time_point<std::chrono::steady_clock> end = std::chrono::steady_clock::now();
