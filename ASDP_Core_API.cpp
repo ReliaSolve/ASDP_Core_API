@@ -4294,6 +4294,14 @@ ReceiverUDP::ReceiverUDP(const StreamEndpoint& endpoint, uint32_t maxLen, bool b
     return;
   }
 
+  // Set the socket input buffer to be large enough to hold many incoming packets.
+  int size = 65536 * 4;
+  if (0 != setsockopt(m_socket->socket, SOL_SOCKET, SO_RCVBUF, (char*)&size, sizeof(size))) {
+    m_constructorStatus = SOCKET_FAILURE;
+    m_socket.reset();
+    return;
+  }
+
   // If we're listening for broadcast, set the address to use for broadcast.
   StreamEndpoint myEndpoint = endpoint;
   if (broadcast) {
