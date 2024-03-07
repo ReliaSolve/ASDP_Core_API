@@ -8,95 +8,92 @@
 #include <thread>
 #include <chrono>
 #include <mutex>
+#include <atomic>
+#include <condition_variable>
 #include <list>
 #include <string.h>
 #include <ASDP_Core_API.h>
 using namespace asdp;
 
-#include <atomic>
-#include <memory>
-#include <chrono>
-#include <condition_variable>
-#include <mutex>
-
-template<typename T>
-class LockFreeQueue {
+template <typename T> class SpinFreeQueue {
 private:
   struct Node {
     T data;
-    std::atomic<Node*> next;
-
-    Node(T value) : data(value), next(nullptr) {}
+    Node* next;
   };
 
-  std::atomic<Node*> head;
-  std::atomic<Node*> tail;
+  Node* head;
+  Node* tail;
+  size_t nodes;
   std::condition_variable cv;
   std::mutex cv_m;
-  std::atomic<size_t> count;
+  std::mutex mut;
 
 public:
-  LockFreeQueue() {
-    Node* newNode = new Node(T());
-    head.store(newNode, std::memory_order_relaxed);
-    tail.store(newNode, std::memory_order_relaxed);
-    count.store(0, std::memory_order_relaxed);
+  SpinFreeQueue() {
+    head = nullptr;
+    tail = nullptr;
+    nodes = 0;
   }
 
-  ~LockFreeQueue() {
-    while (Node* node = head.load(std::memory_order_relaxed)) {
-      head.store(node->next, std::memory_order_relaxed);
-      delete node;
+  ~SpinFreeQueue() {
+    std::lock_guard<std::mutex> lk(mut);
+    while (head) {
+      Node* old_head = head;
+      head = old_head->next;
+      delete old_head;
+      nodes--;
     }
   }
 
-  void enqueue(T value) {
-    Node* newNode = new Node(value);
-    Node* prevTail = tail.exchange(newNode, std::memory_order_acq_rel);
+  void enqueue(T data) {
+    {
+      std::lock_guard<std::mutex> lk(mut);
+      Node* new_node = new Node;
+      new_node->data = data;
+      new_node->next = nullptr;
 
-    prevTail->next.store(newNode, std::memory_order_release);
+      if (nodes == 0) {
+        head = new_node;
+        tail = new_node;
+      }
+      else {
+        tail->next = new_node;
+        tail = new_node;
+      }
 
+      nodes++;
+    }
     cv.notify_one();
-
-    count.fetch_add(1, std::memory_order_relaxed);
   }
 
   bool dequeue(T& value, const std::chrono::milliseconds& timeout) {
-    Node* node = head.load(std::memory_order_relaxed);
-    auto start = std::chrono::high_resolution_clock::now();
-    while (node != tail.load(std::memory_order_acquire)) {
-      if (head.compare_exchange_weak(node, node->next, std::memory_order_relaxed)) {
-        value = node->next.load(std::memory_order_relaxed)->data;
-        delete node;
-        count.fetch_sub(1, std::memory_order_relaxed);
-        return true;
-      }
-      node = head.load(std::memory_order_relaxed);
-
-      auto end = std::chrono::high_resolution_clock::now();
-      std::chrono::duration<double, std::milli> elapsed = end - start;
-      if (elapsed > timeout) {
+    if (nodes == 0) {
+      std::unique_lock<std::mutex> cvlk(cv_m);
+      if (!cv.wait_for(cvlk, timeout, [&] { return nodes != 0; })) {
         return false;
       }
     }
 
-    std::unique_lock<std::mutex> lk(cv_m);
-    if (cv.wait_for(lk, timeout, [&] { return node != tail.load(std::memory_order_acquire); })) {
-      if (head.compare_exchange_weak(node, node->next, std::memory_order_relaxed)) {
-        value = node->next.load(std::memory_order_relaxed)->data;
-        delete node;
-        count.fetch_sub(1, std::memory_order_relaxed);
-        return true;
-      }
+    std::lock_guard<std::mutex> lk(mut);
+    if (nodes == 0) {
+      return false;
     }
-    return false;
+    value = head->data;
+    Node* old_head = head;
+    head = old_head->next;
+    delete old_head;
+    nodes--;
+    if (head == nullptr) {
+      tail = head;
+    }
+    return true;
   }
 
   size_t size() const {
-    return count.load(std::memory_order_relaxed);
+    return nodes;
   }
 };
-
 
 /// @brief Separate thread per receive-data thread to write data to file.
 /// @details This is used to enable the receive thread to continue receiving data while the
@@ -107,7 +104,7 @@ public:
 /// @return None
 static void saveDataThread(std::atomic<bool>& done,
   std::shared_ptr<asdp::SenderFile> sender,
-  LockFreeQueue< std::shared_ptr< std::vector<uint8_t> > >& queue)
+  SpinFreeQueue< std::shared_ptr< std::vector<uint8_t> > >& queue)
 {
   std::shared_ptr< std::vector<uint8_t> > data;
   while (!done) {
@@ -127,7 +124,7 @@ static void receiveDataThread(ReceiverUDP& receiveSocket, size_t bytesPerPacket,
   // Thread to handle saving data to file and associated resources
   std::thread saveThread;
   std::atomic<bool> done(false);
-  LockFreeQueue< std::shared_ptr< std::vector<uint8_t> > > queue;
+  SpinFreeQueue< std::shared_ptr< std::vector<uint8_t> > > queue;
 
   std::shared_ptr<asdp::SenderFile> sender;
   if (fileName.size() > 0) {
@@ -146,7 +143,7 @@ static void receiveDataThread(ReceiverUDP& receiveSocket, size_t bytesPerPacket,
     Status status = receiveSocket.ReceiveBuffer(buffer);
     if (status != OKAY) {
       std::cerr << "Error receiving data: " << ErrorMessage(status) << std::endl;
-      return;
+      break;
     }
 
     // Verify that the data is correct and we haven't missed any packets
@@ -154,7 +151,7 @@ static void receiveDataThread(ReceiverUDP& receiveSocket, size_t bytesPerPacket,
       std::lock_guard<std::mutex> lock(printMutex);
       std::cerr << "Error: Expected " << (packetsReceived % 256) << " but got " << (int)buffer[0] << std::endl;
       broken = true;
-      return;
+      break;
     }
 
     if (sender) {
@@ -281,9 +278,10 @@ int main(int argc, char* argv[])
   }
 
   // Check for any errors
+  int ret = 0;
   if (broken) {
     std::cerr << "Error: Packets were dropped" << std::endl;
-    return 3;
+   ret = 3;
   } else {
     std::cout << "Success" << std::endl;
   }
@@ -292,5 +290,5 @@ int main(int argc, char* argv[])
   receivers.clear();
   receiveSockets.clear();
 
-  return 0;
+  return ret;
 }
