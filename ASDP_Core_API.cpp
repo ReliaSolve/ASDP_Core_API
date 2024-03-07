@@ -4082,6 +4082,14 @@ SenderUDP::SenderUDP(const StreamEndpoint& endpoint, bool broadcast, std::string
     return;
   }
 
+  // Set the socket output buffer to be large enough to hold many outgoing packets.
+  int size = 65536 * 8;
+  if (0 != setsockopt(m_socket->socket, SOL_SOCKET, SO_SNDBUF, (char*)&size, sizeof(size))) {
+    m_constructorStatus = SOCKET_FAILURE;
+    m_socket.reset();
+    return;
+  }
+
   // If we have specified a NIC name, bind to the address of that NIC using any available port.
   if (!NICName.empty()) {
     // Look up the IPV4 address of the host.
