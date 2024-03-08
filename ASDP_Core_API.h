@@ -1631,8 +1631,16 @@ protected:
 class SenderFile : public Sender {
 public:
   /// @brief Construct a SenderFile object that will send to a specific endpoint.
+  /// 
+  /// This class is optimized to send to a file stores on a hardware RAID bank of
+  /// LLVM SSDs, so uses direct write on Linux.  This requires the file to be an
+  /// even multiple of 512-byte blocks in size.  This will cause padding at the end
+  /// of the file, so the ReceiverFile must be able to handle that.
   /// @param [in] fileName Name of the file to write to.
-  SenderFile(std::string fileName);
+  /// @param [in] maxSendSize Maximum size of a packet that will be sent.  This is
+  /// helps the Sender select a write-block size that avoids the need for multiple
+  /// sends on a single packet.
+  SenderFile(std::string fileName, size_t maxSendSize = 9000 - 28);
 
   /// @brief Destructor.
   ~SenderFile() override;
@@ -1654,7 +1662,9 @@ public:
   Status SendStreamPacket(const StreamPacket& packet) override;
 
 protected:
-  int m_file;    ///< File object to write to.
+  int m_file;                     ///< File object to write to.
+  std::vector<uint8_t> m_buffer;  ///< Block-sized buffer to use for sending.
+  size_t m_filled;                ///< Number of bytes filled in the buffer.
 };
 
 //---------------------------------------------------------------------------
@@ -1779,8 +1789,13 @@ protected:
 class ReceiverFile : public Receiver {
 public:
   /// @brief Construct a ReceiverFile object.
+  /// 
+  /// This must be bale to handle a file that has zero padding at the end, which
+  /// it takes to mean an early end of the file.  This is because of the potential
+  /// for SenderFile to zero pad to write a full block to the file.
   /// @param [in] fileName Name of the file to write to.
-  /// @param [in] maxLen Maximum length of a packet to receive (default of 1472 is the maximum for Ethernet).
+  /// @param [in] maxLen Maximum length of a packet to receive (default of 900 - 28
+  /// is the maximum for Ethernet with 9000-byte jumbo packets).
   ReceiverFile(std::string fileName, uint32_t maxLen = 9000 - 28);
 
   /// @brief See if a packet is available to receive.

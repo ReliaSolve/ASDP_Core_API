@@ -4205,8 +4205,9 @@ Status SenderUDP::SendStreamPacket(const StreamPacket& packet)
   return OKAY;
 }
 
-SenderFile::SenderFile(std::string fileName)
+SenderFile::SenderFile(std::string fileName, size_t maxSendSize)
   : m_file(-1)
+  , m_filled(0)
 {
   // Open the file using the low-level open() call so that we can request direct I/O
   // on Linux, which bypasses the system buffers and makes writes faster for sequential
@@ -4223,11 +4224,26 @@ SenderFile::SenderFile(std::string fileName)
     m_constructorStatus = BAD_PARAMETER;
     return;
   }
+
+  // Allocated the buffer we will use for sending data.  This must be a multiple of
+  // four times the basic 512-byte sector size for the SSDs we are using to optimize
+  // sending to four RAID SSDs.
+  size_t blockSize = 512 * 4;
+  size_t numBlocks = (maxSendSize + blockSize - 1) / blockSize;
+  m_buffer.resize(numBlocks * blockSize);
 }
 
 SenderFile::~SenderFile()
 {
   if (m_file != -1) {
+    if (m_filled != 0) {
+      // Flush any remaining data to the file after padding with zeroes.
+      memset(m_buffer.data() + m_filled, 0, m_buffer.size() - m_filled);
+      int ret = write(m_file, reinterpret_cast<const char*>(m_buffer.data()), m_buffer.size());
+      if (ret != m_buffer.size()) {
+        m_constructorStatus = FILE_FAILURE;
+      }
+    }
     close(m_file);
   }
 }
@@ -4244,12 +4260,25 @@ Status SenderFile::Send(const void* buffer, uint32_t length)
     return m_constructorStatus;
   }
 
-  // Send the data.
-  int ret = write(m_file, reinterpret_cast<const char*>(buffer), length);
-  if (ret != length) {
-    close(m_file);
-    m_file = -1;
-    return FILE_FAILURE;
+  // Write the data to the buffer.  If it fills up, write it to the file.
+  // If it doesn't fill up, just remember how much we've written so far.
+  // If it is larger than the buffer, write in chunks.
+  const uint8_t* data = reinterpret_cast<const uint8_t*>(buffer);
+  while (length > 0) {
+    uint32_t toWrite = std::min(length, static_cast<uint32_t>(m_buffer.size() - m_filled));
+    memcpy(m_buffer.data() + m_filled, data, toWrite);
+    m_filled += toWrite;
+    data += toWrite;
+    length -= toWrite;
+    if (m_filled == m_buffer.size()) {
+      int ret = write(m_file, reinterpret_cast<const char*>(m_buffer.data()), m_buffer.size());
+      if (ret != m_buffer.size()) {
+        close(m_file);
+        m_file = -1;
+        return FILE_FAILURE;
+      }
+      m_filled = 0;
+    }
   }
 
   // Everything worked.
@@ -4567,6 +4596,12 @@ std::string ReceiverUDP::Test()
     return "Error receiving CommandPacketReset: wrong type";
   }
 
+  // There should not be another packet.
+  status = receiver.ReceiveCommandPacket(0.5, receiveCommandPacket);
+  if (status == OKAY) {
+    return "Unexpected success receiving CommandPacketReset: " + ErrorMessage(status);
+  }
+
   // Try sending and receiving a StreamPacket.
   StreamPacket sendStreamPacket;
   status = sendStreamPacket.GetConstructorStatus();
@@ -4678,6 +4713,17 @@ Status ReceiverFile::ReceiveCommandPacket(double timeout_seconds, std::shared_pt
     return READ_PAST_END;
   }
 
+  // If the length of the packet is zero, then we've read past the end of the data in the file
+  // and we're reading zero padding.  In this case, we gobble up the rest of the file and return
+  // a timeout as will happen when there is no packet available.
+  if (length == 0) {
+    std::vector<uint8_t> padding(m_maxLen);
+    while (m_file->read(reinterpret_cast<char*>(padding.data()), m_maxLen)) {
+      // Do nothing.
+    }
+    return TIMEOUT;
+  }
+
   // Read the rest of the packet.
   m_file->read(reinterpret_cast<char*>(buffer->data()) + PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t),
     length - PACKET_HEADER_TOTAL_SIZE_OFFSET - sizeof(uint32_t));
@@ -4748,7 +4794,7 @@ std::string ReceiverFile::Test()
   // Send a packet.
   std::vector<uint8_t> sendBuffer(1000, 0);
   {
-    SenderFile sender("deleteme.bin");
+    SenderFile sender("deleteme.bin", 9000);
     if (sender.GetConstructorStatus() != OKAY) {
       return "Error constructing SenderFile: " + ErrorMessage(sender.GetConstructorStatus());
     }
@@ -4772,12 +4818,14 @@ std::string ReceiverFile::Test()
     if (!available) {
       return "Error checking for packet: no packet available";
     }
-    std::vector<uint8_t> receiveBuffer(2000, 0);
+    // Try to read a buffer that is much larger than the block size written to the file.
+    size_t writeSize = 2000000;
+    std::vector<uint8_t> receiveBuffer(writeSize, 0);
     status = receiver.ReceiveBuffer(receiveBuffer);
     if (status != OKAY) {
       return "Error receiving packet: " + ErrorMessage(status);
     }
-    if (receiveBuffer.size() != sendBuffer.size()) {
+    if (receiveBuffer.size() == writeSize) {
       return "Error receiving packet: buffer was not resized";
     }
   }
@@ -4787,7 +4835,7 @@ std::string ReceiverFile::Test()
 
   // Try sending and receiving a CommandPacket.
   {
-    SenderFile sender("deleteme.bin");
+    SenderFile sender("deleteme.bin", 9000);
     if (sender.GetConstructorStatus() != OKAY) {
       return "Error constructing SenderFile for CommandPacket: " + ErrorMessage(sender.GetConstructorStatus());
     }
@@ -4825,12 +4873,18 @@ std::string ReceiverFile::Test()
     if (opCode != RESET) {
       return "Error receiving CommandPacketReset: wrong type";
     }
+
+    // There should not be another packet, even though there is zero padding at the end of the file.
+    status = receiver.ReceiveCommandPacket(0.5, receiveCommandPacket);
+    if (status == OKAY) {
+      return "Unexpected success receiving second CommandPacketReset.";
+    }
   }
   remove("deleteme.bin");
 
   // Try sending and receiving a StreamPacket.
   {
-    SenderFile sender("deleteme.bin");
+    SenderFile sender("deleteme.bin", 9000);
     if (sender.GetConstructorStatus() != OKAY) {
       return "Error constructing SenderFile: " + ErrorMessage(sender.GetConstructorStatus());
     }
@@ -4859,6 +4913,67 @@ std::string ReceiverFile::Test()
     }
     if (receiveStreamPacket == nullptr) {
       return "Empty StreamPacket packet";
+    }
+  }
+  remove("deleteme.bin");
+
+  // Try sending and receiving many large StreamPackets to be sure that they are
+  // proprly grouped into block writes.
+  {
+    SenderFile sender("deleteme.bin", 9000);
+    if (sender.GetConstructorStatus() != OKAY) {
+      return "Error constructing (many) SenderFile: " + ErrorMessage(sender.GetConstructorStatus());
+    }
+
+    StreamPacket sendStreamPacket;
+    status = sendStreamPacket.GetConstructorStatus();
+    if (status != OKAY) {
+      return "Error constructing (many) StreamPacket: " + ErrorMessage(status);
+    }
+    Time timeCode = { 1234, 5678 };
+    uint32_t cameraID = 0;
+    uint16_t left = 0, top = 0, right = 1279, bottom = 2;
+    std::vector<uint8_t> data(sizeof(uint16_t) * (right - left + 1) * (bottom - top + 1), 0);
+    MessageFrameData message(sendStreamPacket, timeCode, cameraID, left, top, right, bottom,
+      data.data(), right - left + 1);
+    if (message.GetConstructorStatus() != OKAY) {
+      return "Error constructing (many) MessageFrameData: " + ErrorMessage(message.GetConstructorStatus());
+    }
+    for (int i = 0; i < 100; ++i) {
+      status = sender.SendStreamPacket(sendStreamPacket);
+      if (status != OKAY) {
+        return "Error sending (many) StreamPacket: " + ErrorMessage(status);
+      }
+    }
+  }
+
+  {
+    ReceiverFile receiver("deleteme.bin");
+    if (receiver.GetConstructorStatus() != OKAY) {
+      return "Error constructing (many) ReceiverFile: " + ErrorMessage(receiver.GetConstructorStatus());
+    }
+
+    std::shared_ptr<StreamPacket> receiveStreamPacket;
+    for (int i = 0; i < 100; ++i) {
+      status = receiver.ReceiveStreamPacket(0.5, receiveStreamPacket);
+      if (status != OKAY) {
+        return "Error receiving (many) StreamPacket: " + ErrorMessage(status);
+      }
+      if (receiveStreamPacket == nullptr) {
+        return "Empty StreamPacket (many) packet";
+      }
+      std::shared_ptr<Message> message = nullptr;
+      status = receiveStreamPacket->GetNextMessage(message);
+      if (status != OKAY) {
+        return "Error receiving (many) FrameData: " + ErrorMessage(status);
+      }
+      if (message == nullptr) {
+        return "Error received empty (many) FrameData";
+      }
+      MessageFrameData frameData(*message);
+      if (frameData.GetConstructorStatus() != OKAY) {
+        return "Error constructing (many) FrameData: " + ErrorMessage(frameData.GetConstructorStatus());
+      }
     }
   }
   remove("deleteme.bin");
