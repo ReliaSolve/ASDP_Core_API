@@ -16,9 +16,9 @@ static void sendDataThread(std::vector<SenderUDP> sendSockets, std::atomic<bool>
   std::mutex &printMutex, std::vector<std::string> fileNames)
 {
   // Get a vector of data to send
-  std::vector< std::vector<uint8_t> > imageDatas;
+  std::vector< std::shared_ptr< std::vector<uint8_t> > > imageDatas;
   for (size_t i = 0; i < sendSockets.size(); ++i) {
-    std::vector<uint8_t> imageData(bytesPerPacket);
+    auto imageData = std::make_shared< std::vector<uint8_t> >(bytesPerPacket);
     imageDatas.push_back(imageData);
   }
 
@@ -69,19 +69,18 @@ static void sendDataThread(std::vector<SenderUDP> sendSockets, std::atomic<bool>
       auto& imageData = imageDatas[i];
       auto& receiver = receivers[i];
       if (receiver) {
-        Status status = receiver->ReceiveBuffer(imageData);
+        Status status = receiver->ReceiveBuffer(*imageData);
         if (status != OKAY) {
           std::cerr << "Error receiving data: " << ErrorMessage(status) << std::endl;
           return;
         }
       } else {
         // Fill the first entry in the image data with the packet number mod 256
-        imageData[0] = (packetNum) % 256;
+        (*imageData)[0] = (packetNum) % 256;
       }
 
-      uint8_t* data = imageData.data();
       auto& sendSocket = sendSockets[i];
-      Status status = sendSocket.Send(data, bytesPerPacket);
+      Status status = sendSocket.Send(imageData);
       if (status != OKAY) {
         std::cerr << "Error sending data: " << ErrorMessage(status) << std::endl;
         return;

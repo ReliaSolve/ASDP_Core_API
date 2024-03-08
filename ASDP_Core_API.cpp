@@ -10,6 +10,8 @@
 #include <fcntl.h>
 #ifdef _WIN32
 #include <io.h>
+#else
+#include <sys/uio.h>
 #endif
 
 // Must be defined outside of the namespace.
@@ -4138,7 +4140,7 @@ SenderUDP::SenderUDP(const StreamEndpoint& endpoint, bool broadcast, std::string
   m_socket->addr.sin_port = htons(endpoint.port);
 }
 
-Status SenderUDP::Send(const void* buffer, uint32_t length)
+Status SenderUDP::Send(std::shared_ptr< std::vector<uint8_t> > buffer)
 {
   // Check our parameters
   if (buffer == nullptr) {
@@ -4151,7 +4153,7 @@ Status SenderUDP::Send(const void* buffer, uint32_t length)
   }
 
   // Send the data.
-  int result = sendto(m_socket->socket, (const char*)buffer, length, 0,
+  int result = sendto(m_socket->socket, (const char*)buffer->data(), buffer->size(), 0,
     (const sockaddr *)&(m_socket->addr), sizeof(m_socket->addr));
   if (result == SOCKET_ERROR) {
     return SOCKET_FAILURE;
@@ -4180,7 +4182,7 @@ Status SenderUDP::SendCommandPacket(const CommandPacket& packet)
   return OKAY;
 }
 
-Status SenderUDP::SendStreamPacket(const StreamPacket& packet)
+Status SenderUDP::SendStreamPacket(StreamPacket& packet)
 {
   // Make sure we have a valid socket.
   if ((m_socket == nullptr) || (m_socket->socket == BAD_SOCKET)) {
@@ -4207,7 +4209,9 @@ Status SenderUDP::SendStreamPacket(const StreamPacket& packet)
 
 SenderFile::SenderFile(std::string fileName, size_t maxSendSize)
   : m_file(-1)
-  , m_filled(0)
+  , m_sendSize(0)
+  , m_sent(0)
+  , m_buffered(0)
 {
   // Open the file using the low-level open() call so that we can request direct I/O
   // on Linux, which bypasses the system buffers and makes writes faster for sequential
@@ -4225,30 +4229,80 @@ SenderFile::SenderFile(std::string fileName, size_t maxSendSize)
     return;
   }
 
-  // Allocated the buffer we will use for sending data.  This must be a multiple of
+  // Record the amount of data to accumulate before sending.  This must be a multiple of
   // four times the basic 512-byte sector size for the SSDs we are using to optimize
   // sending to four RAID SSDs.
   size_t blockSize = 512 * 4;
   size_t numBlocks = (maxSendSize + blockSize - 1) / blockSize;
-  m_buffer.resize(numBlocks * blockSize);
+  m_sendSize = numBlocks * blockSize;
 }
 
 SenderFile::~SenderFile()
 {
   if (m_file != -1) {
-    if (m_filled != 0) {
+    // We we have any data left in the buffers, flush it to the file after padding.
+    if (m_buffered > 0) {
       // Flush any remaining data to the file after padding with zeroes.
-      memset(m_buffer.data() + m_filled, 0, m_buffer.size() - m_filled);
-      int ret = write(m_file, reinterpret_cast<const char*>(m_buffer.data()), m_buffer.size());
-      if (ret != m_buffer.size()) {
-        m_constructorStatus = FILE_FAILURE;
-      }
+      auto pad = std::make_shared< std::vector<uint8_t> >(m_sendSize - m_buffered, 0);
+      m_buffers.push_back(pad);
+      m_constructorStatus = GatherWrite();
     }
     close(m_file);
   }
 }
 
-Status SenderFile::Send(const void* buffer, uint32_t length)
+Status SenderFile::GatherWrite()
+{
+  Status ret = OKAY;
+
+  // On Windows, we've already written the data in Send(), so we don't need to do anything here.
+#ifndef _WIN32
+  // If we have enough data to send, send it.
+  if (m_buffered >= m_sendSize) {
+    // Push all of the available buffers into a vector of iovec structures.
+    std::vector<struct iovec> iov(m_buffers.size());
+    auto it = m_buffers.begin();
+    for (size_t i = 0; i < iov.size(); ++i, ++it) {
+      iov[i].iov_base = (*it)->data();
+      iov[i].iov_len = (*it)->size();
+    }
+
+    // Adjust the first entry to account for the amount of data we have already sent.
+    iov[0].iov_base = (uint8_t*)iov[0].iov_base + m_sent;
+    iov[0].iov_len -= m_sent;
+
+    // Adjust the final entry to ensure that we send the correct amount of data.
+    size_t extra = m_buffered - m_sendSize;
+    iov.back().iov_len -= extra;
+
+    // Write the data to the file.
+    int ret = writev(m_file, iov.data(), iov.size());
+    if (ret != m_sendSize) {
+      m_buffers.clear();
+      m_buffered = 0;
+      m_sent = 0;
+      return FILE_FAILURE;
+    }
+
+    // Remove the buffers we've sent from the list.  We keep the last one if
+    // we have data left to send.
+    size_t desired = 0;
+    m_sent = 0;
+    if (extra > 0) {
+      desired = 1;
+      m_sent = m_buffers.back()->size() - extra;
+    }
+    while (m_buffers.size() > desired) {
+      m_buffers.pop_front();
+    }
+    m_buffered = extra;
+  }
+#endif
+
+  return ret;
+}
+
+Status SenderFile::Send(std::shared_ptr< std::vector<uint8_t> > buffer)
 {
   // Check our parameters
   if (buffer == nullptr) {
@@ -4260,26 +4314,17 @@ Status SenderFile::Send(const void* buffer, uint32_t length)
     return m_constructorStatus;
   }
 
-  // Write the data to the buffer.  If it fills up, write it to the file.
-  // If it doesn't fill up, just remember how much we've written so far.
-  // If it is larger than the buffer, write in chunks.
-  const uint8_t* data = reinterpret_cast<const uint8_t*>(buffer);
-  while (length > 0) {
-    uint32_t toWrite = std::min(length, static_cast<uint32_t>(m_buffer.size() - m_filled));
-    memcpy(m_buffer.data() + m_filled, data, toWrite);
-    m_filled += toWrite;
-    data += toWrite;
-    length -= toWrite;
-    if (m_filled == m_buffer.size()) {
-      int ret = write(m_file, reinterpret_cast<const char*>(m_buffer.data()), m_buffer.size());
-      if (ret != m_buffer.size()) {
-        close(m_file);
-        m_file = -1;
-        return FILE_FAILURE;
-      }
-      m_filled = 0;
-    }
+#ifdef _WIN32
+  int ret = write(m_file, buffer->data(), buffer->size());
+  if (ret != buffer->size()) {
+    return FILE_FAILURE;
   }
+#else
+  // Add the buffer to the list of buffers to send, then see if it is time to send.
+  m_buffers.push_back(buffer);
+  m_buffered += buffer->size();
+  return GatherWrite();
+#endif
 
   // Everything worked.
   return OKAY;
@@ -4292,25 +4337,27 @@ Status SenderFile::SendCommandPacket(const CommandPacket& packet)
     return m_constructorStatus;
   }
 
-  return Send(packet.m_buffer->data(), packet.m_buffer->size());
+  return Send(packet.m_buffer);
 }
 
-Status SenderFile::SendStreamPacket(const StreamPacket& packet)
+Status SenderFile::SendStreamPacket(StreamPacket& packet)
 {
   // Make sure we have a valid file.
   if (m_file == -1) {
     return m_constructorStatus;
   }
 
-  // Find out how large the data in the packet is.
+  // Find out how large the data in the packet is and then resize it
+  // to that length so that we're not trying to send extra data.
   uint32_t length;
   Status status = packet.GetTotalLength(length);
   if (status != OKAY) {
     return status;
   }
+  packet.m_buffer->resize(length);
 
   // Send the data.
-  return Send(packet.m_buffer->data(), length);
+  return Send(packet.m_buffer);
 }
 
 ReceiverUDP::ReceiverUDP(std::string host, uint16_t port, uint32_t maxLen, bool broadcast)
@@ -4527,8 +4574,8 @@ std::string ReceiverUDP::Test()
   }
 
   // Send a packet.
-  std::vector<uint8_t> sendBuffer(1000, 0);
-  status = sender.Send(sendBuffer.data(), sendBuffer.size());
+  std::shared_ptr< std::vector<uint8_t> > sendBuffer = std::make_shared< std::vector<uint8_t> >(1000, 0);
+  status = sender.Send(sendBuffer);
   if (status != OKAY) {
     return "Error sending packet: " + ErrorMessage(status);
   }
@@ -4547,12 +4594,12 @@ std::string ReceiverUDP::Test()
   if (status != OKAY) {
     return "Error receiving packet: " + ErrorMessage(status);
   }
-  if (receiveBuffer.size() != sendBuffer.size()) {
+  if (receiveBuffer.size() != sendBuffer->size()) {
     return "Error receiving packet: buffer was not resized";
   }
 
   // Try sending and receiving into a buffer that is too small, which should fail.
-  status = sender.Send(sendBuffer.data(), sendBuffer.size());
+  status = sender.Send(sendBuffer);
   if (status != OKAY) {
     return "Error sending second packet: " + ErrorMessage(status);
   }
@@ -4792,13 +4839,13 @@ std::string ReceiverFile::Test()
   Status status;
 
   // Send a packet.
-  std::vector<uint8_t> sendBuffer(1000, 0);
+  std::shared_ptr< std::vector<uint8_t> > sendBuffer = std::make_shared< std::vector<uint8_t> >(1000, 0);
   {
     SenderFile sender("deleteme.bin", 9000);
     if (sender.GetConstructorStatus() != OKAY) {
       return "Error constructing SenderFile: " + ErrorMessage(sender.GetConstructorStatus());
     }
-    status = sender.Send(sendBuffer.data(), sendBuffer.size());
+    status = sender.Send(sendBuffer);
     if (status != OKAY) {
       return "Error sending packet: " + ErrorMessage(status);
     }
@@ -5079,7 +5126,7 @@ Status SenderReceiverTCP::GetPort(uint16_t& port) const
   return OKAY;
 }
 
-Status SenderReceiverTCP::Send(const void* buffer, uint32_t length)
+Status SenderReceiverTCP::Send(std::shared_ptr< std::vector<uint8_t> > buffer)
 {
   // Check our parameters
   if (buffer == nullptr) {
@@ -5092,7 +5139,7 @@ Status SenderReceiverTCP::Send(const void* buffer, uint32_t length)
   }
 
   // Send the data.
-  int result = send(m_socket->socket, (const char*)buffer, length, 0);
+  int result = send(m_socket->socket, (const char*)buffer->data(), buffer->size(), 0);
   if (result == SOCKET_ERROR) {
     return SOCKET_FAILURE;
   }
@@ -5118,7 +5165,7 @@ Status SenderReceiverTCP::SendCommandPacket(const CommandPacket& packet)
   return OKAY;
 }
 
-Status SenderReceiverTCP::SendStreamPacket(const StreamPacket& packet)
+Status SenderReceiverTCP::SendStreamPacket(StreamPacket& packet)
 {
   // Make sure we have a valid socket.
   if ((m_socket == nullptr) || (m_socket->socket == BAD_SOCKET)) {
@@ -5451,11 +5498,15 @@ std::string TCPListener::Test()
   // Send a buffer that includes the version and type and verify that it
   // is received.  This tests buffer send/receive, and is what will be done
   // by clients and servers at the start of the stream.
-  status = newConnection->Send(MAGIC_COOKIE, 4);
+  std::shared_ptr< std::vector<uint8_t> > cookie = std::make_shared< std::vector<uint8_t> >(4, 0);
+  memcpy(cookie->data(), MAGIC_COOKIE, 4);
+  status = newConnection->Send(cookie);
   if (status != OKAY) {
     return "Error sending magic cookie: " + ErrorMessage(status);
   }
-  status = newConnection->Send(VERSION, 4);
+  std::shared_ptr< std::vector<uint8_t> > version = std::make_shared< std::vector<uint8_t> >(4, 0);
+  memcpy(version->data(), VERSION, 4);
+  status = newConnection->Send(version);
   if (status != OKAY) {
     return "Error sending version: " + ErrorMessage(status);
   }
@@ -5877,11 +5928,15 @@ void CoreServer::DiscoveryThread()
 
       // Send the magic cookie and version to the client and wait for them
       // to do the same.
-      status = newConnection->Send(MAGIC_COOKIE, 4);
+      std::shared_ptr< std::vector<uint8_t> > cookie = std::make_shared< std::vector<uint8_t> >(4, 0);
+      memcpy(cookie->data(), MAGIC_COOKIE, 4);
+      status = newConnection->Send(cookie);
       if (status != OKAY) {
         newConnection.reset();
       } else {
-        status = newConnection->Send(VERSION, 4);
+        std::shared_ptr< std::vector<uint8_t> > version = std::make_shared< std::vector<uint8_t> >(4, 0);
+        memcpy(version->data(), VERSION, 4);
+        status = newConnection->Send(version);
         if (status != OKAY) {
           newConnection.reset();
         } else {
@@ -6160,12 +6215,16 @@ Status CoreClient::ConnectToServer(std::string serverURL, uint16_t& major, uint1
   }
 
   // Send the magic cookie and version to the server and wait for it to do the same.
-  status = m_stream->Send(MAGIC_COOKIE, 4);
+  std::shared_ptr< std::vector<uint8_t> > cookie = std::make_shared< std::vector<uint8_t> >(4, 0);
+  memcpy(cookie->data(), MAGIC_COOKIE, 4);
+  status = m_stream->Send(cookie);
   if (status != OKAY) {
     m_stream.reset();
     return status;
   }
-  status = m_stream->Send(VERSION, 4);
+  std::shared_ptr< std::vector<uint8_t> > version = std::make_shared< std::vector<uint8_t> >(4, 0);
+  memcpy(cookie->data(), VERSION, 4);
+  status = m_stream->Send(version);
   if (status != OKAY) {
     m_stream.reset();
     return status;

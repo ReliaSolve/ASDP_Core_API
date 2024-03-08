@@ -1565,10 +1565,9 @@ public:
   virtual ~Sender() {};
 
   /// @brief Send a packet from a buffer in memory.
-  /// @param [in] buffer Pointer to the buffer containing the packet to send.
-  /// @param [in] length Length of the packet to send.
+  /// @param [in] buffer Buffer containing the data to send.
   /// @return OKAY if successful, otherwise an error code.
-  virtual Status Send(const void* buffer, uint32_t length) = 0;
+  virtual Status Send(std::shared_ptr< std::vector<uint8_t> > buffer) = 0;
 
   /// @brief Send a CommandPacket.
   /// @param [in] packet CommandPacket to send.
@@ -1578,7 +1577,7 @@ public:
   /// @brief Send a StreamPacket.
   /// @param [in] packet StreamPacket to send.
   /// @return OKAY if successful, otherwise an error code.
-  virtual Status SendStreamPacket(const StreamPacket& packet) = 0;
+  virtual Status SendStreamPacket(StreamPacket& packet) = 0;
 
   /// @brief Return the status of the constructor.
   virtual Status GetConstructorStatus() const { return m_constructorStatus; }
@@ -1607,9 +1606,8 @@ public:
 
   /// @brief Send a buffer full of data.
   /// @param [in] buffer Pointer to the buffer containing the packet to send.
-  /// @param [in] length Length of the packet to send.
   /// @return OKAY if successful, otherwise an error code.
-  Status Send(const void* buffer, uint32_t length) override;
+  Status Send(std::shared_ptr< std::vector<uint8_t> > buffer) override;
 
   /// @brief Send a CommandPacket.
   /// @param [in] packet CommandPacket to send.
@@ -1619,7 +1617,7 @@ public:
   /// @brief Send a StreamPacket.
   /// @param [in] packet StreamPacket to send.
   /// @return OKAY if successful, otherwise an error code.
-  Status SendStreamPacket(const StreamPacket& packet) override;
+  Status SendStreamPacket(StreamPacket& packet) override;
 
 protected:
   std::shared_ptr<Socket> m_socket; ///< Pointer to the socket object to use to do our work.
@@ -1647,9 +1645,8 @@ public:
 
   /// @brief Send a buffer full of data.
   /// @param [in] buffer Pointer to the buffer containing the packet to send.
-  /// @param [in] length Length of the packet to send.
   /// @return OKAY if successful, otherwise an error code.
-  Status Send(const void* buffer, uint32_t length) override;
+  Status Send(std::shared_ptr< std::vector<uint8_t> > buffer) override;
 
   /// @brief Send a CommandPacket.
   /// @param [in] packet CommandPacket to send.
@@ -1659,12 +1656,32 @@ public:
   /// @brief Send a StreamPacket.
   /// @param [in] packet StreamPacket to send.
   /// @return OKAY if successful, otherwise an error code.
-  Status SendStreamPacket(const StreamPacket& packet) override;
+  Status SendStreamPacket(StreamPacket& packet) override;
 
 protected:
   int m_file;                     ///< File object to write to.
-  std::vector<uint8_t> m_buffer;  ///< Block-sized buffer to use for sending.
-  size_t m_filled;                ///< Number of bytes filled in the buffer.
+
+  //===========================================================================
+  // The following are used to optimize the file writes on Linux and are not used on Windows.
+
+  size_t m_sendSize;              ///< Write when we have this many bytes ready to go.
+  /// Buffers holding the data waiting to to write to the file.
+  /// They are cleared by GatherWrite() when the data is written to the file,
+  /// with perhaps the last one remaining partially written in the list.
+  std::list< std::shared_ptr< std::vector<uint8_t> > > m_buffers;
+  size_t m_sent;                ///< Number of bytes already sent from the first buffer.
+  size_t m_buffered;            ///< Total number of bytes stored in the buffers still to send.
+
+  /// @brief Write the data in the buffers to the file.
+  /// 
+  /// This function writes as many full blocks of data to the file as are stored in
+  /// the buffers.  It then removes the data from the buffers that was written.
+  /// It retains any partial block of data at the end of the last buffer, which
+  /// becomes the only remaining buffer.  This function must be called in every
+  /// Send() call to ensure we don't get more than one remainder buffer.
+  /// @return OKAY if successful, otherwise an error code.  If there is not enough data,
+  /// it still returns OKAY.
+  Status GatherWrite();
 };
 
 //---------------------------------------------------------------------------
@@ -1866,9 +1883,8 @@ public:
 
   /// @brief Send a buffer full of data.
   /// @param [in] buffer Pointer to the buffer containing the packet to send.
-  /// @param [in] length Length of the packet to send.
   /// @return OKAY if successful, otherwise an error code.
-  Status Send(const void* buffer, uint32_t length) override;
+  Status Send(std::shared_ptr< std::vector<uint8_t> > buffer) override;
 
   /// @brief Send a CommandPacket.
   /// @param [in] packet CommandPacket to send.
@@ -1878,7 +1894,7 @@ public:
   /// @brief Send a StreamPacket.
   /// @param [in] packet StreamPacket to send.
   /// @return OKAY if successful, otherwise an error code.
-  Status SendStreamPacket(const StreamPacket& packet) override;
+  Status SendStreamPacket(StreamPacket& packet) override;
 
   /// @brief Get the local IP address associated with this sender.
   /// @param [out] IP local IP address associated with this sender in host byte order.

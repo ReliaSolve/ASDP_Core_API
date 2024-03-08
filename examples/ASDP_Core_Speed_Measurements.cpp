@@ -27,7 +27,6 @@ std::atomic<int> totalPacketsReceived(0);
 std::atomic<bool> beginSending(false);
 
 void sendDataThread(std::vector<SenderUDP> sendSockets) {
-  std::vector<uint8_t> imageData(bytesPerPacket);
 
   // Wait for the trigger signal and then go
   while (!beginSending) {}
@@ -35,13 +34,14 @@ void sendDataThread(std::vector<SenderUDP> sendSockets) {
     for (int packetNum = 0; packetNum < packetsPerIteration; ++packetNum) {
       // Prepare image data (replace this with your image data source)
       // For simplicity, we use a placeholder array here
-      uint8_t* data = imageData.data();
+      std::shared_ptr< std::vector<uint8_t> > imageData =
+        std::make_shared< std::vector<uint8_t> >(bytesPerPacket);
       // Fill imageData with actual image data
-      imageData[0] = (packetNum + iteration * packetsPerIteration) % 128;
+      (*imageData)[0] = (packetNum + iteration * packetsPerIteration) % 128;
 
       // Send the data
       for (unsigned i = 0; i < sendSockets.size(); i++) {
-        Status status = sendSockets[i].Send(data, bytesPerPacket);
+        Status status = sendSockets[i].Send(imageData);
         if (status != OKAY) {
           std::cerr << "Error sending data: " << ErrorMessage(status) << std::endl;
           return;

@@ -19,7 +19,7 @@ template <typename T> class SpinFreeQueue {
 private:
   struct Node {
     T data;
-    Node* next;
+    Node* next = nullptr;
   };
 
   Node* head;
@@ -109,7 +109,7 @@ static void saveDataThread(std::atomic<bool>& done,
   std::shared_ptr< std::vector<uint8_t> > data;
   while (!done) {
     if (queue.dequeue(data, std::chrono::milliseconds(100))) {
-      sender->Send(data->data(), data->size());
+      sender->Send(data);
     }
   }
 }
