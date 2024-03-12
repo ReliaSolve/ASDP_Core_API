@@ -4542,8 +4542,8 @@ Status ReceiverUDP::ReceiveBuffer(uint8_t* buffer, size_t& size)
   memset(&msg, 0, sizeof(msg));
   msg.msg_name = nullptr;
   msg.msg_namelen = 0;
-  iov[0].iov_base = buffer.data();
-  iov[0].iov_len = buffer.size();
+  iov[0].iov_base = buffer;
+  iov[0].iov_len = size;
   msg.msg_iov = iov;
   msg.msg_iovlen = 1;
 
