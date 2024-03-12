@@ -4717,6 +4717,35 @@ std::string ReceiverUDP::Test()
       std::to_string(offset);
   }
 
+  // Set the sequence number on the offset packet, then re-send it and receive it again.
+  uint32_t sequenceNumber = 1234;
+  status = receiveStreamPacket->SetSequenceNumber(sequenceNumber);
+  if (status != OKAY) {
+    return "Error setting sequence number on StreamPacket: " + ErrorMessage(status);
+  }
+  status = sender.SendStreamPacket(*receiveStreamPacket);
+  if (status != OKAY) {
+    return "Error re-sending StreamPacket: " + ErrorMessage(status);
+  }
+  status = receiver.ReceiveStreamPacket(0.5, receiveStreamPacket, offset, buffer);
+  if (status != OKAY) {
+    return "Error re-receiving StreamPacket: " + ErrorMessage(status);
+  }
+  if (offset != 5000 + 4 * sizeof(uint32_t)) {
+    return "Error re-receiving StreamPacket: offset is not as expected: " + std::to_string(offset);
+  }
+  if (receiveStreamPacket == nullptr) {
+    return "Empty StreamPacket packet";
+  }
+  uint32_t rSequenceNumber;
+  status = receiveStreamPacket->GetSequenceNumber(rSequenceNumber);
+  if (status != OKAY) {
+    return "Error getting sequence number from StreamPacket: " + ErrorMessage(status);
+  }
+  if (rSequenceNumber != sequenceNumber) {
+    return "Error getting sequence number from StreamPacket: " + std::to_string(rSequenceNumber);
+  }
+
   return "";
 }
 
