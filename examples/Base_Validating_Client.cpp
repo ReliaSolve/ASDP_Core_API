@@ -20,7 +20,8 @@ std::string WaitForEventType(std::shared_ptr<Receiver> receiver, EventID type, f
   std::chrono::high_resolution_clock::time_point start = std::chrono::high_resolution_clock::now();
   do {
     std::shared_ptr<StreamPacket> response;
-    Status status = receiver->ReceiveStreamPacket(0, response);
+    size_t offset = 0;
+    Status status = receiver->ReceiveStreamPacket(0, response, offset);
     if ((status != OKAY) && (status != TIMEOUT)) {
       return "Failed to receive stream packet: " + ErrorMessage(status);
     }
@@ -68,7 +69,8 @@ std::shared_ptr<Message> WaitForMessageType(std::shared_ptr<Receiver> receiver, 
   std::chrono::high_resolution_clock::time_point start = std::chrono::high_resolution_clock::now();
   do {
     std::shared_ptr<StreamPacket> response;
-    Status status = receiver->ReceiveStreamPacket(0, response);
+    size_t offset = 0;
+    Status status = receiver->ReceiveStreamPacket(0, response, offset);
     if ((status != OKAY) && (status != TIMEOUT)) {
       return empty;
     }

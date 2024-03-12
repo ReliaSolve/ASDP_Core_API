@@ -69,7 +69,9 @@ static void sendDataThread(std::vector<SenderUDP> sendSockets, std::atomic<bool>
       auto& imageData = imageDatas[i];
       auto& receiver = receivers[i];
       if (receiver) {
-        Status status = receiver->ReceiveBuffer(imageData);
+        size_t size = imageData.size();
+        Status status = receiver->ReceiveBuffer(imageData.data(), size);
+        imageData.resize(size);
         if (status != OKAY) {
           std::cerr << "Error receiving data: " << ErrorMessage(status) << std::endl;
           return;

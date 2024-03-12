@@ -121,7 +121,8 @@ int main(int argc, char** argv)
 
     // If we receive a message, print it.
     std::shared_ptr<StreamPacket> response;
-    status = receiver->ReceiveStreamPacket(0.01, response);
+    size_t offset = 0;
+    status = receiver->ReceiveStreamPacket(0.01, response, offset);
     while (status == OKAY) {
       std::shared_ptr<Message> message;
       status = response->GetNextMessage(message);
@@ -136,7 +137,8 @@ int main(int argc, char** argv)
         return 13;
       }
       std::cout<< "   Received message type: " << type << std::endl;
-      status = receiver->ReceiveStreamPacket(0, response);
+      size_t offset = 0;
+      status = receiver->ReceiveStreamPacket(0, response, offset);
     }
     if (status != TIMEOUT) {
       std::cerr << "Failed to receive stream packet: " << ErrorMessage(status) << std::endl;

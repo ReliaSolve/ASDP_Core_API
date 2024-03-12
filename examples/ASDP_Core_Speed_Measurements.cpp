@@ -70,7 +70,9 @@ void receiveDataThread(ReceiverUDP socket) {
     if (!dataAvailable) {
       continue;
     }
-    status = socket.ReceiveBuffer(buffer);
+    size_t size = buffer.size();
+    status = socket.ReceiveBuffer(buffer.data(), size);
+    buffer.resize(size);
     if (status != OKAY) {
       std::cerr << "Error receiving data: " << ErrorMessage(status) << std::endl;
       totalPacketsReceived += packetsReceived;

@@ -437,14 +437,26 @@ protected:
   /// @param [in] existingBuffer Pointer to the buffer containing the packet information.
   /// This adds a reference count to the buffer to ensure that it is not deleted out from
   /// under us.
-  BasicPacket(std::shared_ptr<std::vector<uint8_t>> existingBuffer);
+  /// @param [in] offset Offset into the buffer to start at.  This supports having multiple
+  /// packets in the same buffer
+  BasicPacket(std::shared_ptr<std::vector<uint8_t>> existingBuffer, size_t offset = 0);
 
   /// @brief Increase total length of the packet (used by Messages when inserting themselves).
   /// @param [in] addedSize Additional size.
   /// @return OKAY if successful, otherwise an error code.
   Status IncreaseTotalLength(uint32_t addedSize);
 
+  /// @brief Get the remaining free space in our buffer.
+  size_t MyRemainingSize() const { return m_buffer->size() - m_offset; }
+
+  /// @brief Get the remaining allocated space in our buffer.
+  size_t MyRemainingCapacity() const { return m_buffer->capacity() - m_offset; }
+
+  /// @brief Get the buffer containing the packet data at the appropriate offset.
+  std::uint8_t *MyData() const { return m_buffer->data() + m_offset; }
+
   std::shared_ptr<std::vector<uint8_t>> m_buffer;  ///< Buffer containing the packet.
+  size_t m_offset;                                 ///< Offset into the buffer to start at.
   Status m_constructorStatus;                      ///< Status of the constructor.
 
   friend class CommandPacket;
@@ -459,6 +471,8 @@ protected:
 /// These packets are sent using the Sender class and received using the Receiver class.
 /// They are created on a client by constructing a subclass.  They are parsed on a server from a
 /// buffer by checking the operation code and then typecasting to the appropriate subclass.
+///
+/// There can only be one CommandPacket per buffer, so the offset in the BasicPacket is always 0.
 ///
 /// Subclasses are listed below.
 
@@ -1028,7 +1042,9 @@ protected:
   /// @param [in] existingBuffer Pointer to the buffer containing the packet information.
   /// This adds a reference count to the buffer to ensure that it is not deleted out from
   /// under us.
-  StreamPacket(std::shared_ptr<std::vector<uint8_t>> existingBuffer);
+  /// @param [in] offset Offset into the buffer to the start of the packet.  This supports
+  /// having more than one packet in a buffer.
+  StreamPacket(std::shared_ptr<std::vector<uint8_t>> existingBuffer, size_t offset = 0);
 
   friend class SenderUDP;
   friend class SenderFile;
@@ -1683,11 +1699,13 @@ public:
   /// This is not usually called by the calling program, which will call one of the ReceivePacket() functions
   /// for CommandPacket or StreamPacket instead.
   /// Use IsPacketAvailable() to see if a packet is available before calling this function.
-  /// @param [inout] buffer A buffer to fill in with the incoming packet.  It must be large enough
-  /// to receive the entire packet.  If it is too small, the packet will be truncated and BUFFER_TOO_SMALL
-  /// will be returned.
+  /// @param [out] buffer A buffer to fill in with the incoming packet.  It must be large enough
+  /// to receive the size.
+  /// @param [inout] size The size of the buffer to receive.  If the packet is larger than the buffer,
+  /// the packet will be truncated and BUFFER_TOO_SMALL will be returned.  If the size of the packet
+  /// is smaller than the buffer, the size will be set to the size of the packet.
   /// @return OKAY if successful, otherwise an error code.
-  virtual Status ReceiveBuffer(std::vector<uint8_t>& buffer) = 0;
+  virtual Status ReceiveBuffer(uint8_t* buffer, size_t &size) = 0;
 
   /// @brief Allocates a new CommandPacket and fills it in with the received data.
   /// @param [in] timeout_seconds Timeout in seconds to wait for a packet.
@@ -1698,10 +1716,18 @@ public:
   /// @brief Allocates a new StreamPacket and fills it in with the received data.
   /// @param [in] timeout_seconds Timeout in seconds to wait for a packet.
   /// @param [out] packet The received StreamPacket, nullptr if timeout or error.
+  /// @param [inout] offset Offset into the buffer to start writing the packet, if a non-null
+  /// buffer was passed in.  Its initial value is ignored if bufptr is Null.  On successful
+  /// return, it will be filled in with the new offset within the buffer that points one past
+  /// the end of the StreamPacket.
+  /// @param [in] bufptr A buffer to fill in with the incoming packet.  It must be large enough
+  /// (after the offset) to receive the largest-sized packet.  If this is nullptr,
+  /// a new buffer will be allocated and will be resized to fit exactly the one received packet.
   /// @return OKAY if successful, TIMEOUT on timeout, otherwise an error code.
-  virtual Status ReceiveStreamPacket(double timeout_seconds, std::shared_ptr<StreamPacket>& packet) = 0;
+  virtual Status ReceiveStreamPacket(double timeout_seconds, std::shared_ptr<StreamPacket>& packet,
+    size_t& offset, std::shared_ptr< std::vector<uint8_t> > bufptr = nullptr) = 0;
 
-  /// @brief Return the status of the constructor.
+  /// @brief Return the status of the constructor.+
   virtual Status GetConstructorStatus() const { return m_constructorStatus; }
 
 protected:
@@ -1746,11 +1772,14 @@ public:
   /// This is not usually called by the calling program, which will call one of the ReceivePacket() functions
   /// for CommandPacket or StreamPacket instead.
   /// Use IsPacketAvailable() to see if a packet is available before calling this function.
-  /// @param [inout] buffer A buffer to fill in with the incoming packet.  It must be large enough
-  /// to receive the entire packet.  If it is too small, the packet will be truncated and BUFFER_TOO_SMALL
-  /// will be returned.
+  /// @param [out] buffer A buffer to fill in with the incoming packet.  It must be large enough
+  /// to receive the size.
+  /// @param [inout] size The size of the buffer to receive.  If the packet is larger than the buffer,
+  /// the packet will be truncated and BUFFER_TOO_SMALL will be returned.  If the size of the packet
+  /// is smaller than the buffer, the size will be set to the size of the packet.
   /// @return OKAY if successful, otherwise an error code.
-  Status ReceiveBuffer(std::vector<uint8_t>& buffer) override;
+  /// @return OKAY if successful, otherwise an error code.
+  Status ReceiveBuffer(uint8_t* buffer, size_t& size) override;
 
   /// @brief Allocates a new CommandPacket and fills it in with the received data.
   /// @param [in] timeout_seconds Timeout in seconds to wait for a packet.
@@ -1761,8 +1790,16 @@ public:
   /// @brief Allocates a new StreamPacket and fills it in with the received data.
   /// @param [in] timeout_seconds Timeout in seconds to wait for a packet.
   /// @param [out] packet The received StreamPacket, nullptr if timeout or error.
+  /// @param [inout] offset Offset into the buffer to start writing the packet, if a non-null
+  /// buffer was passed in.  Its initial value is ignored if bufptr is Null.  On successful
+  /// return, it will be filled in with the new offset within the buffer that points one past
+  /// the end of the StreamPacket.
+  /// @param [in] bufptr A buffer to fill in with the incoming packet.  It must be large enough
+  /// (after the offset) to receive the largest-sized packet.  If this is nullptr,
+  /// a new buffer will be allocated and will be resized to fit exactly the one received packet.
   /// @return OKAY if successful, TIMEOUT on timeout, otherwise an error code.
-  Status ReceiveStreamPacket(double timeout_seconds, std::shared_ptr<StreamPacket>& packet) override;
+  Status ReceiveStreamPacket(double timeout_seconds, std::shared_ptr<StreamPacket>& packet,
+    size_t& offset, std::shared_ptr< std::vector<uint8_t> > bufptr = nullptr) override;
 
   /// @brief Test function for both this class and the SenderUDP class.
   /// @return Empty string if successful, otherwise descriptive error message.
@@ -1797,11 +1834,13 @@ public:
   /// This is not usually called by the calling program, which will call one of the ReceivePacket() functions
   /// for CommandPacket or StreamPacket instead.
   /// Use IsPacketAvailable() to see if a packet is available before calling this function.
-  /// @param [inout] buffer A buffer to fill in with the incoming packet.  It must be large enough
-  /// to receive the entire packet.  If it is too small, the packet will be truncated and BUFFER_TOO_SMALL
-  /// will be returned.
+  /// @param [out] buffer A buffer to fill in with the incoming packet.  It must be large enough
+  /// to receive the size.
+  /// @param [inout] size The size of the buffer to receive.  If the packet is larger than the buffer,
+  /// the packet will be truncated and BUFFER_TOO_SMALL will be returned.  If the size of the packet
+  /// is smaller than the buffer, the size will be set to the size of the packet.
   /// @return OKAY if successful, otherwise an error code.
-  Status ReceiveBuffer(std::vector<uint8_t>& buffer) override;
+  Status ReceiveBuffer(uint8_t* buffer, size_t& size) override;
 
   /// @brief Allocates a new CommandPacket and fills it in with the received data.
   /// @param [in] timeout_seconds Timeout in seconds to wait for a packet.
@@ -1812,8 +1851,16 @@ public:
   /// @brief Allocates a new StreamPacket and fills it in with the received data.
   /// @param [in] timeout_seconds Timeout in seconds to wait for a packet.
   /// @param [out] packet The received StreamPacket, nullptr if timeout or error.
+  /// @param [inout] offset Offset into the buffer to start writing the packet, if a non-null
+  /// buffer was passed in.  Its initial value is ignored if bufptr is Null.  On successful
+  /// return, it will be filled in with the new offset within the buffer that points one past
+  /// the end of the StreamPacket.
+  /// @param [in] bufptr A buffer to fill in with the incoming packet.  It must be large enough
+  /// (after the offset) to receive the largest-sized packet.  If this is nullptr,
+  /// a new buffer will be allocated and will be resized to fit exactly the one received packet.
   /// @return OKAY if successful, TIMEOUT on timeout, otherwise an error code.
-  Status ReceiveStreamPacket(double timeout_seconds, std::shared_ptr<StreamPacket>& packet) override;
+  Status ReceiveStreamPacket(double timeout_seconds, std::shared_ptr<StreamPacket>& packet,
+    size_t& offset, std::shared_ptr< std::vector<uint8_t> > bufptr = nullptr) override;
 
   /// @brief Destructor.
   ~ReceiverFile() override;
@@ -1892,11 +1939,13 @@ public:
   /// This is not usually called by the calling program, which will call one of the ReceivePacket() functions
   /// for CommandPacket or StreamPacket instead.
   /// Use IsPacketAvailable() to see if a packet is available before calling this function.
-  /// @param [inout] buffer A buffer to fill in with the incoming packet.  It must be large enough
-  /// to receive the entire packet.  If it is too small, the packet will be truncated and BUFFER_TOO_SMALL
-  /// will be returned.
+  /// @param [out] buffer A buffer to fill in with the incoming packet.  It must be large enough
+  /// to receive the size.
+  /// @param [inout] size The size of the buffer to receive.  If the packet is larger than the buffer,
+  /// the packet will be truncated and BUFFER_TOO_SMALL will be returned.  If the size of the packet
+  /// is smaller than the buffer, the size will be set to the size of the packet.
   /// @return OKAY if successful, otherwise an error code.
-  Status ReceiveBuffer(std::vector<uint8_t>& buffer) override;
+  Status ReceiveBuffer(uint8_t* buffer, size_t& size) override;
 
   /// @brief Allocates a new CommandPacket and fills it in with the received data.
   /// @param [in] timeout_seconds Timeout in seconds to wait for a packet.
@@ -1907,8 +1956,16 @@ public:
   /// @brief Allocates a new StreamPacket and fills it in with the received data.
   /// @param [in] timeout_seconds Timeout in seconds to wait for a packet.
   /// @param [out] packet The received StreamPacket, nullptr if timeout or error.
+  /// @param [inout] offset Offset into the buffer to start writing the packet, if a non-null
+  /// buffer was passed in.  Its initial value is ignored if bufptr is Null.  On successful
+  /// return, it will be filled in with the new offset within the buffer that points one past
+  /// the end of the StreamPacket.
+  /// @param [in] bufptr A buffer to fill in with the incoming packet.  It must be large enough
+  /// (after the offset) to receive the largest-sized packet.  If this is nullptr,
+  /// a new buffer will be allocated and will be resized to fit exactly the one received packet.
   /// @return OKAY if successful, TIMEOUT on timeout, otherwise an error code.
-  Status ReceiveStreamPacket(double timeout_seconds, std::shared_ptr<StreamPacket>& packet) override;
+  Status ReceiveStreamPacket(double timeout_seconds, std::shared_ptr<StreamPacket>& packet,
+    size_t& offset, std::shared_ptr< std::vector<uint8_t> > bufptr = nullptr) override;
 
 protected:
   std::shared_ptr<Socket> m_socket; ///< Pointer to the socket object to use to do our work.

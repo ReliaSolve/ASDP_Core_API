@@ -19,7 +19,7 @@ template <typename T> class SpinFreeQueue {
 private:
   struct Node {
     T data;
-    Node* next;
+    Node* next = nullptr;
   };
 
   Node* head;
@@ -140,7 +140,9 @@ static void receiveDataThread(ReceiverUDP& receiveSocket, size_t bytesPerPacket,
 
   // Loop through and receive packets until we've gotten them all or an error occurs
   while (packetsReceived < totalPackets) {
-    Status status = receiveSocket.ReceiveBuffer(buffer);
+    size_t size = buffer.size();
+    Status status = receiveSocket.ReceiveBuffer(buffer.data(), size);
+    buffer.resize(size);
     if (status != OKAY) {
       std::cerr << "Error receiving data: " << ErrorMessage(status) << std::endl;
       break;

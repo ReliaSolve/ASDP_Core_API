@@ -539,6 +539,7 @@ std::string Timer::Test()
 
 BasicPacket::BasicPacket(uint32_t extraSize)
   : m_buffer(std::make_shared<std::vector<uint8_t>>(PACKET_BASIC_HEADER_SIZE + extraSize))
+  , m_offset(0)
   , m_constructorStatus(OKAY)
 {
   // Pack our header.
@@ -547,12 +548,13 @@ BasicPacket::BasicPacket(uint32_t extraSize)
   memcpy(bufPtr, &totalSize, sizeof(totalSize)); bufPtr += sizeof(totalSize);
 }
 
-BasicPacket::BasicPacket(std::shared_ptr<std::vector<uint8_t>> existingBuffer)
+BasicPacket::BasicPacket(std::shared_ptr<std::vector<uint8_t>> existingBuffer, size_t offset)
   : m_buffer(existingBuffer)
+  , m_offset(offset)
   , m_constructorStatus(OKAY)
 {
   // Make sure the buffer is large enough.
-  if (m_buffer->size() < PACKET_BASIC_HEADER_SIZE) {
+  if (MyRemainingSize() < PACKET_BASIC_HEADER_SIZE) {
     m_constructorStatus = BAD_PARAMETER;
     return;
   }
@@ -566,30 +568,30 @@ Status BasicPacket::GetConstructorStatus() const
 Status BasicPacket::GetTotalLength(uint32_t& totalLength) const
 {
   // Make sure we have enough data to hold the header.
-  if (m_buffer->size() < PACKET_BASIC_HEADER_SIZE) {
+  if (MyRemainingSize() < PACKET_BASIC_HEADER_SIZE) {
     return READ_PAST_END;
   }
 
   // Read the total packet length.
-  memcpy(&totalLength, m_buffer->data() + PACKET_HEADER_TOTAL_SIZE_OFFSET, sizeof(totalLength));
+  memcpy(&totalLength, m_buffer->data() + m_offset + PACKET_HEADER_TOTAL_SIZE_OFFSET, sizeof(totalLength));
   return OKAY;
 }
 
 Status BasicPacket::IncreaseTotalLength(uint32_t increase)
 {
   // Make sure we have enough data to hold the header.
-  if (m_buffer->size() < PACKET_BASIC_HEADER_SIZE) {
+  if (MyRemainingSize() < PACKET_BASIC_HEADER_SIZE) {
     return READ_PAST_END;
   }
 
   // Read the total packet length, verify that it is not too long and then increase it.
   uint32_t totalLength;
-  memcpy(&totalLength, m_buffer->data() + PACKET_HEADER_TOTAL_SIZE_OFFSET, sizeof(totalLength));
+  memcpy(&totalLength, MyData() + PACKET_HEADER_TOTAL_SIZE_OFFSET, sizeof(totalLength));
   totalLength += increase;
-  if (totalLength > m_buffer->size()) {
+  if (totalLength > MyRemainingSize()) {
     return WRITE_PAST_END;
   }
-  memcpy(m_buffer->data() + PACKET_HEADER_TOTAL_SIZE_OFFSET, &totalLength, sizeof(totalLength));
+  memcpy(MyData() + PACKET_HEADER_TOTAL_SIZE_OFFSET, &totalLength, sizeof(totalLength));
   return OKAY;
 }
 
@@ -636,6 +638,40 @@ std::string BasicPacket::Test()
     }
   }
 
+  {
+    // Construct multiple BasicPackets in the same buffer.
+    std::shared_ptr<std::vector<uint8_t>> buffer =
+      std::make_shared<std::vector<uint8_t>>(PACKET_BASIC_HEADER_SIZE * (3 + 4));
+    uint32_t headerSize = PACKET_BASIC_HEADER_SIZE;
+    for (int i = 0; i < 3; i++) {
+      memcpy(buffer->data() + i * sizeof(headerSize), &headerSize, sizeof(headerSize));
+    }
+    BasicPacket packet1(buffer, 0);
+    if (packet1.GetConstructorStatus() != OKAY) {
+      return "Error constructing base packet from buffer: " + ErrorMessage(packet1.GetConstructorStatus());
+    }
+    BasicPacket packet2(buffer, sizeof(headerSize));
+    if (packet2.GetConstructorStatus() != OKAY) {
+      return "Error constructing base packet from buffer: " + ErrorMessage(packet2.GetConstructorStatus());
+    }
+    BasicPacket packet3(buffer, 2 * sizeof(headerSize));
+    if (packet3.GetConstructorStatus() != OKAY) {
+      return "Error constructing base packet from buffer: " + ErrorMessage(packet3.GetConstructorStatus());
+    }
+
+    // Increase the size of the final packet.
+    Status status = packet3.IncreaseTotalLength(4 * sizeof(headerSize));
+    if (status != OKAY) {
+      return "Error increasing packet size: " + ErrorMessage(status);
+    }
+
+    // We should be unable to increase it again.
+    status = packet3.IncreaseTotalLength(1);
+    if (status != WRITE_PAST_END) {
+      return "Error unexpected ability to increasing packet size: " + ErrorMessage(status);
+    }
+  }
+
   // Everything worked.
   return "";
 }
@@ -644,7 +680,7 @@ CommandPacket::CommandPacket(uint32_t parameterSize, OpCode code)
   : BasicPacket(sizeof(uint32_t) + parameterSize)
 {
   // Pack our operation code.
-  unsigned char *bufPtr = m_buffer->data() + COMMAND_PACKET_OPCODE_OFFSET;
+  unsigned char *bufPtr = MyData() + COMMAND_PACKET_OPCODE_OFFSET;
   uint32_t myOpCode = code;
   memcpy(bufPtr, &myOpCode, sizeof(myOpCode)); bufPtr += sizeof(myOpCode);
 }
@@ -652,7 +688,7 @@ CommandPacket::CommandPacket(uint32_t parameterSize, OpCode code)
 CommandPacket::CommandPacket(std::shared_ptr<std::vector<uint8_t>> existingBuffer)
   : BasicPacket(existingBuffer)
 {
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE) {
+  if (MyRemainingSize() < COMMAND_PACKET_BASE_SIZE) {
     m_constructorStatus = BAD_PARAMETER;
   }
 }
@@ -676,11 +712,11 @@ CommandPacket::CommandPacket(std::shared_ptr<std::vector<uint8_t>> existingBuffe
 Status CommandPacket::GetOpCode(OpCode& opCode) const
 {
   // Make sure we have enough data to hold the header.
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE) {
+  if (MyRemainingSize() < COMMAND_PACKET_BASE_SIZE) {
     return READ_PAST_END;
   }
 
-  memcpy(&opCode, m_buffer->data() + COMMAND_PACKET_OPCODE_OFFSET, sizeof(opCode));
+  memcpy(&opCode, MyData() + COMMAND_PACKET_OPCODE_OFFSET, sizeof(opCode));
   return OKAY;
 }
 
@@ -1725,18 +1761,18 @@ StreamPacket::StreamPacket(uint32_t bufferMaxSize, uint32_t sequenceNumber)
 {
   // Overwrite the stored total size with the actually filled-in size, leaving room in the buffer.
   uint32_t usedSize = STREAM_PACKET_BASE_SIZE;
-  unsigned char* bufPtr = m_buffer->data() + PACKET_HEADER_TOTAL_SIZE_OFFSET;
+  unsigned char* bufPtr = MyData() + PACKET_HEADER_TOTAL_SIZE_OFFSET;
   memcpy(bufPtr, &usedSize, sizeof(usedSize)); bufPtr += sizeof(usedSize);
 
   // Set the sequence number.
-  bufPtr = m_buffer->data() + STREAM_PACKET_SEQUENCE_NUMBER_OFFSET;
+  bufPtr = MyData() + STREAM_PACKET_SEQUENCE_NUMBER_OFFSET;
   memcpy(bufPtr, &sequenceNumber, sizeof(sequenceNumber)); bufPtr += sizeof(sequenceNumber);
 }
 
-StreamPacket::StreamPacket(std::shared_ptr<std::vector<uint8_t>> existingBuffer)
-  : BasicPacket(existingBuffer)
+StreamPacket::StreamPacket(std::shared_ptr<std::vector<uint8_t>> existingBuffer, size_t offset)
+  : BasicPacket(existingBuffer, offset)
 {
-  if (m_buffer->size() < STREAM_PACKET_BASE_SIZE) {
+  if (MyRemainingSize() < STREAM_PACKET_BASE_SIZE) {
     m_constructorStatus = BAD_PARAMETER;
   }
 }
@@ -1744,22 +1780,22 @@ StreamPacket::StreamPacket(std::shared_ptr<std::vector<uint8_t>> existingBuffer)
 Status StreamPacket::GetSequenceNumber(uint32_t& sequenceNumber) const
 {
   // Make sure we have enough data to hold the header.
-  if (m_buffer->size() < STREAM_PACKET_BASE_SIZE) {
+  if (MyRemainingSize() < STREAM_PACKET_BASE_SIZE) {
     return READ_PAST_END;
   }
 
-  memcpy(&sequenceNumber, m_buffer->data() + STREAM_PACKET_SEQUENCE_NUMBER_OFFSET, sizeof(sequenceNumber));
+  memcpy(&sequenceNumber, MyData() + STREAM_PACKET_SEQUENCE_NUMBER_OFFSET, sizeof(sequenceNumber));
   return OKAY;
 }
 
 Status StreamPacket::SetSequenceNumber(uint32_t sequenceNumber)
 {
   // Make sure we have enough data to hold the header.
-  if (m_buffer->size() < STREAM_PACKET_BASE_SIZE) {
+  if (MyRemainingSize() < STREAM_PACKET_BASE_SIZE) {
     return WRITE_PAST_END;
   }
 
-  memcpy(m_buffer->data() + STREAM_PACKET_SEQUENCE_NUMBER_OFFSET, &sequenceNumber, sizeof(sequenceNumber));
+  memcpy(MyData() + STREAM_PACKET_SEQUENCE_NUMBER_OFFSET, &sequenceNumber, sizeof(sequenceNumber));
   return OKAY;
 }
 
@@ -1767,12 +1803,12 @@ Status StreamPacket::GetNextMessage(std::shared_ptr<Message>& message) const
 {
   // Make sure we have enough data to hold the header. Then get the total length
   // of the packet.
-  if (m_buffer->size() < STREAM_PACKET_BASE_SIZE) {
+  if (MyRemainingSize() < STREAM_PACKET_BASE_SIZE) {
     message.reset();
     return READ_PAST_END;
   }
   uint32_t totalLength;
-  memcpy(&totalLength, m_buffer->data() + PACKET_HEADER_TOTAL_SIZE_OFFSET, sizeof(totalLength));
+  memcpy(&totalLength, MyData() + PACKET_HEADER_TOTAL_SIZE_OFFSET, sizeof(totalLength));
 
   // If the message is a nullptr, then find the offset to the first message
   // in the buffer.  Otherwise, use the offset from the message
@@ -1795,7 +1831,7 @@ Status StreamPacket::GetNextMessage(std::shared_ptr<Message>& message) const
 
     // Add the length of the message to the offset to find the offset of the next message.
     uint32_t msgSize;
-    memcpy(&msgSize, m_buffer->data() + offset + MESSAGE_HEADER_MESSAGE_TOTAL_SIZE_OFFSET, sizeof(msgSize));
+    memcpy(&msgSize, MyData() + offset + MESSAGE_HEADER_MESSAGE_TOTAL_SIZE_OFFSET, sizeof(msgSize));
     offset += msgSize;
   }
 
@@ -1811,7 +1847,7 @@ Status StreamPacket::GetNextMessage(std::shared_ptr<Message>& message) const
     message.reset();
     return READ_PAST_END;
   }
-  memcpy(&messageSize, m_buffer->data() + offset + MESSAGE_HEADER_MESSAGE_TOTAL_SIZE_OFFSET, sizeof(messageSize));
+  memcpy(&messageSize, MyData() + offset + MESSAGE_HEADER_MESSAGE_TOTAL_SIZE_OFFSET, sizeof(messageSize));
   if (offset + messageSize > totalLength) {
     message.reset();
     return READ_PAST_END;
@@ -1897,7 +1933,34 @@ std::string StreamPacket::Test()
       return "Error getting set sequence number from stream packet: sequence number is not " +
         std::to_string(sequenceNumber);
     }
+
+    // Verify that we can create multiple stream packets in the same buffer.
+    std::shared_ptr<std::vector<uint8_t>> buffer =
+      std::make_shared<std::vector<uint8_t>>(STREAM_PACKET_BASE_SIZE * 3);
+    uint32_t headerSize = STREAM_PACKET_BASE_SIZE;
+    for (int i = 0; i < 3; i++) {
+      memcpy(buffer->data() + i * STREAM_PACKET_BASE_SIZE, &headerSize, sizeof(headerSize));
+    }
+    StreamPacket packet1(buffer, 0);
+    if (packet1.GetConstructorStatus() != OKAY) {
+      return "Error constructing stream packet from buffer: " + ErrorMessage(packet1.GetConstructorStatus());
+    }
+    StreamPacket packet2(buffer, STREAM_PACKET_BASE_SIZE);
+    if (packet2.GetConstructorStatus() != OKAY) {
+      return "Error constructing stream packet from buffer: " + ErrorMessage(packet2.GetConstructorStatus());
+    }
+    StreamPacket packet3(buffer, STREAM_PACKET_BASE_SIZE * 2);
+    if (packet3.GetConstructorStatus() != OKAY) {
+      return "Error constructing stream packet from buffer: " + ErrorMessage(packet3.GetConstructorStatus());
+    }
+
+    // We should not be able to construct a fourth.
+    StreamPacket packet4(buffer, STREAM_PACKET_BASE_SIZE * 3);
+    if (packet4.GetConstructorStatus() != BAD_PARAMETER) {
+      return "Error illegaly constructing stream packet from buffer: " + ErrorMessage(packet4.GetConstructorStatus());
+    }
   }
+
   // Everything worked.
   return "";
 }
@@ -4374,17 +4437,22 @@ Status ReceiverUDP::IsPacketAvailable(double timeout_seconds, bool& available)
   return OKAY;
 }
 
-Status ReceiverUDP::ReceiveBuffer(std::vector<uint8_t>& buffer)
+Status ReceiverUDP::ReceiveBuffer(uint8_t* buffer, size_t& size)
 {
   // Make sure we have a valid socket.
   if ((m_socket == nullptr) || (m_socket->socket == BAD_SOCKET)) {
     return m_constructorStatus;
   }
 
+  // Ensure that our buffer pointer is valid.
+  if (buffer == nullptr) {
+    return BAD_PARAMETER;
+  }
+
   // Receive the data. On Linux, we need to ask it to inform us if the buffer is too small.
   // On Windows, it returns an error if the buffer is too small.
 #ifdef ASDP_USE_WINSOCK_SOCKETS
-  int length = recv(m_socket->socket, reinterpret_cast<char*>(buffer.data()), buffer.size(), 0);
+  int length = recv(m_socket->socket, reinterpret_cast<char*>(buffer), size, 0);
   if (length == SOCKET_ERROR) {
     // Windows will fall through to here if the buffer is too small.
     // There is no way to tell on Windows whether the buffer was too small or if there was some other error.
@@ -4412,8 +4480,8 @@ Status ReceiverUDP::ReceiveBuffer(std::vector<uint8_t>& buffer)
   }
 #endif
 
-  // Record how many bytes we received by resizing the buffer to this size.
-  buffer.resize(length);
+  // Record how many bytes we received.
+  size = length;
 
   // Everything worked.
   return OKAY;
@@ -4433,7 +4501,9 @@ Status ReceiverUDP::ReceiveCommandPacket(double timeout_seconds, std::shared_ptr
 
   // Get the packet.
   std::shared_ptr<std::vector<uint8_t>> buffer = std::make_shared<std::vector<uint8_t>>(m_maxLen);
-  status = ReceiveBuffer(*buffer);
+  size_t size = buffer->size();
+  status = ReceiveBuffer(buffer->data(), size);
+  buffer->resize(size);
   if (status != OKAY) {
     return status;
   }
@@ -4448,7 +4518,8 @@ Status ReceiverUDP::ReceiveCommandPacket(double timeout_seconds, std::shared_ptr
   return OKAY;
 }
 
-Status ReceiverUDP::ReceiveStreamPacket(double timeout_seconds, std::shared_ptr<StreamPacket>& packet)
+Status ReceiverUDP::ReceiveStreamPacket(double timeout_seconds, std::shared_ptr<StreamPacket>& packet,
+  size_t& offset, std::shared_ptr< std::vector<uint8_t> > bufptr)
 {
   // See if we have a packet available.
   bool available;
@@ -4460,18 +4531,37 @@ Status ReceiverUDP::ReceiveStreamPacket(double timeout_seconds, std::shared_ptr<
     return TIMEOUT;
   }
 
-  // Get the packet.
-  std::shared_ptr<std::vector<uint8_t>> buffer = std::make_shared<std::vector<uint8_t>>(m_maxLen);
-  status = ReceiveBuffer(*buffer);
+  // Create a buffer if needed and ensure that our buffer is large enough.
+  // If we create a new buffer, then remember that we'll want to resize it later.
+  std::shared_ptr<std::vector<uint8_t>> buffer = bufptr;
+  bool doResize = false;
+  if (buffer == nullptr) {
+    buffer = std::make_shared<std::vector<uint8_t>>(m_maxLen);
+    offset = 0;
+    doResize = true;
+  }
+  size_t size = buffer->size() - offset;
+  if (m_maxLen > size) {
+    return BAD_PARAMETER;
+  }
+
+  // Get the packet into the existing buffer or a new buffer.
+  status = ReceiveBuffer(buffer->data() + offset, size);
   if (status != OKAY) {
     return status;
   }
 
   // Construct the packet using the buffer.
-  packet.reset(new StreamPacket(buffer));
+  packet.reset(new StreamPacket(buffer, offset));
   if (packet->GetConstructorStatus() != OKAY) {
     return packet->GetConstructorStatus();
   }
+
+  // Adjust the size of a new buffer and increment the offset.
+  if (doResize) {
+    buffer->resize(size + offset);
+  }
+  offset += size;
 
   // Everything worked.
   return OKAY;
@@ -4514,7 +4604,9 @@ std::string ReceiverUDP::Test()
     return "Error checking for packet: no packet available";
   }
   std::vector<uint8_t> receiveBuffer(2000, 0);
-  status = receiver.ReceiveBuffer(receiveBuffer);
+  size_t size = receiveBuffer.size();
+  status = receiver.ReceiveBuffer(receiveBuffer.data(), size);
+  receiveBuffer.resize(size);
   if (status != OKAY) {
     return "Error receiving packet: " + ErrorMessage(status);
   }
@@ -4535,7 +4627,9 @@ std::string ReceiverUDP::Test()
     return "Error checking for second packet: no packet available";
   }
   receiveBuffer.resize(100, 0);
-  status = receiver.ReceiveBuffer(receiveBuffer);
+  size = receiveBuffer.size();
+  status = receiver.ReceiveBuffer(receiveBuffer.data(), size);
+  receiveBuffer.resize(size);
   if (status != SOCKET_READ_FAILURE) {
     return "Unexpected return value when receiving into a too-small buffer";
   }
@@ -4578,12 +4672,36 @@ std::string ReceiverUDP::Test()
     return "Error sending StreamPacket: " + ErrorMessage(status);
   }
   std::shared_ptr<StreamPacket> receiveStreamPacket;
-  status = receiver.ReceiveStreamPacket(0.5, receiveStreamPacket);
+  size_t offset = 0;
+  status = receiver.ReceiveStreamPacket(0.5, receiveStreamPacket, offset);
   if (status != OKAY) {
     return "Error receiving StreamPacket: " + ErrorMessage(status);
   }
   if (receiveStreamPacket == nullptr) {
     return "Empty StreamPacket packet";
+  }
+  if (offset != 2 * sizeof(uint32_t)) {
+    return "Error receiving StreamPacket: offset is not as expected: " + std::to_string(offset);
+  }
+
+  // Try sending and receiving a StreamPacket using an existing buffer.
+  status = sender.SendStreamPacket(sendStreamPacket);
+  if (status != OKAY) {
+    return "Error sending StreamPacket: " + ErrorMessage(status);
+  }
+  std::shared_ptr< std::vector<uint8_t> > buffer = 
+    std::make_shared< std::vector<uint8_t> >(9000 + 5000);
+  offset = 5000;
+  status = receiver.ReceiveStreamPacket(0.5, receiveStreamPacket, offset, buffer);
+  if (status != OKAY) {
+    return "Error receiving StreamPacket: " + ErrorMessage(status);
+  }
+  if (receiveStreamPacket == nullptr) {
+    return "Empty StreamPacket packet";
+  }
+  if (offset != 5000 + 2 * sizeof(uint32_t)) {
+    return "Error receiving StreamPacket into existing buffer: offset is not as expected: " +
+      std::to_string(offset);
   }
 
   return "";
@@ -4624,7 +4742,7 @@ Status ReceiverFile::IsPacketAvailable(double timeout_seconds, bool& available)
   return OKAY;
 }
 
-Status ReceiverFile::ReceiveBuffer(std::vector<uint8_t>& buffer)
+Status ReceiverFile::ReceiveBuffer(uint8_t* buffer, size_t& size)
 {
   // Make sure we have a valid file.
   if (m_file == nullptr) {
@@ -4634,12 +4752,17 @@ Status ReceiverFile::ReceiveBuffer(std::vector<uint8_t>& buffer)
     return FILE_FAILURE;
   }
 
+  // Ensure that our buffer pointer is valid.
+  if (buffer == nullptr) {
+    return BAD_PARAMETER;
+  }
+
   // Read the data.  If there is not enough data to fill the buffer,
   // the buffer will be resized to the amount of data read.
-  m_file->read(reinterpret_cast<char*>(buffer.data()), buffer.size());
+  m_file->read(reinterpret_cast<char*>(buffer), size);
   std::streamsize bytesActuallyRead = m_file->gcount();
-  if (bytesActuallyRead < buffer.size()) {
-    buffer.resize(bytesActuallyRead);
+  if (bytesActuallyRead < size) {
+    size = bytesActuallyRead;
   }
   if (bytesActuallyRead == 0) {
     return FILE_FAILURE;
@@ -4695,7 +4818,8 @@ Status ReceiverFile::ReceiveCommandPacket(double timeout_seconds, std::shared_pt
   return OKAY;
 }
 
-Status ReceiverFile::ReceiveStreamPacket(double timeout_seconds, std::shared_ptr<StreamPacket>& packet)
+Status ReceiverFile::ReceiveStreamPacket(double timeout_seconds, std::shared_ptr<StreamPacket>& packet,
+  size_t& offset, std::shared_ptr< std::vector<uint8_t> > bufptr)
 {
   // See if we have a packet available.
   bool available;
@@ -4707,25 +4831,50 @@ Status ReceiverFile::ReceiveStreamPacket(double timeout_seconds, std::shared_ptr
     return TIMEOUT;
   }
 
+  // Create a buffer if needed and ensure that our buffer is large enough.
+  // If we create a new buffer, then remember that we'll want to resize it later.
+  std::shared_ptr<std::vector<uint8_t>> buffer = bufptr;
+  bool doResize = false;
+  if (buffer == nullptr) {
+    buffer = std::make_shared<std::vector<uint8_t>>(m_maxLen);
+    offset = 0;
+    doResize = true;
+  }
+  size_t size = buffer->size() - offset;
+  if (m_maxLen > size) {
+    return BAD_PARAMETER;
+  }
+
   // Get the packet header up through the field that records the length.
   if (m_maxLen < PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t)) {
     return READ_PAST_END;
   }
-  std::shared_ptr<std::vector<uint8_t>> buffer = std::make_shared<std::vector<uint8_t>>(m_maxLen);
-  m_file->read(reinterpret_cast<char*>(buffer->data()), PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t));
+  m_file->read(reinterpret_cast<char*>(buffer->data() + offset),
+    PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t));
   if (!(*m_file)) {
     return FILE_FAILURE;
   }
 
   // Find the length of the packet.
   uint32_t length;
-  memcpy(&length, buffer->data() + PACKET_HEADER_TOTAL_SIZE_OFFSET, sizeof(length));
+  memcpy(&length, buffer->data() + offset + PACKET_HEADER_TOTAL_SIZE_OFFSET, sizeof(length));
   if (length > m_maxLen) {
     return READ_PAST_END;
   }
 
+  // If the length of the packet is zero, then we've read past the end of the data in the file
+  // and we're reading zero padding.  In this case, we gobble up the rest of the file and return
+  // a timeout as will happen when there is no packet available.
+  if (length == 0) {
+    std::vector<uint8_t> padding(m_maxLen);
+    while (m_file->read(reinterpret_cast<char*>(padding.data()), m_maxLen)) {
+      // Do nothing.
+    }
+    return TIMEOUT;
+  }
+
   // Read the rest of the packet.
-  m_file->read(reinterpret_cast<char*>(buffer->data()) + PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t),
+  m_file->read(reinterpret_cast<char*>(buffer->data()) + offset + PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t),
     length - PACKET_HEADER_TOTAL_SIZE_OFFSET - sizeof(uint32_t));
   if (!(*m_file)) {
     return FILE_FAILURE;
@@ -4736,6 +4885,12 @@ Status ReceiverFile::ReceiveStreamPacket(double timeout_seconds, std::shared_ptr
   if (packet->GetConstructorStatus() != OKAY) {
     return packet->GetConstructorStatus();
   }
+
+  // Adjust the size of a new buffer and increment the offset.
+  if (doResize) {
+    buffer->resize(length + offset);
+  }
+  offset += length;
 
   // Everything worked.
   return OKAY;
@@ -4773,7 +4928,9 @@ std::string ReceiverFile::Test()
       return "Error checking for packet: no packet available";
     }
     std::vector<uint8_t> receiveBuffer(2000, 0);
-    status = receiver.ReceiveBuffer(receiveBuffer);
+    size_t size = receiveBuffer.size();
+    status = receiver.ReceiveBuffer(receiveBuffer.data(), size);
+    receiveBuffer.resize(size);
     if (status != OKAY) {
       return "Error receiving packet: " + ErrorMessage(status);
     }
@@ -4853,12 +5010,39 @@ std::string ReceiverFile::Test()
     }
 
     std::shared_ptr<StreamPacket> receiveStreamPacket;
-    status = receiver.ReceiveStreamPacket(0.5, receiveStreamPacket);
+    size_t offset = 0;
+    status = receiver.ReceiveStreamPacket(0.5, receiveStreamPacket, offset);
     if (status != OKAY) {
       return "Error receiving StreamPacket: " + ErrorMessage(status);
     }
     if (receiveStreamPacket == nullptr) {
       return "Empty StreamPacket packet";
+    }
+    if (offset != 2 * sizeof(uint32_t)) {
+      return "Error receiving StreamPacket: offset is not as expected: " + std::to_string(offset);
+    }
+  }
+
+  // Try receiving into an existing buffer
+  {
+    ReceiverFile receiver("deleteme.bin");
+    if (receiver.GetConstructorStatus() != OKAY) {
+      return "Error constructing ReceiverFile: " + ErrorMessage(receiver.GetConstructorStatus());
+    }
+
+    std::shared_ptr<StreamPacket> receiveStreamPacket;
+    std::shared_ptr< std::vector<uint8_t> > buffer =
+      std::make_shared< std::vector<uint8_t> >(9000 + 5000);
+    size_t offset = 5000;
+    status = receiver.ReceiveStreamPacket(0.5, receiveStreamPacket, offset, buffer);
+    if (status != OKAY) {
+      return "Error receiving StreamPacket: " + ErrorMessage(status);
+    }
+    if (receiveStreamPacket == nullptr) {
+      return "Empty StreamPacket packet";
+    }
+    if (offset != 5000 + 2 * sizeof(uint32_t)) {
+      return "Error receiving StreamPacket: offset is not as expected: " + std::to_string(offset);
     }
   }
   remove("deleteme.bin");
@@ -4925,7 +5109,7 @@ Status SenderReceiverTCP::SetSocketOptions()
 }
 
 SenderReceiverTCP::SenderReceiverTCP(std::shared_ptr<Socket> socket, uint32_t IP, uint16_t port)
-  : Receiver(65535)
+  : Receiver()
   , m_socket(socket)
   , m_IP(IP)
   , m_port(port)
@@ -5055,19 +5239,25 @@ Status SenderReceiverTCP::IsPacketAvailable(double timeout_seconds, bool& availa
   return OKAY;
 }
 
-Status SenderReceiverTCP::ReceiveBuffer(std::vector<uint8_t>& buffer)
+Status SenderReceiverTCP::ReceiveBuffer(uint8_t* buffer, size_t& size)
 {
   // Make sure we have a valid socket.
   if ((m_socket == nullptr) || (m_socket->socket == BAD_SOCKET)) {
     return Receiver::m_constructorStatus;
   }
 
+  // Ensure that our buffer pointer is valid.
+  if (buffer == nullptr) {
+    return BAD_PARAMETER;
+  }
+
   // Receive the data.
-  int length = recv(m_socket->socket, reinterpret_cast<char*>(buffer.data()), buffer.size(), 0);
+  int length = recv(m_socket->socket, reinterpret_cast<char*>(buffer), size, 0);
   if (length == SOCKET_ERROR) {
     return SOCKET_READ_FAILURE;
   }
-  if (length != buffer.size()) {
+  if (length != size) {
+    size = length;
     return SOCKET_READ_FAILURE;
   }
 
@@ -5123,7 +5313,8 @@ Status SenderReceiverTCP::ReceiveCommandPacket(double timeout_seconds, std::shar
   return OKAY;
 }
 
-Status SenderReceiverTCP::ReceiveStreamPacket(double timeout_seconds, std::shared_ptr<StreamPacket>& packet)
+Status SenderReceiverTCP::ReceiveStreamPacket(double timeout_seconds, std::shared_ptr<StreamPacket>& packet,
+  size_t& offset, std::shared_ptr< std::vector<uint8_t> > bufptr)
 {
   // See if we have a packet available.
   bool available;
@@ -5135,11 +5326,24 @@ Status SenderReceiverTCP::ReceiveStreamPacket(double timeout_seconds, std::share
     return TIMEOUT;
   }
 
+  // Create a buffer if needed and ensure that our buffer is large enough.
+  // If we create a new buffer, then remember that we'll want to resize it later.
+  std::shared_ptr<std::vector<uint8_t>> buffer = bufptr;
+  bool doResize = false;
+  if (buffer == nullptr) {
+    buffer = std::make_shared<std::vector<uint8_t>>(m_maxLen);
+    offset = 0;
+    doResize = true;
+  }
+  size_t size = buffer->size() - offset;
+  if (m_maxLen > size) {
+    return BAD_PARAMETER;
+  }
+
   // Get the packet header up through the field that records the length.
   if (m_maxLen < PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t)) {
     return WRITE_PAST_END;
   }
-  std::shared_ptr<std::vector<uint8_t>> buffer = std::make_shared<std::vector<uint8_t>>(m_maxLen);
   int len = recv(m_socket->socket, reinterpret_cast<char*>(buffer->data()),
        PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t), 0);
   if (len != PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t)) {
@@ -5166,6 +5370,12 @@ Status SenderReceiverTCP::ReceiveStreamPacket(double timeout_seconds, std::share
   if (packet->GetConstructorStatus() != OKAY) {
     return packet->GetConstructorStatus();
   }
+
+  // Adjust the size of a new buffer and increment the offset.
+  if (doResize) {
+    buffer->resize(length + offset);
+  }
+  offset += length;
 
   // Everything worked.
   return OKAY;
@@ -5345,14 +5555,18 @@ std::string TCPListener::Test()
     return "Error sending version: " + ErrorMessage(status);
   }
   std::vector<uint8_t> receiveBuffer(4, 0);
-  status = senderReceiver->ReceiveBuffer(receiveBuffer);
+  size_t size = receiveBuffer.size();
+  status = senderReceiver->ReceiveBuffer(receiveBuffer.data(), size);
+  receiveBuffer.resize(size);
   if (status != OKAY) {
     return "Error receiving magic cookie: " + ErrorMessage(status);
   }
   if (memcmp(MAGIC_COOKIE, receiveBuffer.data(), 4)) {
     return "Error receiving magic cookie: wrong value";
   }
-  status = senderReceiver->ReceiveBuffer(receiveBuffer);
+  size = receiveBuffer.size();
+  status = senderReceiver->ReceiveBuffer(receiveBuffer.data(), size);
+  receiveBuffer.resize(size);
   if (status != OKAY) {
     return "Error receiving version: " + ErrorMessage(status);
   }
@@ -5393,21 +5607,57 @@ std::string TCPListener::Test()
   if (status != OKAY) {
     return "Error getting current packet: " + ErrorMessage(status);
   }
-  MessageEvent message(*sendStreamPacket, Time(), 1, CLOCK_SYNC, "");
-  if (message.GetConstructorStatus() != OKAY) {
-    return "Error constructing MessageEvent: " + ErrorMessage(message.GetConstructorStatus());
+  {
+    MessageEvent message(*sendStreamPacket, Time(), 1, CLOCK_SYNC, "");
+    if (message.GetConstructorStatus() != OKAY) {
+      return "Error constructing MessageEvent: " + ErrorMessage(message.GetConstructorStatus());
+    }
   }
   status = streamWriter.Flush();
   if (status != OKAY) {
     return "Error flushing StreamWriter: " + ErrorMessage(status);
   }
   std::shared_ptr<StreamPacket> receiveStreamPacket;
-  status = newConnection->ReceiveStreamPacket(10.0, receiveStreamPacket);
+  size_t offset = 0;
+  status = newConnection->ReceiveStreamPacket(10.0, receiveStreamPacket, offset);
   if (status != OKAY) {
     return "Error receiving StreamPacket: " + ErrorMessage(status);
   }
   if (receiveStreamPacket == nullptr) {
     return "Empty StreamPacket packet";
+  }
+  if (offset != 8 * sizeof(uint32_t)) {
+    return "Error receiving StreamPacket: offset is not as expected: " + std::to_string(offset);
+  }
+
+  // Send a StreamPacket and make sure it is received in an exiting buffer.
+  status = streamWriter.GetCurrentPacket(sendStreamPacket);
+  if (status != OKAY) {
+    return "Error getting current packet: " + ErrorMessage(status);
+  }
+  {
+    MessageEvent message(*sendStreamPacket, Time(), 1, CLOCK_SYNC, "");
+    if (message.GetConstructorStatus() != OKAY) {
+      return "Error constructing MessageEvent: " + ErrorMessage(message.GetConstructorStatus());
+    }
+  }
+  status = streamWriter.Flush();
+  if (status != OKAY) {
+    return "Error flushing StreamWriter: " + ErrorMessage(status);
+  }
+  std::shared_ptr< std::vector<uint8_t> > buffer =
+    std::make_shared< std::vector<uint8_t> >(9000 + 5000);
+  offset = 5000;
+  status = newConnection->ReceiveStreamPacket(10.0, receiveStreamPacket, offset, buffer);
+  if (status != OKAY) {
+    return "Error receiving StreamPacket: " + ErrorMessage(status);
+  }
+  if (receiveStreamPacket == nullptr) {
+    return "Empty StreamPacket packet";
+  }
+  if (offset != 5000 + 8 * sizeof(uint32_t)) {
+    return "Error receiving StreamPacket into existing buffer: offset is not as expected: " +
+      std::to_string(offset);
   }
 
   return "";
@@ -5576,7 +5826,8 @@ std::string StreamWriter::Test()
 
     // Make sure we received the packet.
     std::shared_ptr<StreamPacket> receiveStreamPacket;
-    status = receiver.ReceiveStreamPacket(0.5, receiveStreamPacket);
+    size_t offset = 0;
+    status = receiver.ReceiveStreamPacket(0.5, receiveStreamPacket, offset);
     if (status != OKAY) {
       return "Error receiving StreamPacket: " + ErrorMessage(status);
     }
@@ -5597,7 +5848,8 @@ std::string StreamWriter::Test()
 
   // Make sure we cannot receive another packet.
   std::shared_ptr<StreamPacket> receiveStreamPacket;
-  status = receiver.ReceiveStreamPacket(0.05, receiveStreamPacket);
+  size_t offset = 0;
+  status = receiver.ReceiveStreamPacket(0.05, receiveStreamPacket, offset);
   if (status != TIMEOUT) {
     return "Received unexpected packet";
   }
@@ -5771,13 +6023,17 @@ void CoreServer::DiscoveryThread()
           newConnection.reset();
         } else {
           std::vector<uint8_t> receiveBuffer(4, 0);
-          status = newConnection->ReceiveBuffer(receiveBuffer);
+          size_t size = receiveBuffer.size();
+          status = newConnection->ReceiveBuffer(receiveBuffer.data(), size);
+          receiveBuffer.resize(size);
           if (status != OKAY) {
             newConnection.reset();
           } else if (memcmp(MAGIC_COOKIE, receiveBuffer.data(), 4)) {
             newConnection.reset();
           } else {
-            status = newConnection->ReceiveBuffer(receiveBuffer);
+            size = receiveBuffer.size();
+            status = newConnection->ReceiveBuffer(receiveBuffer.data(), size);
+            receiveBuffer.resize(size);
             if (status != OKAY) {
               newConnection.reset();
             } else {
@@ -5868,7 +6124,8 @@ void CoreClient::DiscoveryThread()
   // if it isn't already there.
   while (!m_stopThread) {
     std::shared_ptr<StreamPacket> packet;
-    Status status = m_discoveryReceiver->ReceiveStreamPacket(0.5, packet);
+    size_t offset = 0;
+    Status status = m_discoveryReceiver->ReceiveStreamPacket(0.5, packet, offset);
 
     // If we timed out, just try again.
     if (status == TIMEOUT) {
@@ -6056,7 +6313,9 @@ Status CoreClient::ConnectToServer(std::string serverURL, uint16_t& major, uint1
     return status;
   }
   std::vector<uint8_t> receiveBuffer(4, 0);
-  status = m_stream->ReceiveBuffer(receiveBuffer);
+  size_t size = receiveBuffer.size();
+  status = m_stream->ReceiveBuffer(receiveBuffer.data(), size);
+  receiveBuffer.resize(size);
   if (status != OKAY) {
     m_stream.reset();
     return status;
@@ -6065,7 +6324,9 @@ Status CoreClient::ConnectToServer(std::string serverURL, uint16_t& major, uint1
     m_stream.reset();
     return BAD_COOKIE;
   }
-  status = m_stream->ReceiveBuffer(receiveBuffer);
+  size = receiveBuffer.size();
+  status = m_stream->ReceiveBuffer(receiveBuffer.data(), size);
+  receiveBuffer.resize(size);
   if (status != OKAY) {
     m_stream.reset();
     return status;
@@ -6276,7 +6537,8 @@ std::string CoreClient::Test()
   if (status != OKAY) {
     return "Error getting main stream receiver: " + ErrorMessage(status);
   }
-  status = receiver->ReceiveStreamPacket(0.5, receiveStreamPacket);
+  size_t offset = 0;
+  status = receiver->ReceiveStreamPacket(0.5, receiveStreamPacket, offset);
   if (status != OKAY) {
     return "Error receiving StreamPacket: " + ErrorMessage(status);
   }
