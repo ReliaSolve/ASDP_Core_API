@@ -1656,7 +1656,11 @@ class SenderFile : public Sender {
 public:
   /// @brief Construct a SenderFile object that will send to a specific endpoint.
   /// @param [in] fileName Name of the file to write to.
-  SenderFile(std::string fileName);
+  /// @param [in] directWrite Whether to write directly to the file or buffer the writes.
+  /// This does not have an effect on Windows, but on Linux, direct writes are faster
+  /// to SSDs.  However, direct writes require that all wriaes be in multiples of the
+  /// block size, so the client must ensure this if they set directWrite to true.
+  SenderFile(std::string fileName, bool directWrite = false);
 
   /// @brief Destructor.
   ~SenderFile() override;

@@ -4332,7 +4332,7 @@ Status SenderUDP::SendStreamPacket(const StreamPacket& packet)
   return OKAY;
 }
 
-SenderFile::SenderFile(std::string fileName)
+SenderFile::SenderFile(std::string fileName, bool doDirect)
   : m_file(-1)
 {
   // Open the file using the low-level open() call so that we can request direct I/O
@@ -4345,7 +4345,11 @@ SenderFile::SenderFile(std::string fileName)
 #ifndef O_BINARY
   static uint32_t O_BINARY = 0;
 #endif
-  m_file = open(fileName.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_BINARY | O_DIRECT, 0644);
+  int flags = O_WRONLY | O_CREAT | O_TRUNC | O_BINARY;
+  if (doDirect) {
+    flags |= O_DIRECT;
+  }
+  m_file = open(fileName.c_str(), flags, 0644);
   if (m_file < 0) {
     m_constructorStatus = BAD_PARAMETER;
     return;
