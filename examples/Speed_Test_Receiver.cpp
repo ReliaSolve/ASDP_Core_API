@@ -128,7 +128,9 @@ static void receiveDataThread(ReceiverUDP& receiveSocket, size_t bytesPerPacket,
 
   std::shared_ptr<asdp::SenderFile> sender;
   if (fileName.size() > 0) {
-    sender = std::make_shared<asdp::SenderFile>(fileName);
+    // Open the sender file in direct-write mode, which is faster but requires writes
+    // to be in multiples of the sector size.
+    sender = std::make_shared<asdp::SenderFile>(fileName, true);
     if (sender->GetConstructorStatus() != OKAY) {
       std::cerr << "Error creating sender to file " << fileName
         << ": " << ErrorMessage(sender->GetConstructorStatus()) << std::endl;
@@ -138,11 +140,18 @@ static void receiveDataThread(ReceiverUDP& receiveSocket, size_t bytesPerPacket,
     saveThread = std::thread(saveDataThread, std::ref(done), sender, std::ref(queue));
   }
 
-  // Loop through and receive packets until we've gotten them all or an error occurs
+  // Loop through and receive packets until we've gotten them all or an error occurs.
+  // These packets are all multiples of the sector size, so we don't need to worry about
+  // partial writes to disk.
   while (packetsReceived < totalPackets) {
     size_t size = buffer.size();
     Status status = receiveSocket.ReceiveBuffer(buffer.data(), size);
-    buffer.resize(size);
+    if (size != buffer.size()) {
+      std::lock_guard<std::mutex> lock(printMutex);
+      std::cerr << "Error: Received " << size << " bytes but expected " << buffer.size() << std::endl;
+      broken = true;
+      break;
+    }
     if (status != OKAY) {
       std::cerr << "Error receiving data: " << ErrorMessage(status) << std::endl;
       break;
@@ -170,7 +179,7 @@ static void receiveDataThread(ReceiverUDP& receiveSocket, size_t bytesPerPacket,
     packetsReceived++;
   }
 
-  // If we have a thread, time how long it takes it to finish
+  // If we have a thread, time how long it takes it to finish writing everything to disk.
   if (saveThread.joinable()) {
     size_t queueSize = queue.size();
     std::chrono::time_point<std::chrono::steady_clock> start = std::chrono::steady_clock::now();
