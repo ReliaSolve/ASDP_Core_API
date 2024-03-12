@@ -543,7 +543,7 @@ BasicPacket::BasicPacket(uint32_t extraSize)
   , m_constructorStatus(OKAY)
 {
   // Pack our header.
-  unsigned char* bufPtr = m_buffer->data();
+  unsigned char* bufPtr = MyData();
   uint32_t totalSize = PACKET_BASIC_HEADER_SIZE + extraSize;
   memcpy(bufPtr, &totalSize, sizeof(totalSize)); bufPtr += sizeof(totalSize);
 }
@@ -573,7 +573,7 @@ Status BasicPacket::GetTotalLength(uint32_t& totalLength) const
   }
 
   // Read the total packet length.
-  memcpy(&totalLength, m_buffer->data() + m_offset + PACKET_HEADER_TOTAL_SIZE_OFFSET, sizeof(totalLength));
+  memcpy(&totalLength, MyData() + PACKET_HEADER_TOTAL_SIZE_OFFSET, sizeof(totalLength));
   return OKAY;
 }
 
@@ -926,7 +926,7 @@ std::string CommandPacketPauseReplay::Test()
 CommandPacketStartReplay::CommandPacketStartReplay(uint32_t ID, Time initialTime)
   : CommandPacket(sizeof(ID) + sizeof(initialTime), START_REPLAY)
 {
-  unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
+  unsigned char* bufPtr = MyData() + COMMAND_PACKET_BASE_SIZE;
   memcpy(bufPtr, &ID, sizeof(ID)); bufPtr += sizeof(ID);
   memcpy(bufPtr, &initialTime.seconds, sizeof(initialTime.seconds)); bufPtr += sizeof(initialTime.seconds);
   memcpy(bufPtr, &initialTime.microseconds, sizeof(initialTime.microseconds)); bufPtr += sizeof(initialTime.microseconds);
@@ -942,7 +942,7 @@ Status CommandPacketStartReplay::GetID(uint32_t& ID) const
   if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + sizeof(ID)) {
     return READ_PAST_END;
   }
-  memcpy(&ID, m_buffer->data() + COMMAND_PACKET_BASE_SIZE, sizeof(ID));
+  memcpy(&ID, MyData() + COMMAND_PACKET_BASE_SIZE, sizeof(ID));
   return OKAY;
 }
 
@@ -951,8 +951,8 @@ Status CommandPacketStartReplay::GetInitialTime(Time& initialTime) const
   if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + 3 * sizeof(uint32_t)) {
     return READ_PAST_END;
   }
-  memcpy(&initialTime.seconds, m_buffer->data() + COMMAND_PACKET_BASE_SIZE + sizeof(uint32_t), sizeof(uint32_t));
-  memcpy(&initialTime.microseconds, m_buffer->data() + COMMAND_PACKET_BASE_SIZE + 2 * sizeof(uint32_t), sizeof(uint32_t));
+  memcpy(&initialTime.seconds, MyData() + COMMAND_PACKET_BASE_SIZE + sizeof(uint32_t), sizeof(uint32_t));
+  memcpy(&initialTime.microseconds, MyData() + COMMAND_PACKET_BASE_SIZE + 2 * sizeof(uint32_t), sizeof(uint32_t));
   return OKAY;
 }
 
@@ -1097,7 +1097,7 @@ std::string CommandPacketStopReplay::Test()
 CommandPacketSetStartUpRecordingState::CommandPacketSetStartUpRecordingState(uint32_t state)
   : CommandPacket(sizeof(state), SET_START_UP_RECORDING_STATE)
 {
-  memcpy(m_buffer->data() + COMMAND_PACKET_BASE_SIZE, &state, sizeof(state));
+  memcpy(MyData() + COMMAND_PACKET_BASE_SIZE, &state, sizeof(state));
 }
 
 CommandPacketSetStartUpRecordingState::CommandPacketSetStartUpRecordingState(CommandPacket& basePacket)
@@ -1110,7 +1110,7 @@ Status CommandPacketSetStartUpRecordingState::GetState(uint32_t& state) const
   if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + sizeof(state)) {
     return READ_PAST_END;
   }
-  memcpy(&state, m_buffer->data() + COMMAND_PACKET_BASE_SIZE, sizeof(state));
+  memcpy(&state, MyData() + COMMAND_PACKET_BASE_SIZE, sizeof(state));
   return OKAY;
 }
 
@@ -1148,7 +1148,7 @@ std::string CommandPacketSetStartUpRecordingState::Test()
 CommandPacketSetStreamStatePeriod::CommandPacketSetStreamStatePeriod(float interval)
   : CommandPacket(sizeof(float), SET_STREAM_STATE_PERIOD)
 {
-  unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
+  unsigned char* bufPtr = MyData() + COMMAND_PACKET_BASE_SIZE;
   memcpy(bufPtr, &interval, sizeof(interval)); bufPtr += sizeof(interval);
 }
 
@@ -1162,7 +1162,7 @@ Status CommandPacketSetStreamStatePeriod::GetInterval(float& interval) const
   if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + sizeof(float)) {
     return READ_PAST_END;
   }
-  memcpy(&interval, m_buffer->data() + COMMAND_PACKET_BASE_SIZE, sizeof(interval));
+  memcpy(&interval, MyData() + COMMAND_PACKET_BASE_SIZE, sizeof(interval));
   return OKAY;
 }
 
@@ -1206,7 +1206,7 @@ std::string CommandPacketSetStreamStatePeriod::Test()
 CommandPacketConfigureTrigger::CommandPacketConfigureTrigger(TriggerInfo config)
   : CommandPacket(sizeof(config), CONFIGURE_TRIGGER)
 {
-  unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
+  unsigned char* bufPtr = MyData() + COMMAND_PACKET_BASE_SIZE;
   memcpy(bufPtr, &config.ID, sizeof(config.ID)); bufPtr += sizeof(config.ID);
   memcpy(bufPtr, &config.mode, sizeof(config.mode)); bufPtr += sizeof(config.mode);
   memcpy(bufPtr, &config.externalID, sizeof(config.externalID)); bufPtr += sizeof(config.externalID);
@@ -1225,7 +1225,7 @@ Status CommandPacketConfigureTrigger::GetConfiguration(TriggerInfo& config) cons
   if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + sizeof(config)) {
     return READ_PAST_END;
   }
-  memcpy(&config, m_buffer->data() + COMMAND_PACKET_BASE_SIZE, sizeof(config));
+  memcpy(&config, MyData() + COMMAND_PACKET_BASE_SIZE, sizeof(config));
   return OKAY;
 }
 
@@ -1278,7 +1278,7 @@ std::string CommandPacketConfigureTrigger::Test()
 CommandPacketSoftwareTrigger::CommandPacketSoftwareTrigger(uint8_t ID, Time initialTime)
   : CommandPacket(sizeof(ID) + 3 + sizeof(initialTime), SOFTWARE_TRIGGER)
 {
-  unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
+  unsigned char* bufPtr = MyData() + COMMAND_PACKET_BASE_SIZE;
   uint32_t IDField = ID;
   memcpy(bufPtr, &IDField, sizeof(IDField)); bufPtr += sizeof(IDField);
   memcpy(bufPtr, &initialTime.seconds, sizeof(initialTime.seconds)); bufPtr += sizeof(initialTime.seconds);
@@ -1296,7 +1296,7 @@ Status CommandPacketSoftwareTrigger::GetID(uint8_t& ID) const
     return READ_PAST_END;
   }
   uint32_t IDField;
-  memcpy(&IDField, m_buffer->data() + COMMAND_PACKET_BASE_SIZE, sizeof(IDField));
+  memcpy(&IDField, MyData() + COMMAND_PACKET_BASE_SIZE, sizeof(IDField));
   ID = IDField;
   return OKAY;
 }
@@ -1306,8 +1306,8 @@ Status CommandPacketSoftwareTrigger::GetInitialTime(Time& initialTime) const
   if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + 2 * sizeof(uint32_t)) {
     return READ_PAST_END;
   }
-  memcpy(&initialTime.seconds, m_buffer->data() + COMMAND_PACKET_BASE_SIZE + sizeof(uint32_t), sizeof(uint32_t));
-  memcpy(&initialTime.microseconds, m_buffer->data() + COMMAND_PACKET_BASE_SIZE + 2 * sizeof(uint32_t), sizeof(uint32_t));
+  memcpy(&initialTime.seconds, MyData() + COMMAND_PACKET_BASE_SIZE + sizeof(uint32_t), sizeof(uint32_t));
+  memcpy(&initialTime.microseconds, MyData() + COMMAND_PACKET_BASE_SIZE + 2 * sizeof(uint32_t), sizeof(uint32_t));
   return OKAY;
 }
 
@@ -1375,7 +1375,7 @@ std::string CommandPacketSoftwareTrigger::Test()
 CommandPacketSetEventVerbosity::CommandPacketSetEventVerbosity(uint8_t verbosity)
   : CommandPacket(sizeof(verbosity), SET_EVENT_VERBOSITY)
 {
-  unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
+  unsigned char* bufPtr = MyData() + COMMAND_PACKET_BASE_SIZE;
   memcpy(bufPtr, &verbosity, sizeof(verbosity)); bufPtr += sizeof(verbosity);
   memset(bufPtr, 0, 3); bufPtr += 3;
 }
@@ -1390,7 +1390,7 @@ Status CommandPacketSetEventVerbosity::GetVerbosity(uint8_t& verbosity) const
   if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + sizeof(verbosity)) {
     return READ_PAST_END;
   }
-  memcpy(&verbosity, m_buffer->data() + COMMAND_PACKET_BASE_SIZE, sizeof(verbosity));
+  memcpy(&verbosity, MyData() + COMMAND_PACKET_BASE_SIZE, sizeof(verbosity));
   return OKAY;
 }
 
@@ -1433,7 +1433,7 @@ CommandPacketStreamSubregion::CommandPacketStreamSubregion(StreamEndpoint endpoi
   SubregionDescription const &region)
   : CommandPacket(sizeof(region) + 2 * sizeof(uint32_t), STREAM_SUBREGION)
 {
-  unsigned char *bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
+  unsigned char *bufPtr = MyData() + COMMAND_PACKET_BASE_SIZE;
   memcpy(bufPtr, &region.cameraID, sizeof(region.cameraID)); bufPtr += sizeof(region.cameraID);
   memcpy(bufPtr, &endpoint.IP, sizeof(endpoint.IP)); bufPtr += sizeof(endpoint.IP);
   uint32_t portField = endpoint.port;
@@ -1457,7 +1457,7 @@ Status CommandPacketStreamSubregion::GetEndpoint(StreamEndpoint& endpoint) const
   if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + sizeof(SubregionDescription) + 2 * sizeof(uint32_t)) {
     return READ_PAST_END;
   }
-  unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
+  unsigned char* bufPtr = MyData() + COMMAND_PACKET_BASE_SIZE;
   // Skip the camera ID
   bufPtr += sizeof(uint32_t);
   memcpy(&endpoint.IP, bufPtr, sizeof(endpoint.IP)); bufPtr += sizeof(endpoint.IP);
@@ -1472,7 +1472,7 @@ Status CommandPacketStreamSubregion::GetRegionDescription(SubregionDescription& 
   if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + sizeof(SubregionDescription) + 2 * sizeof(uint32_t)) {
     return READ_PAST_END;
   }
-  unsigned char *bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
+  unsigned char *bufPtr = MyData() + COMMAND_PACKET_BASE_SIZE;
   memcpy(&region.cameraID, bufPtr, sizeof(region.cameraID)); bufPtr += sizeof(region.cameraID);
   // Skip the endpoint information
   bufPtr += 2 * sizeof(uint32_t);
@@ -1521,7 +1521,7 @@ std::string CommandPacketStreamSubregion::Test()
 CommandPacketCancelSubregion::CommandPacketCancelSubregion(uint32_t camera, StreamEndpoint endpoint)
   : CommandPacket(sizeof(camera) + 2 * sizeof(uint32_t), CANCEL_SUBREGION)
 {
-  unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
+  unsigned char* bufPtr = MyData() + COMMAND_PACKET_BASE_SIZE;
   memcpy(bufPtr, &camera, sizeof(uint32_t)); bufPtr += sizeof(camera);
   memcpy(bufPtr, &endpoint.IP, sizeof(endpoint.IP)); bufPtr += sizeof(endpoint.IP);
   uint32_t portField = endpoint.port;
@@ -1538,7 +1538,7 @@ Status CommandPacketCancelSubregion::GetCamera(uint32_t& camera)
   if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + sizeof(camera)) {
     return READ_PAST_END;
   }
-  unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
+  unsigned char* bufPtr = MyData() + COMMAND_PACKET_BASE_SIZE;
   memcpy(&camera, bufPtr, sizeof(camera)); bufPtr += sizeof(camera);
   return OKAY;
 }
@@ -1548,7 +1548,7 @@ Status CommandPacketCancelSubregion::GetEndpoint(StreamEndpoint& endpoint) const
   if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + 3 * sizeof(uint32_t)) {
     return READ_PAST_END;
   }
-  unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
+  unsigned char* bufPtr = MyData() + COMMAND_PACKET_BASE_SIZE;
   // Skip the camera ID
   bufPtr += sizeof(uint32_t);
   memcpy(&endpoint.IP, bufPtr, sizeof(endpoint.IP)); bufPtr += sizeof(endpoint.IP);
@@ -1657,7 +1657,7 @@ std::string CommandPacketListStoredStreams::Test()
 CommandPacketEraseStoredStream::CommandPacketEraseStoredStream(uint32_t ID)
   : CommandPacket(sizeof(ID), ERASE_STORED_STREAM)
 {
-  unsigned char* bufPtr = m_buffer->data() + COMMAND_PACKET_BASE_SIZE;
+  unsigned char* bufPtr = MyData() + COMMAND_PACKET_BASE_SIZE;
   memcpy(bufPtr, &ID, sizeof(ID)); bufPtr += sizeof(ID);
 }
 
@@ -1671,7 +1671,7 @@ Status CommandPacketEraseStoredStream::GetID(uint32_t& ID) const
   if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + sizeof(ID)) {
     return READ_PAST_END;
   }
-  memcpy(&ID, m_buffer->data() + COMMAND_PACKET_BASE_SIZE, sizeof(ID));
+  memcpy(&ID, MyData() + COMMAND_PACKET_BASE_SIZE, sizeof(ID));
   return OKAY;
 }
 
@@ -4231,9 +4231,15 @@ Status SenderUDP::SendCommandPacket(const CommandPacket& packet)
     return m_constructorStatus;
   }
 
+  // Find out how large the data in the packet is.
+  uint32_t length;
+  Status status = packet.GetTotalLength(length);
+  if (status != OKAY) {
+    return status;
+  }
+
   // Send the data.
-  int result = sendto(m_socket->socket,
-    (const char*)packet.m_buffer->data(), packet.m_buffer->size(), 0,
+  int result = sendto(m_socket->socket, (const char*)packet.MyData(), length, 0,
     (const sockaddr*)&(m_socket->addr), sizeof(m_socket->addr));
   if (result == SOCKET_ERROR) {
     return SOCKET_FAILURE;
@@ -4258,7 +4264,7 @@ Status SenderUDP::SendStreamPacket(const StreamPacket& packet)
   }
 
   // Send the data.
-  int result = sendto(m_socket->socket, (const char*)packet.m_buffer->data(), length, 0,
+  int result = sendto(m_socket->socket, (const char*)packet.MyData(), length, 0,
     (const sockaddr*)&(m_socket->addr), sizeof(m_socket->addr));
   if (result == SOCKET_ERROR) {
     return SOCKET_FAILURE;
@@ -4326,7 +4332,14 @@ Status SenderFile::SendCommandPacket(const CommandPacket& packet)
     return m_constructorStatus;
   }
 
-  return Send(packet.m_buffer->data(), packet.m_buffer->size());
+  // Find out how large the data in the packet is.
+  uint32_t length;
+  Status status = packet.GetTotalLength(length);
+  if (status != OKAY) {
+    return status;
+  }
+
+  return Send((const char*)packet.MyData(), length);
 }
 
 Status SenderFile::SendStreamPacket(const StreamPacket& packet)
@@ -4344,7 +4357,7 @@ Status SenderFile::SendStreamPacket(const StreamPacket& packet)
   }
 
   // Send the data.
-  return Send(packet.m_buffer->data(), length);
+  return Send(packet.MyData(), length);
 }
 
 ReceiverUDP::ReceiverUDP(std::string host, uint16_t port, uint32_t maxLen, bool broadcast)
@@ -4694,7 +4707,7 @@ std::string ReceiverUDP::Test()
   offset = 5000;
   status = receiver.ReceiveStreamPacket(0.5, receiveStreamPacket, offset, buffer);
   if (status != OKAY) {
-    return "Error receiving StreamPacket: " + ErrorMessage(status);
+    return "Error receiving StreamPacket into existing buffer: " + ErrorMessage(status);
   }
   if (receiveStreamPacket == nullptr) {
     return "Empty StreamPacket packet";
@@ -5177,8 +5190,15 @@ Status SenderReceiverTCP::SendCommandPacket(const CommandPacket& packet)
     return Receiver::m_constructorStatus;
   }
 
+  // Find out how large the data in the packet is.
+  uint32_t length;
+  Status status = packet.GetTotalLength(length);
+  if (status != OKAY) {
+    return status;
+  }
+
   // Send the data.
-  int result = send(m_socket->socket, (const char*)packet.m_buffer->data(), packet.m_buffer->size(), 0);
+  int result = send(m_socket->socket, (const char*)packet.MyData(), length, 0);
   if (result == SOCKET_ERROR) {
     return SOCKET_FAILURE;
   }
@@ -5202,7 +5222,7 @@ Status SenderReceiverTCP::SendStreamPacket(const StreamPacket& packet)
   }
 
   // Send the data.
-  int result = send(m_socket->socket, (const char*)packet.m_buffer->data(), length, 0);
+  int result = send(m_socket->socket, (const char*)packet.MyData(), length, 0);
   if (result == SOCKET_ERROR) {
     return SOCKET_FAILURE;
   }
