@@ -1823,7 +1823,7 @@ Status StreamPacket::GetNextMessage(std::shared_ptr<Message>& message) const
     }
 
     // Make sure we're not trying to read past the end of the buffer.
-    offset = message->m_offset;
+    offset = RemoveOffset(message->m_offset);
     if (offset + MESSAGE_HEADER_MESSAGE_TOTAL_SIZE_OFFSET + sizeof(uint32_t) > totalLength) {
       message.reset();
       return READ_PAST_END;
@@ -1853,8 +1853,8 @@ Status StreamPacket::GetNextMessage(std::shared_ptr<Message>& message) const
     return READ_PAST_END;
   }
 
-  // Construct a message from the buffer.
-  message.reset(new Message(m_buffer, offset));
+  // Construct a message from the buffer, giving it the correct total offset.
+  message.reset(new Message(m_buffer, AddOffset(offset)));
   if (message->GetConstructorStatus() != OKAY) {
     message.reset();
     return message->GetConstructorStatus();
@@ -1966,7 +1966,9 @@ std::string StreamPacket::Test()
 }
 
 Message::Message(StreamPacket& packet, uint32_t parameterSize, Time timeCode, MessageID type)
-  : m_buffer(packet.m_buffer), m_offset(0), m_constructorStatus(OKAY)
+  : m_buffer(packet.m_buffer)
+  , m_offset(packet.m_offset)   ///< Take into account the offset of the packet in the buffer.
+  , m_constructorStatus(OKAY)
 {
   uint32_t totalSize = MESSAGE_BASE_SIZE + parameterSize;
 
@@ -1977,7 +1979,7 @@ Message::Message(StreamPacket& packet, uint32_t parameterSize, Time timeCode, Me
     m_constructorStatus = status;
     return;
   }
-  m_offset = originalSize;
+  m_offset += originalSize;
   status = packet.IncreaseTotalLength(totalSize);
   if (status != OKAY) {
     m_constructorStatus = status;
@@ -2150,6 +2152,62 @@ std::string Message::Test()
   }
   if (message3 != nullptr) {
     return "Error getting second message from packet for message test: message is not null";
+  }
+
+  // Test adding messages to a StreamPacket that has an offset
+  {
+    std::shared_ptr< std::vector<uint8_t> > buffer = std::make_shared< std::vector<uint8_t> >(5000);
+    uint32_t offset = 100;
+    uint32_t origSize = 8;  ///< We're building the entry by hand here.
+    memcpy(buffer->data() + offset, &origSize, sizeof(origSize));
+    StreamPacket streamPacket(buffer, offset);
+    Time timeCode1 = { 1, 2 };
+    Message message1(streamPacket, 0, timeCode1, FRAME_END);
+    if (message.GetConstructorStatus() != OKAY) {
+      return "Error constructing message: " + ErrorMessage(message.GetConstructorStatus());
+    }
+    Time timeCode2 = { 3, 4 };
+    Message message2(streamPacket, 0, timeCode2, FRAME_END);
+    if (message.GetConstructorStatus() != OKAY) {
+      return "Error constructing message: " + ErrorMessage(message.GetConstructorStatus());
+    }
+    std::shared_ptr<Message> message;
+    Status status = streamPacket.GetNextMessage(message);
+    if (status != OKAY) {
+      return "Error getting first message from packet for offset message test: " + ErrorMessage(status);
+    }
+    MessageID rID;
+    status = message->GetType(rID);
+    if (status != OKAY) {
+      return "Error getting type from packet for offset message test: " + ErrorMessage(status);
+    }
+    if (rID != FRAME_END) {
+      return "Error getting type from packet for offset message test: type is not FRAME_END but " +
+        std::to_string(rID);
+    }
+    Time rTime;
+    status = message->GetTime(rTime);
+    if (status != OKAY) {
+      return "Error getting time code from packet for offset message test: " + ErrorMessage(status);
+    }
+    if (rTime != timeCode1) {
+      return "Error getting time code from packet for offset message test: time code is not " +
+        std::to_string(timeCode1.seconds) + "." + std::to_string(timeCode1.microseconds) +
+        " but " +
+        std::to_string(rTime.seconds) + "." + std::to_string(rTime.microseconds);
+    }
+    status = streamPacket.GetNextMessage(message);
+    if (status != OKAY) {
+      return "Error getting second message from packet for offset message test: " + ErrorMessage(status);
+    }
+    status = message->GetTime(rTime);
+    if (status != OKAY) {
+      return "Error getting time code from packet for offset message test: " + ErrorMessage(status);
+    }
+    if (rTime != timeCode2) {
+      return "Error getting time code from packet for offset message test: time code is not " +
+        std::to_string(timeCode2.seconds) + "." + std::to_string(timeCode2.microseconds);
+    }
   }
 
   return "";
@@ -5707,6 +5765,33 @@ std::string TCPListener::Test()
   if (offset != 5000 + 8 * sizeof(uint32_t)) {
     return "Error receiving StreamPacket into existing buffer: offset is not as expected: " +
       std::to_string(offset);
+  }
+
+  // Make sure that GetNextMessage() works on this packet even though it is in an offset buffer.
+  std::shared_ptr<Message> message;
+  status = receiveStreamPacket->GetNextMessage(message);
+  if (status != OKAY) {
+    return "Error getting next message from existing-buffer StreamPacket: " + ErrorMessage(status);
+  }
+  if (message == nullptr) {
+    return "Empty message from existing-buffer StreamPacket";
+  }
+  MessageID messageID;
+  status = message->GetType(messageID);
+  if (status != OKAY) {
+    return "Error getting message ID from existing-buffer StreamPacket: " + ErrorMessage(status);
+  }
+  if (messageID != EVENT) {
+    return "Error getting message ID from existing-buffer StreamPacket: wrong type";
+  }
+  EventID eventID;
+  MessageEvent event(*message);
+  status = event.GetType(eventID);
+  if (status != OKAY) {
+    return "Error getting event ID from existing-buffer StreamPacket: " + ErrorMessage(status);
+  }
+  if (eventID != CLOCK_SYNC) {
+    return "Error getting event ID from existing-buffer StreamPacket: wrong type";
   }
 
   return "";

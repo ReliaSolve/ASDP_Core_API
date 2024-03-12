@@ -455,6 +455,12 @@ protected:
   /// @brief Get the buffer containing the packet data at the appropriate offset.
   std::uint8_t *MyData() const { return m_buffer->data() + m_offset; }
 
+  /// @brief Adjust an offset in the buffer to align with the start of the packet.
+  size_t AddOffset(size_t offset) const { return offset + m_offset; }
+
+  /// @brief Adjust an offset in the buffer to align with the start of the packet.
+  size_t RemoveOffset(size_t offset) const { return offset - m_offset; }
+
   std::shared_ptr<std::vector<uint8_t>> m_buffer;  ///< Buffer containing the packet.
   size_t m_offset;                                 ///< Offset into the buffer to start at.
   Status m_constructorStatus;                      ///< Status of the constructor.
@@ -1101,7 +1107,7 @@ public:
 
 protected:
   /// @brief Construct a message and store it into a buffer from a StreamPacket.
-  /// @param [in] packet Pointer to the StreamPacket containing the message.
+  /// @param [in] packet The StreamPacket containing the message.
   /// @param [in] parameterSize Size of the parameters for the message.
   /// @param [in] timeCode Time code for the message.
   /// @param [in] type Type of the message.
@@ -1109,7 +1115,9 @@ protected:
 
   /// @brief Construct a message that points at an existing buffer in a StreamPacket.
   /// @param [in] existingBuffer Pointer to the buffer containing the message.
-  /// @param [in] offset Offset into the buffer to the start of the message.
+  /// @param [in] offset Offset into the buffer to the start of the message.  This is the
+  /// total offset, so if the message is in a StreamPacket, it will be the offset into
+  /// the StreamPacket plus the offset into the message.
   Message(std::shared_ptr<std::vector<uint8_t>> existingBuffer, uint32_t offset);
 
   Status m_constructorStatus;                       ///< Status of the constructor.
