@@ -174,7 +174,7 @@ int main(int argc, char* argv[])
   std::cout << "The parameters here must match those used by the receiver except for threads must evenly divide cameras." << std::endl;
   std::cout << "NICName specifies the IP address on a NIC to be used for sending, default uses the system-selected port" << std::endl;
   std::cout << "If directory is not specified, the data is all zeroes." << std::endl;
-  std::cout << "If directory is specified, the data is read to files in that directory." << std::endl;
+  std::cout << "If directory is specified, the data is read from files in that directory." << std::endl;
   std::cout << std::endl;
   std::cout << "Cameras: " << cameras << std::endl;
   std::cout << "Threads: " << threads << std::endl;
