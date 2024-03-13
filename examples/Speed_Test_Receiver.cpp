@@ -115,11 +115,12 @@ static void saveDataThread(std::atomic<bool>& done,
 }
 
 static void receiveDataThread(ReceiverUDP& receiveSocket, size_t bytesPerPacket, size_t totalPackets,
-  std::mutex& printMutex, std::atomic<bool> &broken, std::string fileName)
+  std::mutex& printMutex, std::atomic<bool> &broken, std::string fileName, int packetsPerWrite)
 {
-  std::vector<uint8_t> buffer(bytesPerPacket);
+  // Accumulate multiple packets into a buffer and then write it in blocks
+  std::vector<uint8_t> buffer(bytesPerPacket * packetsPerWrite);
   unsigned packetsReceived = 0;
-  std::vector<char> copyBuffer(bytesPerPacket);
+  std::vector<char> copyBuffer(buffer.size());
 
   // Thread to handle saving data to file and associated resources
   std::thread saveThread;
@@ -144,9 +145,25 @@ static void receiveDataThread(ReceiverUDP& receiveSocket, size_t bytesPerPacket,
   // These packets are all multiples of the sector size, so we don't need to worry about
   // partial writes to disk.
   while (packetsReceived < totalPackets) {
-    size_t size = buffer.size();
-    Status status = receiveSocket.ReceiveBuffer(buffer.data(), size);
-    if (size != buffer.size()) {
+
+    // Find out which block we are.  If we are at the end of a block, copy the whole block.
+    size_t which = packetsReceived % packetsPerWrite;
+    if (which == 0 && packetsReceived > 0) {
+      if (sender) {
+        // Copy the data to file.
+        std::shared_ptr< std::vector<uint8_t> > data = std::make_shared< std::vector<uint8_t> >(buffer);
+        queue.enqueue(data);
+      } else {
+        // Here, we check the data and then copy it to an external buffer on the heap, which would be a
+        // pinned GPU memory buffer for the real code.
+        memcpy(copyBuffer.data(), buffer.data(), copyBuffer.size());
+      }
+    }
+
+    // Copy into the correct part of the buffer, round-robin filling it up.
+    size_t size = bytesPerPacket;
+    Status status = receiveSocket.ReceiveBuffer(buffer.data() + which * bytesPerPacket, size);
+    if (size != bytesPerPacket) {
       std::lock_guard<std::mutex> lock(printMutex);
       std::cerr << "Error: Received " << size << " bytes but expected " << buffer.size() << std::endl;
       broken = true;
@@ -158,25 +175,31 @@ static void receiveDataThread(ReceiverUDP& receiveSocket, size_t bytesPerPacket,
     }
 
     // Verify that the data is correct and we haven't missed any packets
-    if (buffer[0] != (packetsReceived % 256)) {
+    if (buffer[0 + which * bytesPerPacket] != (packetsReceived % 256)) {
       std::lock_guard<std::mutex> lock(printMutex);
-      std::cerr << "Error: Expected " << (packetsReceived % 256) << " but got " << (int)buffer[0] << std::endl;
+      std::cerr << "Error: Expected " << (packetsReceived % 256) << " but got " << (int)buffer[0 + which * bytesPerPacket] << std::endl;
       broken = true;
       break;
     }
 
+    // Increment the number of packets received
+    packetsReceived++;
+  }
+
+  // Write the final block of data to file if there is data remaining to be sent.  We
+  // copy the whole block even if it is not full.
+  size_t which = packetsReceived % packetsPerWrite;
+  if (which != 0) {
     if (sender) {
       // Copy the data to file.
       std::shared_ptr< std::vector<uint8_t> > data = std::make_shared< std::vector<uint8_t> >(buffer);
       queue.enqueue(data);
-    } else {
+    }
+    else {
       // Here, we check the data and then copy it to an external buffer on the heap, which would be a
       // pinned GPU memory buffer for the real code.
-      memcpy(copyBuffer.data(), buffer.data(), bytesPerPacket);
+      memcpy(copyBuffer.data(), buffer.data(), copyBuffer.size());
     }
-
-    // Increment the number of packets received
-    packetsReceived++;
   }
 
   // If we have a thread, time how long it takes it to finish writing everything to disk.
@@ -204,6 +227,7 @@ int main(int argc, char* argv[])
   int secondsWorth = 10;
   std::string IP = "localhost";
   int port = 12000;
+  int packetsPerWrite = 1;
   std::string directory;
   size_t realParams = 0;
 
@@ -219,6 +243,8 @@ int main(int argc, char* argv[])
       IP = argv[++i];
     } else if (arg == "--port") {
       port = std::stoi(argv[++i]);
+    } else if (arg == "--packetsPerWrite") {
+      packetsPerWrite = std::stoi(argv[++i]);
     } else if (arg[0] == '-') {
       std::cerr << "Unknown option: " << arg << std::endl;
       return 1;
@@ -238,7 +264,7 @@ int main(int argc, char* argv[])
   std::cout << "ASDP Speed Test Receiver" << std::endl;
   std::cout << "Listens for data from the Speed_Test_Sender and checks for dropped packets" << std::endl;
   std::cout << "Run this before running the sender." << std::endl;
-  std::cout << "Usage: Speed_Test_Receiver [--cameras <number>] [--fps <number>] [--secondsWorth <number>] [--IP <string>] [--port <number>] [directory]" << std::endl;
+  std::cout << "Usage: Speed_Test_Receiver [--cameras <number>] [--fps <number>] [--secondsWorth <number>] [--IP <string>] [--port <number>] [--packetsPerWrite <number>] [directory]" << std::endl;
   std::cout << "       It listens on the port specified and a number above it for each camera." << std::endl;
   std::cout << "The parameters here must match those used by the sender." << std::endl;
   std::cout << "If directory is not specified, the data is copied to a memory buffer" << std::endl;
@@ -247,6 +273,7 @@ int main(int argc, char* argv[])
   std::cout << std::endl;
   std::cout << "Cameras: " << cameras << std::endl;
   std::cout << "FPS: " << fps << std::endl;
+  std::cout << "Blocks per write: " << packetsPerWrite << std::endl;
   std::cout << "Seconds worth of data: " << secondsWorth << std::endl;
   std::cout << "Listening on IP:Port and following " << IP << ":" << port << std::endl;
   if (directory.size() > 0) {
@@ -283,7 +310,7 @@ int main(int argc, char* argv[])
       }
     }
     std::thread receiver(receiveDataThread, std::ref(receiveSockets[i]), bytesPerPacket,
-      totalPacketsPerCamera, std::ref(printMutex), std::ref(broken), fileName);
+      totalPacketsPerCamera, std::ref(printMutex), std::ref(broken), fileName, packetsPerWrite);
     receivers.push_back(std::move(receiver));
   }
 
