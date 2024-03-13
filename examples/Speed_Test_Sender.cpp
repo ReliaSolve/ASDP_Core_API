@@ -47,6 +47,8 @@ static void sendDataThread(std::vector<SenderUDP> sendSockets, std::atomic<bool>
   std::chrono::time_point<std::chrono::steady_clock> startTime = std::chrono::steady_clock::now();
 
   // Loop through the packets and send each when it is time
+  size_t missedDurations = 0;
+  size_t largestMissedDuration = 0;
   for (int packetNum = 0; packetNum < totalPackets; ++packetNum) {
 
     // Determine the time when the next packet should be sent by adding the
@@ -55,9 +57,20 @@ static void sendDataThread(std::vector<SenderUDP> sendSockets, std::atomic<bool>
       startTime + std::chrono::microseconds(static_cast<uint64_t>(packetNum * packetPeriodMicroseconds));
 
     // Wait until the next packet should be sent
+    std::chrono::time_point<std::chrono::steady_clock> now;
     do {
-      auto now = std::chrono::steady_clock::now();
+      now = std::chrono::steady_clock::now();
     } while (std::chrono::steady_clock::now() < nextPacketTime);
+
+    // Report if we missed an entire frame.
+    auto interval = std::chrono::duration_cast<std::chrono::microseconds>(now - nextPacketTime);
+    if (interval > std::chrono::microseconds(static_cast<uint64_t>(packetPeriodMicroseconds))) {
+      size_t missed = static_cast<uint32_t>(interval.count() / packetPeriodMicroseconds);
+      missedDurations += missed;
+      if (missed > largestMissedDuration) {
+        largestMissedDuration = missed;
+      }
+    }
 
     if (false) {
       std::lock_guard<std::mutex> lock(printMutex);
@@ -91,13 +104,17 @@ static void sendDataThread(std::vector<SenderUDP> sendSockets, std::atomic<bool>
     }
   }
 
-  // Report how many packets per second were sent
+  // Report how many packets per second were sent and tell about any missed durations
   auto now = std::chrono::steady_clock::now();
   double seconds = std::chrono::duration_cast<std::chrono::duration<double>>(now - startTime).count();
   std::lock_guard<std::mutex> lock(printMutex);
-  std::cout << "Sent " << totalPackets << " packets in " << seconds << " seconds: "
-    << totalPackets / seconds << " packets/sec; " << totalPackets / seconds / packetsPerFrame
-    << " frames/sec to each of " << sendSockets.size() << " cameras" << std::endl;
+  std::cout << "Sent for " << seconds << " sec: "
+    << totalPackets / seconds << " p/s; " << totalPackets / seconds / packetsPerFrame
+    << " frames/s to each of " << sendSockets.size() << " cameras" << std::endl;
+  if (missedDurations) {
+    std::cout << "*** Missed " << missedDurations << " packet durations, largest single gap = "
+      << largestMissedDuration << std::endl;
+  }
 }
 
 int main(int argc, char* argv[])
