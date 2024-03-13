@@ -186,20 +186,17 @@ static void receiveDataThread(ReceiverUDP& receiveSocket, size_t bytesPerPacket,
     packetsReceived++;
   }
 
-  // Write the final block of data to file if there is data remaining to be sent.  We
-  // copy the whole block even if it is not full.
+  // Write the final block of data to file.  We copy the whole block even if it is not full.
   size_t which = packetsReceived % packetsPerWrite;
-  if (which != 0) {
-    if (sender) {
-      // Copy the data to file.
-      std::shared_ptr< std::vector<uint8_t> > data = std::make_shared< std::vector<uint8_t> >(buffer);
-      queue.enqueue(data);
-    }
-    else {
-      // Here, we check the data and then copy it to an external buffer on the heap, which would be a
-      // pinned GPU memory buffer for the real code.
-      memcpy(copyBuffer.data(), buffer.data(), copyBuffer.size());
-    }
+  if (sender) {
+    // Copy the data to file.
+    std::shared_ptr< std::vector<uint8_t> > data = std::make_shared< std::vector<uint8_t> >(buffer);
+    queue.enqueue(data);
+  }
+  else {
+    // Here, we check the data and then copy it to an external buffer on the heap, which would be a
+    // pinned GPU memory buffer for the real code.
+    memcpy(copyBuffer.data(), buffer.data(), copyBuffer.size());
   }
 
   // If we have a thread, time how long it takes it to finish writing everything to disk.
