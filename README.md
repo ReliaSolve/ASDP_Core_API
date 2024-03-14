@@ -27,7 +27,7 @@ Linux, this can be generated as follows:
 **Test:** CMake includes the concept of test applications. You can run the tests
 by running `make test` in the build directory.
 
-### Compiling C++ programs against the installed library
+## Compiling C++ programs against the installed library
 
 When using CMake, the following lines in the CMakeLists.txt file will set the include directory
 and link the program against the installed library:
@@ -45,3 +45,21 @@ and its dependencies.  The C++ programs use C++-11.  An example compilation for 
 ASDP_Core_Test.cpp program follows:
 
 ``c++ --std=c++11 ASDP_Core_Test.cpp -o ASDP_Core_Test -lASDP_Core_API -lpthread``
+
+## Included utility classes.
+
+There are also utility classes included in the library, each of which has an associated
+header file.  These include:
+- **ASDP_Buffer_Pool** - A thread-safe asdp::BufferPool class to manage a pool of buffers.
+
+## Included system test programs
+
+The program **Speed_Test_Receiver** can be used to test the speed of the communications
+protocol, including the option to test the speed of writing to output files.  It pairs
+with the *Speed_Test_Sender* program to enable tests to be run.  The default behavior
+is to run using loopback for 10 seconds with 25 cameras at 60 Hz. It does not use the
+actual camera message types or StreamPackets, but it does verify that no packets are
+skipped.  The program describes its usage when it is run.
+
+The program **Speed_Test_Sender** pairs with the *Speed_Test_Receiver* program to enable
+tests to be run.  The program describes its usage when it is run.

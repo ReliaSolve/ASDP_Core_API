@@ -68,13 +68,17 @@ if(WIN32)
 else()
 	set(asdp_SHARED_LIBRARY_DIR "${CMAKE_INSTALL_LIBDIR}")
 endif()
-set (asdp_SOURCES ASDP_Core_API.cpp)
+set (asdp_SOURCES
+  ASDP_Core_API.cpp
+  ASDP_BufferPool.cpp
+)
 
 #-----------------------------------------------------------------------------
 # Build the library.
 
 set (asdp_HEADERS
   ASDP_Core_API.h
+  ASDP_BufferPool.h
 )
 
 add_library(ASDP_Core_API STATIC ${asdp_SOURCES} ${asdp_HEADERS})
