@@ -212,8 +212,8 @@ static void receiveDataThread(ReceiverUDP& receiveSocket, size_t bytesPerPacket,
     std::chrono::time_point<std::chrono::steady_clock> end = std::chrono::steady_clock::now();
     std::chrono::duration<double> elapsed = end - start;
     std::lock_guard<std::mutex> lock(printMutex);
-    std::cout << "Save thread had " << queueSize << " items in the queue" << std::endl;
-    std::cout << "  Time to save data: " << elapsed.count() << " seconds" << std::endl;
+    std::cout << "Save thread had " << queueSize << " items in the queue.  "
+      << "Time to save data: " << elapsed.count() << " seconds" << std::endl;
   }
 }
 
