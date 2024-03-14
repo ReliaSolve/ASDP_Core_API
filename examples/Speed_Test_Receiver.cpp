@@ -13,6 +13,7 @@
 #include <list>
 #include <string.h>
 #include <ASDP_Core_API.h>
+#include <ASDP_BufferPool.h>
 using namespace asdp;
 
 template <typename T> class SpinFreeQueue {
@@ -117,10 +118,16 @@ static void saveDataThread(std::atomic<bool>& done,
 static void receiveDataThread(ReceiverUDP& receiveSocket, size_t bytesPerPacket, size_t totalPackets,
   std::mutex& printMutex, std::atomic<bool> &broken, std::string fileName, int packetsPerWrite)
 {
+  // Generate a buffer pool to use to get pre-allocated buffers for reading the data from
+  // the network and then sending it to the disk-write thread without copying it.  Initially
+  // fill it with 100 buffers.  It will automatically expand if needed.
+  BufferPool bufferPool(bytesPerPacket * packetsPerWrite, 100);
+
   // Accumulate multiple packets into a buffer and then write it in blocks
-  std::vector<uint8_t> buffer(bytesPerPacket * packetsPerWrite);
+  // We have a "copy buffer" that we hand off to when we're not saving to disk.
+  std::shared_ptr< std::vector<uint8_t> > buffer = bufferPool.GetBuffer();
+  std::shared_ptr< std::vector<uint8_t> > copyBuffer;
   unsigned packetsReceived = 0;
-  std::vector<char> copyBuffer(buffer.size());
 
   // Thread to handle saving data to file and associated resources
   std::thread saveThread;
@@ -151,21 +158,21 @@ static void receiveDataThread(ReceiverUDP& receiveSocket, size_t bytesPerPacket,
     if (which == 0 && packetsReceived > 0) {
       if (sender) {
         // Copy the data to file.
-        std::shared_ptr< std::vector<uint8_t> > data = std::make_shared< std::vector<uint8_t> >(buffer);
-        queue.enqueue(data);
+        queue.enqueue(buffer);
       } else {
         // Here, we check the data and then copy it to an external buffer on the heap, which would be a
         // pinned GPU memory buffer for the real code.
-        memcpy(copyBuffer.data(), buffer.data(), copyBuffer.size());
+        copyBuffer = buffer;
       }
+      buffer = bufferPool.GetBuffer();
     }
 
     // Copy into the correct part of the buffer, round-robin filling it up.
     size_t size = bytesPerPacket;
-    Status status = receiveSocket.ReceiveBuffer(buffer.data() + which * bytesPerPacket, size);
+    Status status = receiveSocket.ReceiveBuffer(buffer->data() + which * bytesPerPacket, size);
     if (size != bytesPerPacket) {
       std::lock_guard<std::mutex> lock(printMutex);
-      std::cerr << "Error: Received " << size << " bytes but expected " << buffer.size() << std::endl;
+      std::cerr << "Error: Received " << size << " bytes but expected " << buffer->size() << std::endl;
       broken = true;
       break;
     }
@@ -175,9 +182,9 @@ static void receiveDataThread(ReceiverUDP& receiveSocket, size_t bytesPerPacket,
     }
 
     // Verify that the data is correct and we haven't missed any packets
-    if (buffer[0 + which * bytesPerPacket] != (packetsReceived % 256)) {
+    if ((*buffer)[0 + which * bytesPerPacket] != (packetsReceived % 256)) {
       std::lock_guard<std::mutex> lock(printMutex);
-      std::cerr << "Error: Expected " << (packetsReceived % 256) << " but got " << (int)buffer[0 + which * bytesPerPacket] << std::endl;
+      std::cerr << "Error: Expected " << (packetsReceived % 256) << " but got " << (int)(*buffer)[0 + which * bytesPerPacket] << std::endl;
       broken = true;
       break;
     }
@@ -190,13 +197,11 @@ static void receiveDataThread(ReceiverUDP& receiveSocket, size_t bytesPerPacket,
   size_t which = packetsReceived % packetsPerWrite;
   if (sender) {
     // Copy the data to file.
-    std::shared_ptr< std::vector<uint8_t> > data = std::make_shared< std::vector<uint8_t> >(buffer);
-    queue.enqueue(data);
-  }
-  else {
+    queue.enqueue(buffer);
+  } else {
     // Here, we check the data and then copy it to an external buffer on the heap, which would be a
     // pinned GPU memory buffer for the real code.
-    memcpy(copyBuffer.data(), buffer.data(), copyBuffer.size());
+    copyBuffer = buffer;
   }
 
   // If we have a thread, time how long it takes it to finish writing everything to disk.
