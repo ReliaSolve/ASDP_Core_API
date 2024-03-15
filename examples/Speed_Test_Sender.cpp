@@ -10,6 +10,7 @@
 #include <mutex>
 #include <functional>
 #include <ASDP_Core_API.h>
+#include <ASDP_BufferPool.h>
 #include "SpinFreeQueue.hpp"
 using namespace asdp;
 
@@ -21,9 +22,11 @@ typedef SpinFreeQueue< std::shared_ptr< std::vector<uint8_t> > > Queue;
 /// in the queue until we get to the end of the file or are marked done.
 /// @param receiver The receiver to read from
 /// @param bytesPerPacket The number of bytes in each packet
+/// @param pool The buffer pool to use to get shared pointers to buffers
 /// @param queue The queue to put the data in
 /// @param done A flag to indicate when we are done reading from the file
 static void readFromFileThread(std::shared_ptr<asdp::ReceiverFile> receiver, size_t bytesPerPacket,
+  BufferPool &pool,
   std::shared_ptr<Queue> queue,
   std::atomic<bool> &done)
 {
@@ -33,7 +36,7 @@ static void readFromFileThread(std::shared_ptr<asdp::ReceiverFile> receiver, siz
     // Wait until we have less than 3 packets in the queue, timing out after 1 millisecond
     // so that we can check if we are done.
     if (queue->awaitEmpty(3, std::chrono::milliseconds(1))) {
-      std::shared_ptr< std::vector<uint8_t> > data = std::make_shared< std::vector<uint8_t> >(bytesPerPacket);
+      std::shared_ptr< std::vector<uint8_t> > data = pool.GetBuffer();
       size_t size = data->size();
       Status status = receiver->ReceiveBuffer(data->data(), size);
       data->resize(size);
@@ -70,12 +73,15 @@ static void sendDataThread(std::vector<SenderUDP> sendSockets, std::atomic<bool>
   size_t bytesPerPacket, size_t totalPackets, size_t packetsPerFrame, double packetPeriod,
   std::mutex &printMutex, std::vector<std::string> fileNames)
 {
-  // Get a vector of data to send
+  // Get a vector of data to send in case we're not reading from files
   std::vector< std::vector<uint8_t> > imageDatas;
   for (size_t i = 0; i < sendSockets.size(); ++i) {
     std::vector<uint8_t> imageData(bytesPerPacket);
     imageDatas.push_back(imageData);
   }
+
+  // Get a buffer pool to use for reading from files with 3 buffers per file.
+  BufferPool pool(bytesPerPacket, 3 * fileNames.size());
 
   // Determine the floating-point number of microseconds between packets
   double packetPeriodMicroseconds = packetPeriod * 1e6;
@@ -102,7 +108,7 @@ static void sendDataThread(std::vector<SenderUDP> sendSockets, std::atomic<bool>
       }
       std::shared_ptr<Queue> queue = std::make_shared<Queue>();
       queues.push_back(queue);
-      readThreads.push_back(std::thread(readFromFileThread, receiver, bytesPerPacket,
+      readThreads.push_back(std::thread(readFromFileThread, receiver, bytesPerPacket, std::ref(pool),
         queue, std::ref(done)));
     } else {
       queues.push_back(nullptr);
