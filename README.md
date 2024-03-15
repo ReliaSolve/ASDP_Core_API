@@ -50,7 +50,8 @@ ASDP_Core_Test.cpp program follows:
 
 There are also utility classes included in the library, each of which has an associated
 header file.  These include:
-- **ASDP_Buffer_Pool** - A thread-safe asdp::BufferPool class to manage a pool of buffers.
+- **ASDP_BufferPool** - A thread-safe asdp::BufferPool class to manage a pool of buffers.
+- **ASDP_SpinFreeQueue** - A thread-safe asdp::SpinFreeQueue class to manage a queue without spin-waiting.
 
 ## Included system test programs
 

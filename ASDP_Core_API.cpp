@@ -3,6 +3,7 @@
  */
 
 #include "ASDP_Core_API.h"
+#include "ASDP_SpinFreeQueue.hpp"
 #include <string.h>   // For memcpy
 #include <iostream>
 #include <algorithm>
@@ -7515,6 +7516,68 @@ std::string asdp::Test()
   ret = CoreClient::Test();
   if (ret.size() > 0) {
     return "Error testing Core classes: " + ret;
+  }
+
+  return "";
+}
+
+std::string asdp::SpinFreeQueue_Test()
+{
+  //-------------------------------------------------------------------
+  // Single-threaded tests of basic queue function.
+  {
+    SpinFreeQueue<int> queue;
+    if (queue.size() != 0) {
+      return "Queue size is not zero: " + std::to_string(queue.size());
+    }
+    if (queue.size() != 0) {
+      return "Queue is not empty";
+    }
+    queue.enqueue(1);
+    if (queue.size() != 1) {
+      return "Queue size is not one: " + std::to_string(queue.size());
+    }
+    int value;
+    queue.dequeue(value, std::chrono::milliseconds(0));
+    if (value != 1) {
+      return "Popped value is not 1: " + std::to_string(value);
+    }
+    if (queue.size() != 0) {
+      return "Queue size is not zero: " + std::to_string(queue.size());
+    }
+  }
+
+  //-------------------------------------------------------------------
+  // Multi-threaded tests of basic queue function along with waiting for
+  // the queue to be empty enough for another enqueue to be done.
+  {
+    SpinFreeQueue<int> queue;
+    std::atomic<bool> broken(false);
+    std::thread producer([&queue, &broken]() {
+      for (int i = 0; i < 1000; i++) {
+        if (queue.awaitEmpty(0, std::chrono::milliseconds(1000))) {
+          queue.enqueue(i);
+        } else {
+          broken = true;
+          return;
+        }
+      }
+    });
+    std::thread consumer([&queue, &broken]() {
+      for (int i = 0; i < 1000; i++) {
+        int value;
+        queue.dequeue(value, std::chrono::milliseconds(1000));
+        if (value != i) {
+          broken = true;
+          return;
+        }
+      }
+    });
+    producer.join();
+    consumer.join();
+    if (broken) {
+      return "Multithreaded queue/dequeue failed";
+    }
   }
 
   return "";

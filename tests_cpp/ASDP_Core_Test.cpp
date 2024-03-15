@@ -5,6 +5,7 @@
 #include <iostream>
 #include <ASDP_Core_API.h>
 #include <ASDP_BufferPool.h>
+#include <ASDP_SpinFreeQueue.hpp>
 
 int main(int argc, char** argv)
 {
@@ -18,8 +19,13 @@ int main(int argc, char** argv)
   // Test all utility classes.
   ret = asdp::BufferPool::Test();
   if (ret.size() > 0) {
-    std::cerr << "Buffer_Pool Error: " << ret << std::endl;
+    std::cerr << "BufferPool Error: " << ret << std::endl;
     return 2;
+  }
+  ret = asdp::SpinFreeQueue_Test();
+  if (ret.size() > 0) {
+    std::cerr << "SpinFreeQueue Error: " << ret << std::endl;
+    return 3;
   }
 
   std::cout << "Success" << std::endl;

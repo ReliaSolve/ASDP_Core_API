@@ -14,7 +14,7 @@
 #include <string.h>
 #include <ASDP_Core_API.h>
 #include <ASDP_BufferPool.h>
-#include "SpinFreeQueue.hpp"
+#include <ASDP_SpinFreeQueue.hpp>
 using namespace asdp;
 
 /// @brief Separate thread per receive-data thread to write data to file.

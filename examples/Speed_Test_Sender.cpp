@@ -11,7 +11,7 @@
 #include <functional>
 #include <ASDP_Core_API.h>
 #include <ASDP_BufferPool.h>
-#include "SpinFreeQueue.hpp"
+#include <ASDP_SpinFreeQueue.hpp>
 using namespace asdp;
 
 typedef SpinFreeQueue< std::shared_ptr< std::vector<uint8_t> > > Queue;
