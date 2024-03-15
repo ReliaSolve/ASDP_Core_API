@@ -8,9 +8,64 @@
 #include <thread>
 #include <chrono>
 #include <mutex>
+#include <functional>
 #include <ASDP_Core_API.h>
+#include "SpinFreeQueue.hpp"
 using namespace asdp;
 
+typedef SpinFreeQueue< std::shared_ptr< std::vector<uint8_t> > > Queue;
+
+/// @brief Thread to read data from a file and put it in a queue, keeping the queue at least 3 packets full.
+/// @details This thread enables overlapping disk reads with sending data.  There is one per file
+/// to be read.  It reads data from the file and puts it in the queue, keeping at least 3 packets
+/// in the queue until we get to the end of the file or are marked done.
+/// @param receiver The receiver to read from
+/// @param bytesPerPacket The number of bytes in each packet
+/// @param queue The queue to put the data in
+/// @param done A flag to indicate when we are done reading from the file
+static void readFromFileThread(std::shared_ptr<asdp::ReceiverFile> receiver, size_t bytesPerPacket,
+  std::shared_ptr<Queue> queue,
+  std::atomic<bool> &done)
+{
+  // Read the data from the file and put it in the queue, keeping at least 3 packets in the
+  // queue until we get to the end of the file or are marked done.
+  while (!done) {
+    // Wait until we have less than 3 packets in the queue, timing out after 1 millisecond
+    // so that we can check if we are done.
+    if (queue->awaitEmpty(3, std::chrono::milliseconds(1))) {
+      std::shared_ptr< std::vector<uint8_t> > data = std::make_shared< std::vector<uint8_t> >(bytesPerPacket);
+      size_t size = data->size();
+      Status status = receiver->ReceiveBuffer(data->data(), size);
+      data->resize(size);
+      if ((status != OKAY) || (size != bytesPerPacket)) {
+        // Done reading from the file.
+        return;
+      }
+      queue->enqueue(data);
+    }
+  }
+}
+
+/// @brief A class to call a function when it goes out of scope.
+class Finally {
+public:
+  explicit Finally(std::function<void()> f) : f_(std::move(f)) {}
+  ~Finally() { f_(); }
+
+private:
+  std::function<void()> f_;
+};
+
+/// @brief Thread to send data to a vector of receivers at a specified rate.
+/// @param sendSockets The sockets to send data to
+/// @param beginSending A flag to indicate when to start sending
+/// @param bytesPerPacket The number of bytes in each packet
+/// @param totalPackets The total number of packets to send
+/// @param packetsPerFrame The number of packets per frame
+/// @param packetPeriod The period between packets in seconds
+/// @param printMutex A mutex to protect printing
+/// @param fileNames A vector of file names to read data from, one per receiver, or empty strings
+/// for no files.
 static void sendDataThread(std::vector<SenderUDP> sendSockets, std::atomic<bool> &beginSending,
   size_t bytesPerPacket, size_t totalPackets, size_t packetsPerFrame, double packetPeriod,
   std::mutex &printMutex, std::vector<std::string> fileNames)
@@ -25,7 +80,18 @@ static void sendDataThread(std::vector<SenderUDP> sendSockets, std::atomic<bool>
   // Determine the floating-point number of microseconds between packets
   double packetPeriodMicroseconds = packetPeriod * 1e6;
 
-  std::vector< std::shared_ptr<asdp::ReceiverFile> > receivers;
+  // If there are files to read, create receivers for them and also a spin-free queue for each
+  // along with a thread to read the data and put it in the queue.
+  std::atomic_bool done(false);
+  std::vector< std::shared_ptr<Queue> > queues;
+  std::vector<std::thread> readThreads;
+  Finally finally([&]() {
+      // Quit and join our file reading threads
+      done = true;
+      for (auto& thread : readThreads) {
+        thread.join();
+      }
+    });
   for (auto &fileName : fileNames) {
     if (fileName.size() > 0) {
       std::shared_ptr<asdp::ReceiverFile>receiver = std::make_shared<asdp::ReceiverFile>(fileName);
@@ -34,9 +100,12 @@ static void sendDataThread(std::vector<SenderUDP> sendSockets, std::atomic<bool>
           << ": " << ErrorMessage(receiver->GetConstructorStatus()) << std::endl;
         return;
       }
-      receivers.push_back(receiver);
+      std::shared_ptr<Queue> queue = std::make_shared<Queue>();
+      queues.push_back(queue);
+      readThreads.push_back(std::thread(readFromFileThread, receiver, bytesPerPacket,
+        queue, std::ref(done)));
     } else {
-      receivers.push_back(nullptr);
+      queues.push_back(nullptr);
     }
   }
 
@@ -80,15 +149,16 @@ static void sendDataThread(std::vector<SenderUDP> sendSockets, std::atomic<bool>
     // Read or fill in and send the data
     for (size_t i = 0; i < sendSockets.size(); ++i) {
       auto& imageData = imageDatas[i];
-      auto& receiver = receivers[i];
-      if (receiver) {
+      auto& queue = queues[i];
+      // Keep the reference valid for the duration of the loop when we read from the queue
+      std::shared_ptr< std::vector<uint8_t> > ptr;
+      if (queue) {
         size_t size = imageData.size();
-        Status status = receiver->ReceiveBuffer(imageData.data(), size);
-        imageData.resize(size);
-        if (status != OKAY) {
-          std::cerr << "Error receiving data: " << ErrorMessage(status) << std::endl;
+        if (!queue->dequeue(ptr, std::chrono::milliseconds(1000))) {
+          std::cerr << "Error receiving data from queue" << std::endl;
           return;
         }
+        imageData = *ptr;
       } else {
         // Fill the first entry in the image data with the packet number mod 256
         imageData[0] = (packetNum) % 256;
