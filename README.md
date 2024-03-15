@@ -8,7 +8,7 @@ using the approach described in the [ASDP API Implementation](TR-009v06_Core_API
 
 ## Getting Started
 
-**Build:** ASDP_Corei_API uses CMake to configure the builds (though other build
+**Build:** ASDP_Core_API uses CMake to configure the builds (though other build
 systems could be used).  On Ubuntu Linux, this can be done as follows
 
     sudo apt install cmake
