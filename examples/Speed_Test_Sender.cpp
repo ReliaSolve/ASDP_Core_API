@@ -271,7 +271,7 @@ int main(int argc, char* argv[])
   // We send three lines of 1024 pixels of 2 bytes each.
   size_t bytesPerPacket = 1024 * 2 * 3;
 
-  // Create sockets for sending and receiving. There is a batch of them for each sending thread.
+  // Create sockets for sending. There is a batch of them for each sending thread.
   std::vector< std::vector<SenderUDP> > sendSockets;
   std::vector< std::vector<std::string> > fileNames;
   size_t sendsPerThread = cameras / threads;

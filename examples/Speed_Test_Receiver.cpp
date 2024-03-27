@@ -36,8 +36,10 @@ static void saveDataThread(std::atomic<bool>& done,
   }
 }
 
-static void receiveDataThread(ReceiverUDP& receiveSocket, size_t bytesPerPacket, size_t totalPackets,
-  std::mutex& printMutex, std::atomic<bool> &broken, std::string fileName, int packetsPerWrite)
+static void receiveDataThread(std::vector<ReceiverUDP> receiveSockets,
+  size_t bytesPerPacket, size_t totalPackets,
+  std::mutex& printMutex, std::atomic<bool>& broken, std::vector<std::string> fileNames,
+  int packetsPerWrite)
 {
   // Generate a buffer pool to use to get pre-allocated buffers for reading the data from
   // the network and then sending it to the disk-write thread without copying it.  Initially
@@ -146,6 +148,7 @@ static void receiveDataThread(ReceiverUDP& receiveSocket, size_t bytesPerPacket,
 int main(int argc, char* argv[])
 {
   int cameras = 25;
+  int threads = 5;
   float fps = 60.0;
   int secondsWorth = 10;
   std::string IP = "localhost";
@@ -158,6 +161,8 @@ int main(int argc, char* argv[])
     std::string arg = argv[i];
     if (arg == "--cameras") {
       cameras = std::stoi(argv[++i]);
+    } else if (arg == "--threads") {
+      threads = std::stoi(argv[++i]);
     } else if (arg == "--fps") {
       fps = std::stof(argv[++i]);
     } else if (arg == "--secondsWorth") {
@@ -184,10 +189,15 @@ int main(int argc, char* argv[])
     }
   }
 
+  if ((cameras / threads) * threads != cameras) {
+    std::cerr << "Threads must divide the number of cameras" << std::endl;
+    return 2;
+  }
+
   std::cout << "ASDP Speed Test Receiver" << std::endl;
   std::cout << "Listens for data from the Speed_Test_Sender and checks for dropped packets" << std::endl;
   std::cout << "Run this before running the sender." << std::endl;
-  std::cout << "Usage: Speed_Test_Receiver [--cameras <number>] [--fps <number>] [--secondsWorth <number>] [--IP <string>] [--port <number>] [--packetsPerWrite <number>] [directory]" << std::endl;
+  std::cout << "Usage: Speed_Test_Receiver [--cameras <number>] [--threads <number>] [--fps <number>] [--secondsWorth <number>] [--IP <string>] [--port <number>] [--packetsPerWrite <number>] [directory]" << std::endl;
   std::cout << "       It listens on the port specified and a number above it for each camera." << std::endl;
   std::cout << "The parameters here must match those used by the sender." << std::endl;
   std::cout << "If directory is not specified, the data is copied to a memory buffer" << std::endl;
@@ -195,6 +205,7 @@ int main(int argc, char* argv[])
   std::cout << "If directory is specified, the data is written to files in that directory" << std::endl;
   std::cout << std::endl;
   std::cout << "Cameras: " << cameras << std::endl;
+  std::cout << "Threads: " << threads << std::endl;
   std::cout << "FPS: " << fps << std::endl;
   std::cout << "Blocks per write: " << packetsPerWrite << std::endl;
   std::cout << "Seconds worth of data: " << secondsWorth << std::endl;
@@ -210,30 +221,40 @@ int main(int argc, char* argv[])
   // We receive three lines of 1024 pixels of 2 bytes each.
   size_t bytesPerPacket = 1024 * 2 * 3;
 
-  // Create the receive sockets.
-  std::vector<ReceiverUDP> receiveSockets;
-  for (unsigned i = 0; i < cameras; i++) {
-    receiveSockets.push_back(ReceiverUDP(IP, port + i));
-    if (receiveSockets.back().GetConstructorStatus() != OKAY) {
-      std::cerr << "Error creating receive socket: " << receiveSockets.back().GetConstructorStatus() << std::endl;
-      return 2;
+  // Create the receive sockets. There is a batch of them for each receiving thread.
+  std::vector< std::vector<ReceiverUDP> > recvSockets;
+  std::vector< std::vector<std::string> > fileNames;
+  size_t recvsPerThread = cameras / threads;
+  for (unsigned i = 0; i < threads; i++) {
+    std::vector<ReceiverUDP> myRecvSockets;
+    std::vector<std::string> myFileNames;
+    for (unsigned j = 0; j < recvsPerThread; j++) {
+      myRecvSockets.push_back(ReceiverUDP(IP, port + j + i * recvsPerThread));
+      if (myRecvSockets.back().GetConstructorStatus() != OKAY) {
+        std::cerr << "Error creating receive socket: " << myRecvSockets.back().GetConstructorStatus() << std::endl;
+        return 3;
+      }
+      std::string fileName;
+      if (directory.size() > 0) {
+        fileName = directory + "/" + std::to_string(i * threads + j + 1) + ".asdp";
+        if ((directory == "/dev/null") || (directory == "NUL:")) {
+          fileName = directory;
+        }
+      }
+      myFileNames.push_back(fileName);
     }
+    recvSockets.push_back(myRecvSockets);
+    fileNames.push_back(myFileNames);
   }
 
   // Start the specified number of threads.
   std::mutex printMutex;
   std::atomic<bool> broken(false);
   std::vector<std::thread> receivers;
-  for (unsigned i = 0; i < cameras; i++) {
+  for (unsigned i = 0; i < threads; i++) {
     std::string fileName;
-    if (directory.size() > 0) {
-      fileName = directory + "/" + std::to_string(i + 1) + ".asdp";
-      if ((directory == "/dev/null") || (directory == "NUL:")) {
-        fileName = directory;
-      }
-    }
-    std::thread receiver(receiveDataThread, std::ref(receiveSockets[i]), bytesPerPacket,
-      totalPacketsPerCamera, std::ref(printMutex), std::ref(broken), fileName, packetsPerWrite);
+    std::thread receiver(receiveDataThread, recvSockets[i], bytesPerPacket,
+      totalPacketsPerCamera, std::ref(printMutex), std::ref(broken), fileNames[i], packetsPerWrite);
     receivers.push_back(std::move(receiver));
   }
 
@@ -253,7 +274,7 @@ int main(int argc, char* argv[])
 
   // Clean up resources
   receivers.clear();
-  receiveSockets.clear();
+  recvSockets.clear();
 
   return ret;
 }
