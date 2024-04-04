@@ -8,7 +8,7 @@
  * @file ASDP_Core_API.h
  * @brief Apache Strap-Down Pilotage Core C++ API exposed as a static library.
  *
-* @author Russell Taylor.
+* @author ReliaSolve.
 * @date January 22, 2024.
 */
 

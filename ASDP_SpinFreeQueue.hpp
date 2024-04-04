@@ -8,7 +8,7 @@
  * @file ASDP_SpinFreeQueue.hpp
  * @brief Apache Strap-Down Pilotage utility class to provide a thread-safe spin-free queue.
  *
- * @author Russell Taylor.
+ * @author ReliaSolve.
  * @date March 15, 2024.
  */
 
@@ -24,7 +24,7 @@ template <typename T> class SpinFreeQueue {
 private:
   /// @brief A node in the queue with a pointer to the next node.
   struct Node {
-    T data;                 ///< The data in the node.
+    T data = { };           ///< The data in the node.
     Node* next = nullptr;   ///< The next node in the queue, nullptr for the end.
   };
 

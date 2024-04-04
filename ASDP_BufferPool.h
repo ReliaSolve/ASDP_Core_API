@@ -8,7 +8,7 @@
 * @file ASDP_BufferPool.h
 * @brief Apache Strap-Down Pilotage utility class to provide a pre-allocated pool of buffers.
 *
-* @author Russell Taylor.
+* @author ReliaSolve.
 * @date March 14, 2024.
 */
 
