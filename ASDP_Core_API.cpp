@@ -7566,12 +7566,13 @@ static void TimerTestThread(SpinFreeAccurateTimer& timer, std::shared_ptr<std::c
     cv->wait(lk);
     auto end = std::chrono::steady_clock::now();
     diff = end - start;
-    if (diff < std::chrono::milliseconds(100 * (i + 1))) {
+    if ((diff < std::chrono::milliseconds(100 * (i + 1))) ||
+        (diff > std::chrono::milliseconds(100 * (i + 1)) + std::chrono::microseconds(200))) {
       *ret = false;
       return;
     }
   }
-  if (diff > std::chrono::milliseconds(600)) {
+  if (diff > std::chrono::milliseconds(401)) {
     *ret = false;
     return;
   }
@@ -7598,11 +7599,12 @@ std::string asdp::SpinFreeAccurateTimer::Test()
       cv->wait(lk);
       auto end = std::chrono::steady_clock::now();
       diff = end - start;
-      if (diff < std::chrono::milliseconds(100 * (i + 1))) {
-        return "Timer fired too soon: " + std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(diff).count());
+      if ((diff < std::chrono::milliseconds(100 * (i + 1))) ||
+        (diff > std::chrono::milliseconds(100 * (i + 1)) + std::chrono::microseconds(200))) {
+        return "Timer fired wrong time: " + std::to_string(std::chrono::duration_cast<std::chrono::microseconds>(diff).count()/1e3);
       }
     }
-    if (diff > std::chrono::milliseconds(600)) {
+    if (diff > std::chrono::milliseconds(401)) {
       return "Timer fired too late: " + std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(diff).count());
     }
   }
