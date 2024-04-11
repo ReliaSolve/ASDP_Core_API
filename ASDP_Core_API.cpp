@@ -4,7 +4,7 @@
 
 #include "ASDP_Core_API.h"
 #include "ASDP_SpinFreeQueue.hpp"
-#include "ASDP_SpinFreeAccurateTimer.h"
+#include "ASDP_SpinFreeAccurateTimer.hpp"
 #include <string.h>   // For memcpy
 #include <iostream>
 #include <algorithm>
@@ -7524,125 +7524,12 @@ std::string asdp::Test()
   return "";
 }
 
-SpinFreeAccurateTimer::SpinFreeAccurateTimer()
-{
-  // Start the timer thread.
-  t = std::thread([this] { timerThread(); });
-}
-
-SpinFreeAccurateTimer::~SpinFreeAccurateTimer()
-{
-  // Signal the timer thread to stop.
-  done = true;
-  t.join();
-}
-
-void SpinFreeAccurateTimer::AddEntry(std::chrono::steady_clock::time_point time, std::shared_ptr<std::condition_variable> cv)
-{
-  std::lock_guard<std::mutex> lk(mut);
-  // Insert the new entry in increasing-time order.
-  auto it = entries.begin();
-  while ((it != entries.end()) && (it->time < time)) {
-    ++it;
-  }
-  Entry entry;
-  entry.time = time;
-  entry.cv = cv;
-  entries.insert(it, entry);
-}
-
-static void TimerTestThread(SpinFreeAccurateTimer& timer, std::shared_ptr<std::condition_variable> cv,
-  std::shared_ptr<std::atomic_bool> ret)
-{
-  std::mutex mut;
-  auto start = std::chrono::steady_clock::now();
-  timer.AddEntry(start + std::chrono::milliseconds(400), cv);
-  timer.AddEntry(start + std::chrono::milliseconds(100), cv);
-  timer.AddEntry(start + std::chrono::milliseconds(200), cv);
-  timer.AddEntry(start + std::chrono::milliseconds(300), cv);
-  std::chrono::steady_clock::duration diff;
-  for (size_t i = 0; i < 4; i++) {
-    std::unique_lock<std::mutex> lk(mut);
-    cv->wait(lk);
-    auto end = std::chrono::steady_clock::now();
-    diff = end - start;
-    if ((diff < std::chrono::milliseconds(100 * (i + 1))) ||
-        (diff > std::chrono::milliseconds(100 * (i + 1)) + std::chrono::microseconds(200))) {
-      *ret = false;
-      return;
-    }
-  }
-  if (diff > std::chrono::milliseconds(401)) {
-    *ret = false;
-    return;
-  }
-  *ret = true;
-  return;
-}
-
-std::string asdp::SpinFreeAccurateTimer::Test()
-{
-  //-------------------------------------------------------------------
-  // Single-threaded tests of basic timer function.
-  {
-    asdp::SpinFreeAccurateTimer timer;
-    std::mutex mut;
-    std::shared_ptr<std::condition_variable> cv(new std::condition_variable());
-    auto start = std::chrono::steady_clock::now();
-    timer.AddEntry(start + std::chrono::milliseconds(400), cv);
-    timer.AddEntry(start + std::chrono::milliseconds(100), cv);
-    timer.AddEntry(start + std::chrono::milliseconds(200), cv);
-    timer.AddEntry(start + std::chrono::milliseconds(300), cv);
-    std::chrono::steady_clock::duration diff;
-    for (size_t i = 0; i < 4; i++) {
-      std::unique_lock<std::mutex> lk(mut);
-      cv->wait(lk);
-      auto end = std::chrono::steady_clock::now();
-      diff = end - start;
-      if ((diff < std::chrono::milliseconds(100 * (i + 1))) ||
-        (diff > std::chrono::milliseconds(100 * (i + 1)) + std::chrono::microseconds(200))) {
-        return "Timer fired wrong time: " + std::to_string(std::chrono::duration_cast<std::chrono::microseconds>(diff).count()/1e3);
-      }
-    }
-    if (diff > std::chrono::milliseconds(401)) {
-      return "Timer fired too late: " + std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(diff).count());
-    }
-  }
-
-  //-------------------------------------------------------------------
-  // Multi-threaded tests of basic timer function.
-  {
-    SpinFreeAccurateTimer timer;
-    std::vector< std::shared_ptr<std::condition_variable> > cvs;
-    std::vector< std::shared_ptr<std::atomic_bool> > rets;
-    std::vector< std::thread > threads;
-    for (size_t i = 0; i < 10; i++) {
-      std::shared_ptr<std::condition_variable> cv(new std::condition_variable());
-      std::shared_ptr<std::atomic_bool> ret(new std::atomic_bool(false));
-      cvs.push_back(cv);
-      rets.push_back(ret);
-      threads.push_back(std::thread(TimerTestThread, std::ref(timer), cv, ret));
-    }
-    for (auto& thread : threads) {
-      thread.join();
-    }
-    for (auto ret : rets) {
-      if (!(*ret)) {
-        return "Timer test thread failed";
-      }
-    }
-  }
-
-  return "";
-
-}
-
 std::string asdp::SpinFreeQueue_Test()
 {
   //-------------------------------------------------------------------
   // Single-threaded tests of basic queue function.
   {
-    SpinFreeQueue<int> queue;
+    asdp::SpinFreeQueue<int> queue;
     if (queue.size() != 0) {
       return "Queue size is not zero: " + std::to_string(queue.size());
     }
@@ -7693,6 +7580,96 @@ std::string asdp::SpinFreeQueue_Test()
     consumer.join();
     if (broken) {
       return "Multithreaded queue/dequeue failed";
+    }
+  }
+
+  return "";
+}
+
+static void TimerTestThread(SpinFreeAccurateTimer<int>& timer, std::shared_ptr< SpinFreeQueue<int> > queue,
+  std::shared_ptr<std::atomic_bool> ret)
+{
+  int element = 0;
+  auto start = std::chrono::steady_clock::now();
+  timer.AddEntry(start + std::chrono::milliseconds(400), element, queue);
+  timer.AddEntry(start + std::chrono::milliseconds(100), element, queue);
+  timer.AddEntry(start + std::chrono::milliseconds(200), element, queue);
+  timer.AddEntry(start + std::chrono::milliseconds(300), element, queue);
+  std::chrono::steady_clock::duration diff;
+  for (size_t i = 0; i < 4; i++) {
+    int value;
+    if (!queue->dequeue(value, std::chrono::milliseconds(1000))) {
+      *ret = false;
+      return;
+    }
+    auto end = std::chrono::steady_clock::now();
+    diff = end - start;
+    if ((diff < std::chrono::milliseconds(100 * (i + 1))) ||
+      (diff > std::chrono::milliseconds(100 * (i + 1)) + std::chrono::microseconds(200))) {
+      *ret = false;
+      return;
+    }
+  }
+  if (diff > std::chrono::milliseconds(401)) {
+    *ret = false;
+    return;
+  }
+  *ret = true;
+  return;
+}
+
+std::string asdp::SpinFreeAccurateTimer_Test()
+{
+  //-------------------------------------------------------------------
+  // Single-threaded tests of basic timer function.
+  {
+    asdp::SpinFreeAccurateTimer<int> timer;
+    int element = 0;
+    std::shared_ptr< SpinFreeQueue<int> > queue(new SpinFreeQueue<int>());
+    auto start = std::chrono::steady_clock::now();
+    timer.AddEntry(start + std::chrono::milliseconds(400), element, queue);
+    timer.AddEntry(start + std::chrono::milliseconds(100), element, queue);
+    timer.AddEntry(start + std::chrono::milliseconds(200), element, queue);
+    timer.AddEntry(start + std::chrono::milliseconds(300), element, queue);
+    std::chrono::steady_clock::duration diff;
+    for (size_t i = 0; i < 4; i++) {
+      int value;
+      if (!queue->dequeue(value, std::chrono::milliseconds(1000))) {
+        return "Queue did not empty in time";
+      }
+      auto end = std::chrono::steady_clock::now();
+      diff = end - start;
+      if ((diff < std::chrono::milliseconds(100 * (i + 1))) ||
+        (diff > std::chrono::milliseconds(100 * (i + 1)) + std::chrono::microseconds(200))) {
+        return "Timer fired wrong time: " + std::to_string(std::chrono::duration_cast<std::chrono::microseconds>(diff).count() / 1e3);
+      }
+    }
+    if (diff > std::chrono::milliseconds(401)) {
+      return "Timer fired too late: " + std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(diff).count());
+    }
+  }
+
+  //-------------------------------------------------------------------
+  // Multi-threaded tests of basic timer function.
+  {
+    SpinFreeAccurateTimer<int> timer;
+    std::vector< std::shared_ptr< SpinFreeQueue<int> > > queues;
+    std::vector< std::shared_ptr<std::atomic_bool> > rets;
+    std::vector< std::thread > threads;
+    for (size_t i = 0; i < 10; i++) {
+      std::shared_ptr<SpinFreeQueue<int> > queue(new SpinFreeQueue<int>);
+      std::shared_ptr<std::atomic_bool> ret(new std::atomic_bool(false));
+      queues.push_back(queue);
+      rets.push_back(ret);
+      threads.push_back(std::thread(TimerTestThread, std::ref(timer), queue, ret));
+    }
+    for (auto& thread : threads) {
+      thread.join();
+    }
+    for (auto ret : rets) {
+      if (!(*ret)) {
+        return "Timer test thread failed";
+      }
     }
   }
 

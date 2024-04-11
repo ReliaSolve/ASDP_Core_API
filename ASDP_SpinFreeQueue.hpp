@@ -21,26 +21,6 @@ namespace asdp {
 
 /// @brief A thread-safe spin-free queue.
 template <typename T> class SpinFreeQueue {
-private:
-  /// @brief A node in the queue with a pointer to the next node.
-  struct Node {
-    T data = { };           ///< The data in the node.
-    Node* next = nullptr;   ///< The next node in the queue, nullptr for the end.
-  };
-
-  Node* head;               ///< The head of the queue, nullptr if empty.
-  Node* tail;               ///< The tail of the queue, nullptr if empty.
-  std::atomic<size_t> nodes;///< The number of nodes in the queue.
-
-  /// Condition variable and its mutex for dequeue to avoid spin-wait for getting data
-  std::condition_variable dcv;
-
-  /// Condition variable and its mutex for enqueue to avoid spin-wait for queue depletion
-  std::condition_variable ecv;
-
-  /// Mutex for adjusting the queue and for the condition variables
-  std::mutex mut;
-
 public:
   /// @brief Constructor.
   SpinFreeQueue() : head(nullptr), tail(nullptr), nodes(0) { }
@@ -125,6 +105,27 @@ public:
   size_t size() const {
     return nodes;
   }
+
+private:
+  /// @brief A node in the queue with a pointer to the next node.
+  struct Node {
+    T data = { };           ///< The data in the node.
+    Node* next = nullptr;   ///< The next node in the queue, nullptr for the end.
+  };
+
+  Node* head;               ///< The head of the queue, nullptr if empty.
+  Node* tail;               ///< The tail of the queue, nullptr if empty.
+  std::atomic<size_t> nodes;///< The number of nodes in the queue.
+
+  /// Condition variable and its mutex for dequeue to avoid spin-wait for getting data
+  std::condition_variable dcv;
+
+  /// Condition variable and its mutex for enqueue to avoid spin-wait for queue depletion
+  std::condition_variable ecv;
+
+  /// Mutex for adjusting the queue and for the condition variables
+  std::mutex mut;
+
 };
 
 /// @brief Test the SpinFreeQueue class (defined in ASDP_Core_API library).

@@ -80,7 +80,7 @@ set (asdp_HEADERS
   ASDP_Core_API.h
   ASDP_BufferPool.h
   ASDP_SpinFreeQueue.hpp
-  ASDP_SpinFreeAccurateTimer.h
+  ASDP_SpinFreeAccurateTimer.hpp
 )
 
 add_library(ASDP_Core_API STATIC ${asdp_SOURCES} ${asdp_HEADERS})

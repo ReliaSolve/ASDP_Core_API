@@ -6,7 +6,7 @@
 #include <ASDP_Core_API.h>
 #include <ASDP_BufferPool.h>
 #include <ASDP_SpinFreeQueue.hpp>
-#include <ASDP_SpinFreeAccurateTimer.h>
+#include <ASDP_SpinFreeAccurateTimer.hpp>
 
 int main(int argc, char** argv)
 {
@@ -28,7 +28,7 @@ int main(int argc, char** argv)
     std::cerr << "SpinFreeQueue Error: " << ret << std::endl;
     return 3;
   }
-  ret = asdp::SpinFreeAccurateTimer::Test();
+  ret = asdp::SpinFreeAccurateTimer_Test();
   if (ret.size() > 0) {
     std::cerr << "SpinFreeAccurateTimer Error: " << ret << std::endl;
     return 4;
