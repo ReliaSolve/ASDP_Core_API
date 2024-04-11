@@ -7333,7 +7333,7 @@ std::string asdp::Test()
     if (subnetMask != 0xffffffff) {
       return "Error finding subnet mask: " + std::to_string(subnetMask);
     }
-    uint32_t localHostIP = 127 << 24 + 1;
+    uint32_t localHostIP = (127 << 24) + 1;
     uint32_t broadcastAddress = MakeBroadcastAddress(localHostIP);
     if (broadcastAddress != localHostIP) {
       return "Error making broadcast address: " + std::to_string(broadcastAddress);
