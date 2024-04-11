@@ -29,7 +29,7 @@ BufferPool::~BufferPool()
   }
 
   // Clear the buffer pool while holding the lock.
-  std::unique_lock<std::mutex> lock(mtx);
+  std::lock_guard<std::mutex> lock(mtx);
   m_freeBuffers.clear();
 }
 
@@ -41,7 +41,7 @@ std::shared_ptr<std::vector<uint8_t>> BufferPool::GetBuffer()
   }
 
   // If the buffer pool is empty, then we need to allocate a new buffer.
-  std::unique_lock<std::mutex> lock(mtx);
+  std::lock_guard<std::mutex> lock(mtx);
   if (m_freeBuffers.empty()) {
     m_freeBuffers.push_back(std::make_shared<std::vector<uint8_t>>(m_bufferSize));
     m_totalBuffers++;
@@ -53,7 +53,7 @@ std::shared_ptr<std::vector<uint8_t>> BufferPool::GetBuffer()
 
   // Make a shared_ptr that will return the buffer to the pool when it is destroyed.
   return std::shared_ptr<std::vector<uint8_t>>(buffer.get(), [this, buffer](std::vector<uint8_t>*) {
-      std::unique_lock<std::mutex> lock(mtx);
+      std::lock_guard<std::mutex> lock(mtx);
       m_freeBuffers.push_back(buffer);
     });
 }
