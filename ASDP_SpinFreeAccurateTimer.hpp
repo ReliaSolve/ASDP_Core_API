@@ -43,7 +43,7 @@ public:
   /// @param [in] queue The queue to push an element onto when the time comes.
   void AddEntry(std::chrono::steady_clock::time_point time,
                 T element, std::shared_ptr< asdp::SpinFreeQueue<T> > queue) {
-    std::lock_guard<std::mutex> lk(mut);
+    std::lock_guard<std::recursive_mutex> lk(mut);
     // Insert the new entry in increasing-time order.
     auto it = entries.begin();
     while ((it != entries.end()) && (it->time < time)) {
@@ -68,7 +68,7 @@ private:
   std::list<Entry> entries;
 
   /// @brief The mutex to protect the entries list.
-  std::mutex mut;
+  std::recursive_mutex mut;
 
   /// @brief The done flag to signal the timer thread to exit.
   std::atomic_bool done = false;
@@ -83,7 +83,7 @@ private:
       // Push all of the elements whose time has come. They are stored in
       // increasing-time order on the list, so we can stop when we reach the first one
       // that has not yet expired.
-      std::unique_lock<std::mutex> lk(mut);
+      std::unique_lock<std::recursive_mutex> lk(mut);
       while (!entries.empty() && (entries.front().time <= now)) {
         entries.front().queue->enqueue(entries.front().element);
         entries.pop_front();
