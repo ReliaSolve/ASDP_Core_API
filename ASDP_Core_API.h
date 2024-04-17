@@ -131,6 +131,7 @@ enum MessageID : uint32_t {
 /// @brief Event IDs.
 enum EventID : uint32_t {
   INVALID_OPERATION             = 256,
+  INTERNAL_ERROR                = 257,
   UNRECOGNIZED_OPCODE           = 512,
   CLOCK_SYNC                    = 768,
   START_OF_REPLAY               = 769,
@@ -858,7 +859,7 @@ public:
   /// @brief Get the camera to stop streaming to.
   /// @param [out] camera Camera to stop streaming to.
   /// @return OKAY if successful, otherwise an error code.
-  Status GetCamera(uint32_t& camera);
+  Status GetCamera(uint32_t& camera) const;
 
   /// @brief Get the endpoint.
   /// @param [out] endpoint Endpoint to stop streaming to.
@@ -930,11 +931,6 @@ public:
   /// @brief Type-cast a base CommandPacket, re-using its buffer.
   /// @param [in] basePacket The base packet to convert from.
   CommandPacketStreamTemperatures(CommandPacket& basePacket);
-
-  /// @brief Get the interval to stream at.
-  /// @param [out] interval Interval to stream at in seconds.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetInterval(float& interval) const;
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.

@@ -207,7 +207,6 @@ int main(int argc, char** argv)
   // Find the available features on the server so we can ensure that we can or can't
   // issue the relevant commands.  Start by filling them all in with false and then
   // adding the ones that we find in the state.
-  std::cout << "Verifying that the server opcode responses match the reported features." << std::endl;
   std::map<FeatureID, bool> features;
   features[STORAGE_API_AVAILABLE] = false;
   features[TEMPERATURE_API_AVAILABLE] = false;
@@ -227,6 +226,16 @@ int main(int argc, char** argv)
   for (FeatureID feature : availableFeatures) {
     features[feature] = true;
   }
+  std::cout << "  Storage feature = " << features[STORAGE_API_AVAILABLE] << std::endl;
+  std::cout << "  Temperature feature = " << features[TEMPERATURE_API_AVAILABLE] << std::endl;
+  std::cout << "  Pose orientation feature = " << features[POSE_API_ORIENTATION_AVAILABLE] << std::endl;
+  std::cout << "  Pose position feature = " << features[POSE_API_POSITION_AVAILABLE] << std::endl;
+  std::cout << "Verifying that the server opcode responses match the reported features." << std::endl;
+
+  // Report information about the cameras that were found.
+  std::vector<CameraInfo> cameras;
+  status = state.GetCameras(cameras);
+  std::cout << "Found " << cameras.size() << " cameras" << std::endl;
 
   // Test the storage API and see if our getting an invalid opcode matches what we
   // expect.
@@ -309,6 +318,152 @@ int main(int argc, char** argv)
   if (count > 3) {
     std::cerr << "Got too many state messages: " << count << std::endl;
     return 24;
+  }
+
+  // If it can send temperatures, stream and make sure we get at least 1 in 2 seconds.
+  if (features[TEMPERATURE_API_AVAILABLE]) {
+    std::cout << "Checking for temperature messages" << std::endl;
+    status = client.SendCommandPacket(CommandPacketStreamTemperatures());
+    if (status != OKAY) {
+      std::cerr << "Failed to stream temperatures: " << ErrorMessage(status) << std::endl;
+      return 25;
+    }
+    start = std::chrono::high_resolution_clock::now();
+    count = 0;
+    do {
+      std::shared_ptr<Message> msg = WaitForMessageType(receiver, TEMPERATURE, 0.1);
+      if (msg != nullptr) {
+        ++count;
+      }
+    } while (std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - start).count() <= 2.0);
+    if (count < 1) {
+      std::cerr << "Did not get enough temperature messages: " << count << std::endl;
+      return 26;
+    }
+  }
+
+  // If it can send poses, stream and make sure we get at least 1 in 2 seconds.
+  if (features[POSE_API_ORIENTATION_AVAILABLE] || features[POSE_API_POSITION_AVAILABLE]) {
+    std::cout << "Checking for pose messages" << std::endl;
+    status = client.SendCommandPacket(CommandPacketStreamPoses());
+    if (status != OKAY) {
+      std::cerr << "Failed to stream poses: " << ErrorMessage(status) << std::endl;
+      return 27;
+    }
+    start = std::chrono::high_resolution_clock::now();
+    count = 0;
+    do {
+      std::shared_ptr<Message> msg = WaitForMessageType(receiver, POSE, 0.1);
+      if (msg != nullptr) {
+        ++count;
+      }
+    } while (std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - start).count() <= 2.0);
+    if (count < 1) {
+      std::cerr << "Did not get enough pose messages: " << count << std::endl;
+      return 28;
+    }
+
+    // If we have at least one camera, try streaming data from it at its highest rate.
+    for (uint32_t camID = 1; camID <= cameras.size(); camID++) {
+
+      // Find the minimum period for the camera and which internal trigger ID it uses, then
+      // configure the trigger to run at that rate.
+      float minPeriod = cameras[camID - 1].minTriggerPeriod;
+      uint32_t triggerID = cameras[camID - 1].trigger;
+      TriggerInfo ti;
+      ti.ID = triggerID;
+      ti.mode = 1;
+      ti.period = minPeriod;
+      ti.offset = 0;
+      ti.trackingFactor = 0.5;
+      status = client.SendCommandPacket(CommandPacketConfigureTrigger(ti));
+      if (status != OKAY) {
+        std::cerr << "Failed to configure trigger: " << ErrorMessage(status) << std::endl;
+        return 29;
+      }
+      
+      // Construct a UDP receiver for a stream from the camera.
+      ReceiverUDP receiverUDP;
+      if (receiverUDP.GetConstructorStatus() != OKAY) {
+        std::cerr << "Error constructing ReceiverUDP: " << ErrorMessage(receiverUDP.GetConstructorStatus()) << std::endl;
+        return 30;
+      }
+      uint16_t port;
+      asdp::Status status = receiverUDP.GetPort(port);
+      if (status != asdp::OKAY) {
+        std::cerr << "Error getting port from ReceiverUDP: " << ErrorMessage(status) << std::endl;
+        return 31;
+      }
+
+      std::cout << "Checking for image messages from camera " << camID << " on port " << port << std::endl;
+
+      // Request the camera to stream images and make sure we get at least one begin-frame message.
+      StreamEndpoint endpoint(ip_address, port);
+      SubregionDescription region;
+      region.cameraID = camID;
+      region.skipFrames = 0;
+      region.startTimeSeconds = 0;
+      region.startTimeMicroseconds = 0;
+      region.left = 0;
+      region.top = 0;
+      region.right = cameras[camID - 1].width - 1;
+      region.bottom = cameras[camID - 1].height - 1;
+      status = client.SendCommandPacket(CommandPacketStreamSubregion(endpoint, region));
+      if (status != OKAY) {
+        std::cerr << "Failed to stream images: " << ErrorMessage(status) << std::endl;
+        return 32;
+      }
+      start = std::chrono::steady_clock::now();
+      size_t sequenceNumber = 0;
+      size_t numStartFrames = 0;
+      do {
+        std::shared_ptr<asdp::StreamPacket> receiveStreamPacket;
+        size_t offset = 0;
+        status = receiverUDP.ReceiveStreamPacket(1.0, receiveStreamPacket, offset);
+        if (status != asdp::OKAY) {
+          std::cerr << "Error receiving StreamPacket: " << ErrorMessage(status) << std::endl;
+          return 33;
+        }
+        uint32_t packetSequenceNumber;
+        status = receiveStreamPacket->GetSequenceNumber(packetSequenceNumber);
+        if (status != asdp::OKAY) {
+          std::cerr << "Error getting sequence number from StreamPacket: " << ErrorMessage(status) << std::endl;
+          return 34;
+        }
+        if (packetSequenceNumber != sequenceNumber++) {
+          std::cerr << " Bad sequence number: " << packetSequenceNumber << ", expected " << sequenceNumber - 1 << std::endl;
+          std::cerr << "  (Presumably dropped network packets, consider re-running)" << std::endl;
+        }
+        std::shared_ptr<asdp::Message> message;
+        status = receiveStreamPacket->GetNextMessage(message);
+        if (status != asdp::OKAY) {
+          std::cerr << "Error getting first message from packet: " << ErrorMessage(status) << std::endl;
+          return 35;
+        }
+        asdp::MessageID rID;
+        status = message->GetType(rID);
+        if (status != asdp::OKAY) {
+          std::cerr << "Error getting type from packet: " << ErrorMessage(status) << std::endl;
+          return 36;
+        }
+        if (rID == asdp::FRAME_BEGIN) {
+          numStartFrames++;
+        }
+      } while (std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count() <= 0.5);
+      if (count < 1) {
+        std::cerr << "Did not get enough image messages: " << count << std::endl;
+        return 37;
+      }
+      std::cout << "  Got " << numStartFrames << " begin-frame messages." << std::endl;
+
+      // Turn off streaming.
+      status = client.SendCommandPacket(CommandPacketCancelSubregion(camID, endpoint));
+      if (status != OKAY) {
+        std::cerr << "Failed to cancel stream images: " << ErrorMessage(status) << std::endl;
+        return 38;
+      }
+
+    }
   }
 
   std::cout << std::endl << "Success!" << std::endl;

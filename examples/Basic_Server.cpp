@@ -4,7 +4,8 @@
 
 // This is a basic server that listens for commands from a client.  It opens a server
 // on the specified IP address and listens for commands from the client.  It prints
-// the op code of each command it receives.
+// the op code of each command it receives. The Base_Server.cpp app is a more feature
+// rich version of this app.
 
 #include <iostream>
 #include <chrono>
