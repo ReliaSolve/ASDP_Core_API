@@ -442,7 +442,7 @@ int main(int argc, char** argv)
       asdp::MessageID rID;
       status = message->GetType(rID);
       if (status != asdp::OKAY) {
-        std::cerr << "Error getting type from packet: " << ErrorMessage(status) << std::endl;
+        std::cerr << "Error getting type from message: " << ErrorMessage(status) << std::endl;
         return 36;
       }
       if (rID == asdp::FRAME_BEGIN) {
