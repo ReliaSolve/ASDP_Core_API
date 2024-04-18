@@ -368,12 +368,10 @@ int main(int argc, char** argv)
 
       // Find the minimum period for the camera and which internal trigger ID it uses, then
       // configure the trigger to run at that rate.
-      float minPeriod = cameras[camID - 1].minTriggerPeriod;
-      uint32_t triggerID = cameras[camID - 1].trigger;
       TriggerInfo ti;
-      ti.ID = triggerID;
+      ti.ID = cameras[camID - 1].trigger;
       ti.mode = 1;
-      ti.period = minPeriod;
+      ti.period = cameras[camID - 1].minTriggerPeriod;
       ti.offset = 0;
       ti.trackingFactor = 0.5;
       status = client.SendCommandPacket(CommandPacketConfigureTrigger(ti));
