@@ -21,5 +21,6 @@ takes in an asdp::Status and provides a string description of the status.
 \example Base_Validating_Client.cpp
 \example Speed_Test_Receiver.cpp
 \example Speed_Test_Sender.cpp
+\example Image_Saving_Client.cpp
 
 \example ASDP_Core_Test.cpp

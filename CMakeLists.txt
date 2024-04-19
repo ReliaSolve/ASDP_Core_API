@@ -30,6 +30,7 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 #-----------------------------------------------------------------------------
 # Checking for optional and required packages
 
+find_package(Threads REQUIRED)
 find_package(Doxygen)
 
 #-----------------------------------------------------------------------------
@@ -93,9 +94,7 @@ target_include_directories(ASDP_Core_API PUBLIC
   #${CMAKE_BINARY_DIR}
   ${CMAKE_INSTALL_PREFIX}/include
 )
-if(UNIX)
-  target_link_libraries(ASDP_Core_API PUBLIC pthread)
-endif(UNIX)
+target_link_libraries(ASDP_Core_API PUBLIC Threads::Threads)
 set_target_properties(ASDP_Core_API PROPERTIES PUBLIC_HEADER "${asdp_HEADERS}")
 # generate_export_header(ASDP_Core_API)
 
@@ -122,6 +121,7 @@ if(BUILD_EXAMPLES)
     Base_Server
     Speed_Test_Sender
     Speed_Test_Receiver
+    Image_Saving_Client
   )
   foreach (BASE ${EXAMPLES})
     # C++ example
