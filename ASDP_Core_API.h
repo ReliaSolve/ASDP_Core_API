@@ -2098,6 +2098,11 @@ public:
   /// @brief Return the status of the constructor.
   virtual Status GetConstructorStatus() const;
 
+  /// @brief Get the timer that can be used to convert local time into Core time.
+  /// @param [out] timer Pointer to the timer object to use to get the time code.
+  /// @return OKAY if successful, otherwise an error code.
+  virtual Status GetTimer(std::shared_ptr<Timer>& timer) const;
+
 protected:
   /// @brief Construct a Core object.
   /// @param [in] maxPayloadSize Maximum size of a packet payload to send.

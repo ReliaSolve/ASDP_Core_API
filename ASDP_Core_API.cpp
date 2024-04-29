@@ -6052,6 +6052,12 @@ Status Core::GetMaxPayloadSize(size_t& value) const
   return OKAY;
 }
 
+Status Core::GetTimer(std::shared_ptr<Timer>& timer) const
+{
+  timer = m_timer;
+  return OKAY;
+}
+
 std::string Core::GetVersion()
 {
   uint16_t major, minor, patch;
