@@ -144,7 +144,9 @@ enum FeatureID : uint16_t {
   STORAGE_API_AVAILABLE = 1,
   TEMPERATURE_API_AVAILABLE = 3,
   POSE_API_ORIENTATION_AVAILABLE = 4,
-  POSE_API_POSITION_AVAILABLE = 5
+  POSE_API_POSITION_AVAILABLE = 5,
+  NUC_FLAG_AVAILABLE = 6,
+  ON_CAMERA_NUC_AVAILABLE = 7,
 };
 
 //---------------------------------------------------------------------------
