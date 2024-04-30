@@ -135,7 +135,9 @@ enum EventID : uint32_t {
   UNRECOGNIZED_OPCODE           = 512,
   CLOCK_SYNC                    = 768,
   START_OF_REPLAY               = 769,
-  END_OF_REPLAY                 = 770
+  END_OF_REPLAY                 = 770,
+  NUC_FLAG_STATE                = 771,
+  ON_CAMERA_NUC_STATE           = 772
 };
 
 //---------------------------------------------------------------------------
@@ -146,7 +148,7 @@ enum FeatureID : uint16_t {
   POSE_API_ORIENTATION_AVAILABLE = 4,
   POSE_API_POSITION_AVAILABLE = 5,
   NUC_FLAG_AVAILABLE = 6,
-  ON_CAMERA_NUC_AVAILABLE = 7,
+  ON_CAMERA_NUC_AVAILABLE = 7
 };
 
 //---------------------------------------------------------------------------
