@@ -1520,19 +1520,19 @@ public:
   /// @brief Construct a MessagePose and store it into a buffer from a StreamPacket.
   /// @param [in] packet Pointer to the StreamPacket containing the message.
   /// @param [in] timeCode Time code for the message.
-  /// @param [in] longitude Longitude in degrees.
-  /// @param [in] latitude Latitude in degrees.
-  /// @param [in] altitude Altitude in meters.
+  /// @param [in] longitude Longitude in degrees. (1e-6 if not available)
+  /// @param [in] latitude Latitude in degrees. (1e-6 if not available)
+  /// @param [in] altitude Altitude in meters. (1e-6 if not available)
   /// @param [in] rot Rotation in degrees around the X, Y, and Z axes in that order.
   /// The canonical orientation has X pointing East, Y pointing North, and Z pointing up
   /// (undefined at the poles).  The helicopter orientation is defined as
-  /// pilot right is X, pilot forward is Y, and up is Z.
+  /// pilot right is X, pilot forward is Y, and up is Z. (1e-6 if not available)
   /// The rotation tells how to re-orient an object with canonical orientation to the
-  /// helicopter orientation.
+  /// helicopter orientation. (1e-6 if not available)
   /// @param [in] vel Velocity in meters per second in rotated helicopter coordinates.
-  /// A positive Y value means that the helicopter is moving forwards.
+  /// A positive Y value means that the helicopter is moving forwards. (1e-6 if not available)
   /// @param [in] rotVel Rotational velocity about the rotated helicopter axes in degrees per second.
-  /// A positive X rotation means that the helicopter is tilting back.
+  /// A positive X rotation means that the helicopter is tilting back. (1e-6 if not available)
 
   MessagePose(StreamPacket& packet, Time timeCode,
     float longitude, float latitude, float altitude,
@@ -1543,32 +1543,34 @@ public:
   MessagePose(Message& baseMessage);
 
   /// @brief Get the longitude in degrees.
-  /// @param [out] longitude Longitude in degrees.
+  /// @param [out] longitude Longitude in degrees. (1e-6 if not available)
   /// @return OKAY if successful, otherwise an error code.
   Status GetLongitude(float& longitude) const;
 
   /// @brief Get the latitude in degrees.
-  /// @param [out] latitude Latitude in degrees.
+  /// @param [out] latitude Latitude in degrees. (1e-6 if not available)
   /// @return OKAY if successful, otherwise an error code.
   Status GetLatitude(float& latitude) const;
 
   /// @brief Get the altitude in meters.
-  /// @param [out] altitude Altitude in meters.
+  /// @param [out] altitude Altitude in meters. (1e-6 if not available)
   /// @return OKAY if successful, otherwise an error code.
   Status GetAltitude(float& altitude) const;
 
   /// @brief Get the rotation about the X, Y, and Z axes in degrees.
-  /// @param [out] rot Rotation about the X, Y, and Z axes in degrees.
+  /// @param [out] rot Rotation about the X, Y, and Z axes in degrees. (1e-6 if not available)
   /// @return OKAY if successful, otherwise an error code.
   Status GetRot(std::array<float, 3>& rot) const;
 
   /// @brief Get the velocity in the X, Y, and Z directions in meters per second.
   /// @param [out] vel Velocity in the X, Y, and Z directions in meters per second.
+  /// (1e-6 if not available)
   /// @return OKAY if successful, otherwise an error code.
   Status GetVel(std::array<float, 3>& vel) const;
 
   /// @brief Get the rotational velocity about the X, Y, and Z axes in degrees per second.
   /// @param [out] rotVel Rotational velocity about the X, Y, and Z axes in degrees per second.
+  /// (1e-6 if not available)
   /// @return OKAY if successful, otherwise an error code.
   Status GetRotVel(std::array<float, 3>& rotVel) const;
 
