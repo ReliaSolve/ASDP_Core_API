@@ -1523,9 +1523,17 @@ public:
   /// @param [in] longitude Longitude in degrees.
   /// @param [in] latitude Latitude in degrees.
   /// @param [in] altitude Altitude in meters.
-  /// @param [in] rot Rotation about the X,Y,Z axis in radians.
-  /// @param [in] vel Velocity in the X,Y,Z direction in meters per second.
-  /// @param [in] rotVel Rotational velocity about the X,Y,Z axis in radians per second.
+  /// @param [in] rot Rotation in degrees around the X, Y, and Z axes in that order.
+  /// The canonical orientation has X pointing East, Y pointing North, and Z pointing up
+  /// (undefined at the poles).  The helicopter orientation is defined as
+  /// pilot right is X, pilot forward is Y, and up is Z.
+  /// The rotation tells how to re-orient an object with canonical orientation to the
+  /// helicopter orientation.
+  /// @param [in] vel Velocity in meters per second in rotated helicopter coordinates.
+  /// A positive Y value means that the helicopter is moving forwards.
+  /// @param [in] rotVel Rotational velocity about the rotated helicopter axes in degrees per second.
+  /// A positive X rotation means that the helicopter is tilting back.
+
   MessagePose(StreamPacket& packet, Time timeCode,
     float longitude, float latitude, float altitude,
     std::array<float, 3> rot, std::array<float, 3> vel, std::array<float, 3> rotVel);
@@ -1549,18 +1557,18 @@ public:
   /// @return OKAY if successful, otherwise an error code.
   Status GetAltitude(float& altitude) const;
 
-  /// @brief Get the rotation about the X,Y,Z axis in radians.
-  /// @param [out] rot Rotation about the X,Y,Z axis in radians.
+  /// @brief Get the rotation about the X, Y, and Z axes in degrees.
+  /// @param [out] rot Rotation about the X, Y, and Z axes in degrees.
   /// @return OKAY if successful, otherwise an error code.
   Status GetRot(std::array<float, 3>& rot) const;
 
-  /// @brief Get the velocity in the X,Y,Z direction in meters per second.
-  /// @param [out] vel Velocity in the X,Y,Z direction in meters per second.
+  /// @brief Get the velocity in the X, Y, and Z directions in meters per second.
+  /// @param [out] vel Velocity in the X, Y, and Z directions in meters per second.
   /// @return OKAY if successful, otherwise an error code.
   Status GetVel(std::array<float, 3>& vel) const;
 
-  /// @brief Get the rotational velocity about the X,Y,Z axis in radians per second.
-  /// @param [out] rotVel Rotational velocity about the X,Y,Z axis in radians per second.
+  /// @brief Get the rotational velocity about the X, Y, and Z axes in degrees per second.
+  /// @param [out] rotVel Rotational velocity about the X, Y, and Z axes in degrees per second.
   /// @return OKAY if successful, otherwise an error code.
   Status GetRotVel(std::array<float, 3>& rotVel) const;
 
