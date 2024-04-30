@@ -99,6 +99,8 @@ enum OpCode : uint32_t {
   STOP_REPLAY                   = 7,
   SET_START_UP_RECORDING_STATE  = 8,
   SET_STREAM_STATE_PERIOD       = 10,
+  SET_NUC_FLAG_STATE            = 11,
+  START_ON_CAMERA_NUC           = 12,
   CONFIGURE_TRIGGER             = 10000,
   SOFTWARE_TRIGGER              = 10001,
   SET_EVENT_VERBOSITY           = 10002,
@@ -548,6 +550,8 @@ protected:
   friend class CommandPacketStopReplay;
   friend class CommandPacketSetStartUpRecordingState;
   friend class CommandPacketSetStreamStatePeriod;
+  friend class CommandPacketSetNUCFlagState;
+  friend class CommandPacketStartOnCameraNUC;
   friend class CommandPacketConfigureTrigger;
   friend class CommandPacketSoftwareTrigger;
   friend class CommandPacketSetEventVerbosity;
@@ -716,6 +720,53 @@ public:
   /// @param [out] interval Interval to stream at in seconds.
   /// @return OKAY if successful, otherwise an error code.
   Status GetInterval(float& interval) const;
+
+  /// @brief Test function.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
+};
+
+class CommandPacketSetNUCFlagState : public CommandPacket {
+public:
+  /// @brief Construct a brand-new command buffer with the SET_NUC_FLAG_STATE opcode.
+  /// @param [in] ID ID of the camera to set the NUC flag for.
+  /// @param [in] state State to set the NUC flag to (0 = off, 1 = on).
+  CommandPacketSetNUCFlagState(uint32_t ID, uint32_t state);
+
+  /// @brief Type-cast a base CommandPacket, re-using its buffer.
+  /// @param [in] basePacket The base packet to convert from.
+  CommandPacketSetNUCFlagState(CommandPacket& basePacket);
+
+  /// @brief Get the ID of the camera to set the NUC flag on.
+  /// @param [out] ID ID of the camera to set the NUC flag on.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetID(uint32_t& ID) const;
+
+  /// @brief Get the state to set the NUC flag to.
+  /// @param [out] state State to set the NUC flag to (0 = off, 1 = on).
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetState(uint32_t& state) const;
+
+  /// @brief Test function.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
+};
+
+/// @brief Command packet to start on-camera NUC.
+class CommandPacketStartOnCameraNUC : public CommandPacket {
+  public:
+  /// @brief Construct a brand-new command buffer with the START_ON_CAMERA_NUC opcode.
+  /// @param [in] ID ID of the camera to start the NUC on.
+  CommandPacketStartOnCameraNUC(uint32_t ID);
+
+  /// @brief Type-cast a base CommandPacket, re-using its buffer.
+  /// @param [in] basePacket The base packet to convert from.
+  CommandPacketStartOnCameraNUC(CommandPacket& basePacket);
+
+  /// @brief Get the ID of the camera to start the NUC on.
+  /// @param [out] ID ID of the camera to start the NUC on.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetID(uint32_t& ID) const;
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
@@ -2542,6 +2593,20 @@ protected:
   /// @param command The command packet to implement.
   /// @param client The client that the command is coming from.
   virtual void doSetStreamStatePeriod(const CommandPacketSetStreamStatePeriod& command, ClientState& client);
+
+  /// @brief Implement the specified command.
+  /// @param command The command packet to implement.
+  /// @param client The client that the command is coming from.
+  virtual void doSetNUCFlagState(const CommandPacketSetNUCFlagState& command, ClientState& client) {
+    sendInvalidCommandMessage(SET_NUC_FLAG_STATE, client);
+  }
+
+  /// @brief Implement the specified command.
+  /// @param command The command packet to implement.
+  /// @param client The client that the command is coming from.
+  virtual void doStartOnCameraNUC(const CommandPacketStartOnCameraNUC& command, ClientState& client) {
+    sendInvalidCommandMessage(START_ON_CAMERA_NUC, client);
+  }
 
   /// @brief Implement the specified command.
   /// @param command The command packet to implement.

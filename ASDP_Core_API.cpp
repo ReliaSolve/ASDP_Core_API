@@ -97,6 +97,8 @@ static std::string OpCodeName(OpCode opCode)
   case PAUSE_REPLAY: return "PAUSE_REPLAY";
   case STOP_REPLAY: return "STOP_REPLAY";
   case SET_STREAM_STATE_PERIOD: return "SET_STREAM_STATE_PERIOD";
+  case SET_NUC_FLAG_STATE: return "SET_NUC_FLAG_STATE";
+  case START_ON_CAMERA_NUC: return "START_ON_CAMERA_NUC";
   case CONFIGURE_TRIGGER: return "CONFIGURE_TRIGGER";
   case SOFTWARE_TRIGGER: return "SOFTWARE_TRIGGER";
   case SET_EVENT_VERBOSITY: return "SET_EVENT_VERBOSITY";
@@ -1201,6 +1203,143 @@ std::string CommandPacketSetStreamStatePeriod::Test()
     }
     if (interval != 3) {
       return "Error getting interval from packet constructed from buffer: interval is not 3";
+    }
+  }
+
+  return "";
+}
+
+CommandPacketSetNUCFlagState::CommandPacketSetNUCFlagState(uint32_t ID, uint32_t state)
+  : CommandPacket(2 * sizeof(uint32_t), SET_NUC_FLAG_STATE)
+{
+  unsigned char* bufPtr = MyData() + COMMAND_PACKET_BASE_SIZE;
+  memcpy(bufPtr, &ID, sizeof(ID)); bufPtr += sizeof(ID);
+  memcpy(bufPtr, &state, sizeof(state)); bufPtr += sizeof(state);
+}
+
+CommandPacketSetNUCFlagState::CommandPacketSetNUCFlagState(CommandPacket& basePacket)
+  : CommandPacket(basePacket.m_buffer, SET_NUC_FLAG_STATE)
+{
+}
+
+Status CommandPacketSetNUCFlagState::GetID(uint32_t& ID) const
+{
+  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + sizeof(uint32_t)) {
+    return READ_PAST_END;
+  }
+  memcpy(&ID, MyData() + COMMAND_PACKET_BASE_SIZE, sizeof(uint32_t));
+  return OKAY;
+}
+
+Status CommandPacketSetNUCFlagState::GetState(uint32_t& state) const
+{
+  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + 2 * sizeof(uint32_t)) {
+    return READ_PAST_END;
+  }
+  memcpy(&state, MyData() + COMMAND_PACKET_BASE_SIZE + sizeof(uint32_t), sizeof(uint32_t));
+  return OKAY;
+}
+
+std::string CommandPacketSetNUCFlagState::Test()
+{
+  {
+    // Construct a command packet and verify that we can read its parameters.
+    CommandPacketSetNUCFlagState packet(1, 2);
+    if (packet.GetConstructorStatus() != OKAY) {
+      return "Error constructing packet: " + ErrorMessage(packet.GetConstructorStatus());
+    }
+    uint32_t ID;
+    Status status = packet.GetID(ID);
+    if (status != OKAY) {
+      return "Error getting ID from packet: " + ErrorMessage(status);
+    }
+    if (ID != 1) {
+      return "Error getting ID from packet: ID is not 1";
+    }
+    uint32_t state;
+    status = packet.GetState(state);
+    if (status != OKAY) {
+      return "Error getting state from packet: " + ErrorMessage(status);
+    }
+    if (state != 2) {
+      return "Error getting state from packet: state is not 2";
+    }
+
+    // Construct a new packet from the packet's buffer and verify that it has the same parameters.
+    CommandPacket& originalPacket = packet;
+    CommandPacketSetNUCFlagState packet2(originalPacket);
+    if (packet2.GetConstructorStatus() != OKAY) {
+      return "Error constructing packet from buffer: " + ErrorMessage(packet2.GetConstructorStatus());
+    }
+    status = packet2.GetID(ID);
+    if (status != OKAY) {
+      return "Error getting ID from packet constructed from buffer: " + ErrorMessage(status);
+    }
+    if (ID != 1) {
+      return "Error getting ID from packet constructed from buffer: ID is not 1";
+    }
+    status = packet2.GetState(state);
+    if (status != OKAY) {
+      return "Error getting state from packet constructed from buffer: " + ErrorMessage(status);
+    }
+    if (state != 2) {
+      return "Error getting state from packet constructed: " + ErrorMessage(status);
+    }
+  }
+
+  return "";
+}
+
+CommandPacketStartOnCameraNUC::CommandPacketStartOnCameraNUC(uint32_t ID)
+  : CommandPacket(sizeof(uint32_t), START_ON_CAMERA_NUC)
+{
+  unsigned char* bufPtr = MyData() + COMMAND_PACKET_BASE_SIZE;
+  memcpy(bufPtr, &ID, sizeof(ID)); bufPtr += sizeof(ID);
+}
+
+CommandPacketStartOnCameraNUC::CommandPacketStartOnCameraNUC(CommandPacket& basePacket)
+  : CommandPacket(basePacket.m_buffer, START_ON_CAMERA_NUC)
+{
+}
+
+Status CommandPacketStartOnCameraNUC::GetID(uint32_t& ID) const
+{
+  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + sizeof(uint32_t)) {
+    return READ_PAST_END;
+  }
+  memcpy(&ID, MyData() + COMMAND_PACKET_BASE_SIZE, sizeof(uint32_t));
+  return OKAY;
+}
+
+std::string CommandPacketStartOnCameraNUC::Test()
+{
+  {
+    // Construct a command packet and verify that we can read its ID.
+    CommandPacketStartOnCameraNUC packet(1);
+    if (packet.GetConstructorStatus() != OKAY) {
+      return "Error constructing packet: " + ErrorMessage(packet.GetConstructorStatus());
+    }
+    uint32_t ID;
+    Status status = packet.GetID(ID);
+    if (status != OKAY) {
+      return "Error getting ID from packet: " + ErrorMessage(status);
+    }
+    if (ID != 1) {
+      return "Error getting ID from packet: ID is not 1";
+    }
+
+    // Construct a new packet from the packet's buffer and verify that it has the same ID.
+    CommandPacket& originalPacket = packet;
+    CommandPacketStartOnCameraNUC packet2(originalPacket);
+    if (packet2.GetConstructorStatus() != OKAY) {
+      return "Error constructing packet from buffer: " + ErrorMessage(packet2.GetConstructorStatus());
+    }
+    status = packet2.GetID(ID);
+    if (status != OKAY) {
+      return "Error getting ID from packet constructed from buffer: " + ErrorMessage(status);
+    }
+    if (ID != 1) {
+      return "Error getting ID from packet constructed from buffer: ID is not 1";
     }
   }
 
@@ -7094,6 +7233,26 @@ std::string CoreServerBase::run()
         doSetStreamStatePeriod(streamStateCommand, client);
       }
       break;
+      case SET_NUC_FLAG_STATE:
+      {
+        CommandPacketSetNUCFlagState nucFlagCommand(*command);
+        status = nucFlagCommand.GetConstructorStatus();
+        if (status != OKAY) {
+          return "Failed to construct NUC flag command: " + ErrorMessage(status);
+        }
+        doSetNUCFlagState(nucFlagCommand, client);
+      }
+      break;
+      case START_ON_CAMERA_NUC:
+      {
+        CommandPacketStartOnCameraNUC startOnCameraNUCCommand(*command);
+        status = startOnCameraNUCCommand.GetConstructorStatus();
+        if (status != OKAY) {
+          return "Failed to construct start on camera NUC command: " + ErrorMessage(status);
+        }
+        doStartOnCameraNUC(startOnCameraNUCCommand, client);
+      }
+      break;
       case CONFIGURE_TRIGGER:
       {
         CommandPacketConfigureTrigger configureTriggerCommand(*command);
@@ -7405,6 +7564,14 @@ std::string asdp::Test()
   ret = CommandPacketSetStreamStatePeriod::Test();
   if (ret.size() > 0) {
     return "Error testing CommandPacketStreamEvents: " + ret;
+  }
+  ret = CommandPacketSetNUCFlagState::Test();
+  if (ret.size() > 0) {
+    return "Error testing CommandPacketSetNUCFlagState: " + ret;
+  }
+  ret = CommandPacketStartOnCameraNUC::Test();
+  if (ret.size() > 0) {
+    return "Error testing CommandPacketStartOnCameraNUC: " + ret;
   }
   ret = CommandPacketSetStartUpRecordingState::Test();
   if (ret.size() > 0) {
