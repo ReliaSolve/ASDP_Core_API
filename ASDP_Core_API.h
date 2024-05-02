@@ -2255,6 +2255,8 @@ protected:
 ///
 /// Handles polling for connections on an interface and listing available servers.
 /// Also provides function to send command packets to a connected server.
+/// Its methods are thread safe, so can be called from different threads (interleaving
+/// commands, for example).
 
 class CoreClient : public Core {
 public:
@@ -2356,7 +2358,8 @@ protected:
   /// @param [out] port Port number of the server.
   static Status ServerInfoFromURL(std::string URL, std::string &IP, uint16_t& port);
 
-  /// Mutex to protect the list of servers. Marked mutable so it can be used in const member functions.
+  /// Mutex to protect the list of servers and other internal state.
+  /// Marked mutable so it can be used in const member functions.
   mutable std::mutex m_mutex;
   std::vector<ServerInfo> m_servers;                ///< List of servers found.
   std::shared_ptr<SenderReceiverTCP> m_stream;      ///< Stream to use to send and receive packets.

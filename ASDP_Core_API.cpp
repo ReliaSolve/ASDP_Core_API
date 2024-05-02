@@ -119,7 +119,7 @@ static std::string OpCodeName(OpCode opCode)
 // Definitions of static constants used below.
 
 static const unsigned char MAGIC_COOKIE[4] = { 'A', 'S', 'D', 'P' };
-static const unsigned char VERSION[4] = { 3, 1, 0, 0 };
+static const unsigned char VERSION[4] = { 3, 2, 0, 0 };
 
 static const uint32_t PACKET_HEADER_TOTAL_SIZE_OFFSET = 0;
 static const uint32_t PACKET_BASIC_HEADER_SIZE = sizeof(uint32_t);
@@ -6572,6 +6572,8 @@ Status CoreClient::ConnectToServer(std::string serverURL, uint16_t& major, uint1
     return m_constructorStatus;
   }
 
+  std::lock_guard<std::mutex> lock(m_mutex);
+
   // Parse the URL.
   std::string IP;
   uint16_t port;
@@ -6659,6 +6661,7 @@ Status CoreClient::SendCommandPacket(const CommandPacket& packet)
     return NOT_CONNECTED;
   }
 
+  std::lock_guard<std::mutex> lock(m_mutex);
   return m_stream->SendCommandPacket(packet);
 }
 
