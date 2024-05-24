@@ -71,7 +71,7 @@ private:
   std::mutex mut;
 
   /// @brief The done flag to signal the timer thread to exit.
-  std::atomic_bool done = false;
+  std::atomic_bool done{false};
 
   /// @brief The timer thread.
   std::thread t;

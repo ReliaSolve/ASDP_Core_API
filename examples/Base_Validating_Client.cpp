@@ -412,7 +412,7 @@ int main(int argc, char** argv)
       std::cerr << "Failed to stream images: " << ErrorMessage(status) << std::endl;
       return 32;
     }
-    start = std::chrono::steady_clock::now();
+    start = std::chrono::high_resolution_clock::now();
     size_t sequenceNumber = 0;
     size_t numStartFrames = 0;
     do {
@@ -448,7 +448,7 @@ int main(int argc, char** argv)
       if (rID == asdp::FRAME_BEGIN) {
         numStartFrames++;
       }
-    } while (std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count() <= 0.5);
+    } while (std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - start).count() <= 0.5);
     if (count < 1) {
       std::cerr << "Did not get enough image messages: " << count << std::endl;
       return 37;

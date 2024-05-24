@@ -71,7 +71,7 @@ struct FileData {
 
 std::list< std::shared_ptr<FileData> > fileDataList;
 std::mutex fileDataMutex;
-std::atomic_bool done = false;
+std::atomic_bool done{false};
 std::thread saveFileThread;
 
 void SaveFileThread()
