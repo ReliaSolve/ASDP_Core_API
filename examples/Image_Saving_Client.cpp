@@ -358,6 +358,9 @@ int main(int argc, char** argv)
               std::cerr << "Error getting data pointer from FrameData message: " << ErrorMessage(status) << std::endl;
               return 44;
             }
+            // NOTE: This makes use of the fact that we're asking for the full frame, and that the server sends
+            // full lines at once when this is the case.  Otherwise, we'd need to copy the data line by line and
+            // adjust for the full-image stride when doing offsets.
             size_t size = (right - left + 1) * (bottom - top + 1) * sizeof(uint16_t);
             memcpy(fileData->data + (top * stride + left) * sizeof(uint16_t), rawData, size);
           }
