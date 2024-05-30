@@ -47,10 +47,20 @@ namespace asdp {
     static std::string Test();
 
   private:
+    /// The size of each buffer in bytes.
     size_t m_bufferSize;
-    std::list<std::shared_ptr<std::vector<uint8_t>>> m_freeBuffers;
-    size_t m_totalBuffers;
+
+    /// A list of all buffers thave have been allocated, whether they are free or have been loaned out.
+    std::list< std::vector<uint8_t> > m_allBuffers;
+
+    /// A list of pointers to buffers that are free (have not been loaned out).
+    std::list< std::vector<uint8_t>* > m_freeBuffers;
+
+    /// Mutex to guard access to our data structures to make this class thread-safe.
     std::mutex mtx;
+
+    /// Set to true when we're in the process of destroying the pool.  Prevents new
+    /// buffers from being allocated.
     std::atomic_bool m_done;
   };
 

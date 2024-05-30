@@ -9,12 +9,13 @@ using namespace asdp;
 
 BufferPool::BufferPool(size_t bufferSize, size_t bufferCount)
   : m_bufferSize(bufferSize)
-  , m_totalBuffers(bufferCount)
   , m_done(false)
 {
-  // Fill the buffer pool with buffers.  The count has been set above.
+  // Fill the buffer pool with buffers.
+  // Fill the free-buffer list with pointers to the buffers.
   for (size_t i = 0; i < bufferCount; ++i) {
-    m_freeBuffers.push_back(std::make_shared<std::vector<uint8_t>>(bufferSize));
+    m_allBuffers.push_back(std::vector<uint8_t>(m_bufferSize));
+    m_freeBuffers.push_back(&m_allBuffers.back());
   }
 }
 
@@ -24,13 +25,19 @@ BufferPool::~BufferPool()
   // m_done to true, no more buffers will be allocated in any threads while we're
   // waiting for the existing buffers to be returned.
   m_done = true;
-  while (m_freeBuffers.size() != m_totalBuffers) {
+  bool gotThemAll = false;
+  do {
+    {
+      std::lock_guard<std::mutex> lock(mtx);
+      gotThemAll = (m_freeBuffers.size() == m_allBuffers.size());
+    }
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
-  }
+  } while (!gotThemAll);
 
-  // Clear the buffer pool while holding the lock.
+  // Clear the buffer pools while holding the lock.
   std::lock_guard<std::mutex> lock(mtx);
   m_freeBuffers.clear();
+  m_allBuffers.clear();
 }
 
 std::shared_ptr<std::vector<uint8_t>> BufferPool::GetBuffer()
@@ -40,19 +47,20 @@ std::shared_ptr<std::vector<uint8_t>> BufferPool::GetBuffer()
     return nullptr;
   }
 
-  // If the buffer pool is empty, then we need to allocate a new buffer.
+  // If the buffer pool is empty, then we need to allocate a new buffer and also
+  // add it to the list of empty buffers.
   std::lock_guard<std::mutex> lock(mtx);
   if (m_freeBuffers.empty()) {
-    m_freeBuffers.push_back(std::make_shared<std::vector<uint8_t>>(m_bufferSize));
-    m_totalBuffers++;
+    m_allBuffers.push_back(std::vector<uint8_t>(m_bufferSize));
+    m_freeBuffers.push_back(&m_allBuffers.back());
   }
 
   // Get a buffer from the pool and return it to the caller.
-  std::shared_ptr<std::vector<uint8_t>> buffer = m_freeBuffers.front();
+  std::vector<uint8_t>* buffer = m_freeBuffers.front();
   m_freeBuffers.pop_front();
 
-  // Make a shared_ptr that will return the buffer to the pool when it is destroyed.
-  return std::shared_ptr<std::vector<uint8_t>>(buffer.get(), [this, buffer](std::vector<uint8_t>*) {
+  // Make a shared_ptr that will return the buffer to the empty pool when it is destroyed.
+  return std::shared_ptr<std::vector<uint8_t>>(buffer, [this, buffer](std::vector<uint8_t>*) {
       std::lock_guard<std::mutex> lock(mtx);
       m_freeBuffers.push_back(buffer);
     });
