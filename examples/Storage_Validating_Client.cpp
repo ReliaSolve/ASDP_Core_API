@@ -3,9 +3,8 @@
  */
 
 // This is a client that connects to the first server it encounters and runs a series
-// of validation tests on it. It only tests basic functions of the server, and is not
-// a comprehensive test suite. In particular, it does not test any additional features.
-// It is intended to be used to test the CoreServerBase class.
+// of validation tests on it.
+// It is intended to be used to verify that a Storage Module performs as expected.
 
 #include <iostream>
 #include <chrono>
@@ -154,7 +153,7 @@ int main(int argc, char** argv)
     return 6;
   }
   if (servers.empty()) {
-    std::cerr << "No servers found; be sure to run Base_Server or another first." << std::endl;
+    std::cerr << "No servers found; be sure to run ASDP_Storage_Module or another first." << std::endl;
     return 7;
   }
   std::cout << "Servers found: " << servers.size() << std::endl;
@@ -203,8 +202,8 @@ int main(int argc, char** argv)
     return 12;
   }
 
-  // Find the available features on the server so we can ensure that we can or can't
-  // issue the relevant commands.  Start by filling them all in with false and then
+  // Find the available features on the server so we can ensure that it is a storage
+  // module.  Start by filling them all in with false and then
   // adding the ones that we find in the state.
   std::map<FeatureID, bool> features;
   features[STORAGE_API_AVAILABLE] = false;
@@ -225,144 +224,226 @@ int main(int argc, char** argv)
   for (FeatureID feature : availableFeatures) {
     features[feature] = true;
   }
-  std::cout << "  Storage feature = " << features[STORAGE_API_AVAILABLE] << std::endl;
-  std::cout << "  Temperature feature = " << features[TEMPERATURE_API_AVAILABLE] << std::endl;
-  std::cout << "  Pose orientation feature = " << features[POSE_API_ORIENTATION_AVAILABLE] << std::endl;
-  std::cout << "  Pose position feature = " << features[POSE_API_POSITION_AVAILABLE] << std::endl;
-  std::cout << "Verifying that the server opcode responses match the reported features." << std::endl;
+  if (!features[STORAGE_API_AVAILABLE]) {
+    std::cerr << "Server does not support storage API" << std::endl;
+    return 15;
+  }
 
-  // Report information about the cameras that were found.
-  std::vector<CameraInfo> cameras;
-  status = state.GetCameras(cameras);
-  std::cout << "Found " << cameras.size() << " cameras" << std::endl;
+  // Report whether the device is set to record data at start-up.  Then switch it to the opposite
+  // setting and back to the original setting and make sure that both take effect.  Get two state
+  // messages to ensure that the change is complete.
+  uint8_t recordOnReset;
+  status = state.GetRecordOnReset(recordOnReset);
+  if (status != OKAY) {
+    std::cerr << "Failed to get recording at startup: " << ErrorMessage(status) << std::endl;
+    return 16;
+  }
+  std::cout << "Recording on reset is " << (recordOnReset ? "on" : "off") << std::endl;
 
-  // Test the storage API and see if our getting an invalid opcode matches what we
-  // expect.
+  std::cout << "Toggling recording on reset" << std::endl;
+  status = client.SendCommandPacket(CommandPacketSetStartUpRecordingState(!recordOnReset));
+  msg = WaitForMessageType(receiver, STATE, 5.0);
+  if (msg == nullptr) {
+    std::cerr << "Did not get state message." << std::endl;
+    return 17;
+  }
+  msg = WaitForMessageType(receiver, STATE, 5.0);
+  if (msg == nullptr) {
+    std::cerr << "Did not get state message." << std::endl;
+    return 18;
+  }
+  state = MessageState(*msg);
+  if (state.GetConstructorStatus() != OKAY) {
+    std::cerr << "Failed to construct state message: " << ErrorMessage(state.GetConstructorStatus()) << std::endl;
+    return 19;
+  }
+  uint8_t newRecordOnReset;
+  status = state.GetRecordOnReset(newRecordOnReset);
+  if (status != OKAY) {
+    std::cerr << "Failed to get recording at startup: " << ErrorMessage(status) << std::endl;
+    return 20;
+  }
+  std::cout << "  Recording on reset is now " << (newRecordOnReset ? "on" : "off") << std::endl;
+  if (newRecordOnReset == recordOnReset) {
+    std::cerr << "Failed to toggle recording on reset" << std::endl;
+    return 21;
+  }
+
+  status = client.SendCommandPacket(CommandPacketSetStartUpRecordingState(recordOnReset));
+  msg = WaitForMessageType(receiver, STATE, 5.0);
+  if (msg == nullptr) {
+    std::cerr << "Did not get state message." << std::endl;
+    return 22;
+  }
+  msg = WaitForMessageType(receiver, STATE, 5.0);
+  if (msg == nullptr) {
+    std::cerr << "Did not get state message." << std::endl;
+    return 23;
+  }
+  state = MessageState(*msg);
+  if (state.GetConstructorStatus() != OKAY) {
+    std::cerr << "Failed to construct state message: " << ErrorMessage(state.GetConstructorStatus()) << std::endl;
+    return 24;
+  }
+  status = state.GetRecordOnReset(newRecordOnReset);
+  if (status != OKAY) {
+    std::cerr << "Failed to get recording at startup: " << ErrorMessage(status) << std::endl;
+    return 25;
+  }
+  std::cout << "  Recording on reset is now " << (newRecordOnReset ? "on" : "off") << std::endl;
+  if (newRecordOnReset != recordOnReset) {
+    std::cerr << "Failed to toggle recording on reset" << std::endl;
+    return 26;
+  }
+
+  // Determine how many streams are stored.
   status = client.SendCommandPacket(CommandPacketListStoredStreams());
   if (status != OKAY) {
     std::cerr << "Failed to send storage command: " << ErrorMessage(status) << std::endl;
-    return 15;
+    return 30;
   }
-  ret = WaitForEventType(receiver, INVALID_OPERATION, 5.0);
-  bool available = (!ret.empty());
-  if (features[STORAGE_API_AVAILABLE] != available) {
-    std::cerr << "Storage API availability mismatch" << std::endl;
-    return 16;
+  msg = WaitForMessageType(receiver, STORED_STREAMS, 5.0);
+  if (msg == nullptr) {
+    std::cerr << "Did not get stored streams message." << std::endl;
+    return 31;
   }
-
-  // Test the temperature API and see if our getting an invalid opcode matches what we
-  // expect.
-  status = client.SendCommandPacket(CommandPacketCancelTemperatures());
+  MessageStoredStreamList storedStreams(*msg);
+  if (storedStreams.GetConstructorStatus() != OKAY) {
+    std::cerr << "Failed to construct stored streams message: " << ErrorMessage(storedStreams.GetConstructorStatus()) << std::endl;
+    return 32;
+  }
+  std::vector<uint32_t> IDs;
+  status = storedStreams.GetIDs(IDs);
   if (status != OKAY) {
-    std::cerr << "Failed to send temperature command: " << ErrorMessage(status) << std::endl;
-    return 17;
+    std::cerr << "Failed to get stored stream IDs: " << ErrorMessage(status) << std::endl;
+    return 33;
   }
-  ret = WaitForEventType(receiver, INVALID_OPERATION, 5.0);
-  available = (!ret.empty());
-  if (features[TEMPERATURE_API_AVAILABLE] != available) {
-    std::cerr << "Temperature API availability mismatch" << std::endl;
-    return 18;
-  }
+  size_t numStreams = IDs.size();
+  std::cout << "There are " << numStreams << " stored streams." << std::endl;
 
-  // Test the pose API and see if our getting an invalid opcode matches what we
-  // expect.
-  status = client.SendCommandPacket(CommandPacketCancelPoses());
+  // Report whether the device is set to storing.  Then switch it to the opposite
+  // setting and back to the original setting and make sure that both take effect.  Get two state
+  // messages to ensure that the change is complete.  If we are able to toggle storing on and off,
+  // we expect an additional stored stream.
+  size_t numExpectedStreams = numStreams;
+  uint8_t storing;
+  status = state.GetStoring(storing);
   if (status != OKAY) {
-    std::cerr << "Failed to send pose command: " << ErrorMessage(status) << std::endl;
-    return 19;
+    std::cerr << "Failed to get storing: " << ErrorMessage(status) << std::endl;
+    return 100;
   }
-  ret = WaitForEventType(receiver, INVALID_OPERATION, 5.0);
-  available = (!ret.empty());
-  bool expected = features[POSE_API_ORIENTATION_AVAILABLE] || features[POSE_API_POSITION_AVAILABLE];
-  if (expected != available) {
-    std::cerr << "Pose API availability mismatch" << std::endl;
-    return 20;
-  }
+  std::cout << "Storing is " << (storing ? "on" : "off") << std::endl;
 
-  // Set the rate of state messages to 10Hz and make sure we get at least 15 in 2 seconds.
-  std::cout << "Checking fast state messages" << std::endl;
-  status = client.SendCommandPacket(CommandPacketSetStreamStatePeriod(0.1));
+  std::cout << "Toggling storing" << std::endl;
+  if (storing) {
+    status = client.SendCommandPacket(CommandPacketStopRecording());
+  } else {
+    status = client.SendCommandPacket(CommandPacketStartRecording());
+  }
   if (status != OKAY) {
-    std::cerr << "Failed to set state rate: " << ErrorMessage(status) << std::endl;
-    return 21;
+    std::cerr << "Failed to send start/stop recording command: " << ErrorMessage(status) << std::endl;
+    return 101;
   }
-  std::chrono::high_resolution_clock::time_point start = std::chrono::high_resolution_clock::now();
-  int count = 0;
-  do {
-    std::shared_ptr<Message> msg = WaitForMessageType(receiver, STATE, 0.1);
-    if (msg != nullptr) {
-      ++count;
-    }
-  } while (std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - start).count() <= 2.0);
-  if (count < 15) {
-    std::cerr << "Did not get enough state messages: " << count << std::endl;
-    return 22;
+  msg = WaitForMessageType(receiver, STATE, 5.0);
+  if (msg == nullptr) {
+    std::cerr << "Did not get state message." << std::endl;
+    return 102;
   }
-
-  // Set the rate of state messages to 1 Hz and make sure we don't get too many in 2 seconds.
-  std::cout << "Checking slow state messages" << std::endl;
-  status = client.SendCommandPacket(CommandPacketSetStreamStatePeriod(1.0));
+  msg = WaitForMessageType(receiver, STATE, 5.0);
+  if (msg == nullptr) {
+    std::cerr << "Did not get state message." << std::endl;
+    return 103;
+  }
+  state = MessageState(*msg);
+  if (state.GetConstructorStatus() != OKAY) {
+    std::cerr << "Failed to construct state message: " << ErrorMessage(state.GetConstructorStatus()) << std::endl;
+    return 104;
+  }
+  uint8_t newStoring;
+  status = state.GetStoring(newStoring);
   if (status != OKAY) {
-    std::cerr << "Failed to set state rate: " << ErrorMessage(status) << std::endl;
-    return 23;
+    std::cerr << "Failed to get storing: " << ErrorMessage(status) << std::endl;
+    return 105;
   }
-  start = std::chrono::high_resolution_clock::now();
-  count = 0;
-  do {
-    std::shared_ptr<Message> msg = WaitForMessageType(receiver, STATE, 0.1);
-    if (msg != nullptr) {
-      ++count;
+  std::cout << "  Storing is now " << (newStoring ? "on" : "off") << std::endl;
+  if (newStoring == storing) {
+    if (!newStoring) {
+      std::cerr << "  (Warning: Storing could not be turned on, but that may be because the device is not connected to a camera)"
+        << std::endl;
+    } else {
+      std::cerr << "Failed to toggle storing" << std::endl;
+      return 106;
     }
-  } while (std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - start).count() <= 2.0);
-  if (count > 3) {
-    std::cerr << "Got too many state messages: " << count << std::endl;
-    return 24;
-  }
-
-  // If it can send temperatures, stream and make sure we get at least 1 in 2 seconds.
-  if (features[TEMPERATURE_API_AVAILABLE]) {
-    std::cout << "Checking for temperature messages" << std::endl;
-    status = client.SendCommandPacket(CommandPacketStreamTemperatures());
-    if (status != OKAY) {
-      std::cerr << "Failed to stream temperatures: " << ErrorMessage(status) << std::endl;
-      return 25;
-    }
-    start = std::chrono::high_resolution_clock::now();
-    count = 0;
-    do {
-      std::shared_ptr<Message> msg = WaitForMessageType(receiver, TEMPERATURE, 0.1);
-      if (msg != nullptr) {
-        ++count;
-      }
-    } while (std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - start).count() <= 2.0);
-    if (count < 1) {
-      std::cerr << "Did not get enough temperature messages: " << count << std::endl;
-      return 26;
-    }
+  } else {
+    numExpectedStreams++;
   }
 
-  // If it can send poses, stream and make sure we get at least 1 in 2 seconds.
-  if (features[POSE_API_ORIENTATION_AVAILABLE] || features[POSE_API_POSITION_AVAILABLE]) {
-    std::cout << "Checking for pose messages" << std::endl;
-    status = client.SendCommandPacket(CommandPacketStreamPoses());
-    if (status != OKAY) {
-      std::cerr << "Failed to stream poses: " << ErrorMessage(status) << std::endl;
-      return 27;
-    }
-    start = std::chrono::high_resolution_clock::now();
-    count = 0;
-    do {
-      std::shared_ptr<Message> msg = WaitForMessageType(receiver, POSE, 0.1);
-      if (msg != nullptr) {
-        ++count;
-      }
-    } while (std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - start).count() <= 2.0);
-    if (count < 1) {
-      std::cerr << "Did not get enough pose messages: " << count << std::endl;
-      return 28;
-    }
+  if (storing) {
+    status = client.SendCommandPacket(CommandPacketStartRecording());
+  }
+  else {
+    status = client.SendCommandPacket(CommandPacketStopRecording());
+  } if (status != OKAY) {
+    std::cerr << "Failed to send start/stop recording command: " << ErrorMessage(status) << std::endl;
+    return 107;
+  }
+  msg = WaitForMessageType(receiver, STATE, 5.0);
+  if (msg == nullptr) {
+    std::cerr << "Did not get state message." << std::endl;
+    return 108;
+  }
+  msg = WaitForMessageType(receiver, STATE, 5.0);
+  if (msg == nullptr) {
+    std::cerr << "Did not get state message." << std::endl;
+    return 109;
+  }
+  state = MessageState(*msg);
+  if (state.GetConstructorStatus() != OKAY) {
+    std::cerr << "Failed to construct state message: " << ErrorMessage(state.GetConstructorStatus()) << std::endl;
+    return 110;
+  }
+  status = state.GetStoring(newStoring);
+  if (status != OKAY) {
+    std::cerr << "Failed to get storing: " << ErrorMessage(status) << std::endl;
+    return 111;
+  }
+  std::cout << "  Storing is now " << (newStoring ? "on" : "off") << std::endl;
+  if (newStoring != storing) {
+    std::cerr << "Failed to toggle storing" << std::endl;
+    return 112;
   }
 
+  // Determine how many streams are stored and see if it matches what we expect.
+  status = client.SendCommandPacket(CommandPacketListStoredStreams());
+  if (status != OKAY) {
+    std::cerr << "Failed to send storage command: " << ErrorMessage(status) << std::endl;
+    return 130;
+  }
+  msg = WaitForMessageType(receiver, STORED_STREAMS, 5.0);
+  if (msg == nullptr) {
+    std::cerr << "Did not get stored streams message." << std::endl;
+    return 131;
+  }
+  storedStreams = MessageStoredStreamList(*msg);
+  if (storedStreams.GetConstructorStatus() != OKAY) {
+    std::cerr << "Failed to construct stored streams message: " << ErrorMessage(storedStreams.GetConstructorStatus()) << std::endl;
+    return 132;
+  }
+  status = storedStreams.GetIDs(IDs);
+  if (status != OKAY) {
+    std::cerr << "Failed to get stored stream IDs: " << ErrorMessage(status) << std::endl;
+    return 133;
+  }
+  numStreams = IDs.size();
+  if (numStreams != numExpectedStreams) {
+    std::cerr << "Expected " << numExpectedStreams << " stored streams, but got " << numStreams << std::endl;
+    return 134;
+  }
+
+  /// @todo Add more tests here.
+
+
+#if 0
   // If we have at least one camera, try streaming data from it at its highest rate.
   for (uint32_t camID = 1; camID <= cameras.size(); camID++) {
 
@@ -460,8 +541,8 @@ int main(int argc, char** argv)
       std::cerr << "Failed to cancel stream images: " << ErrorMessage(status) << std::endl;
       return 38;
     }
-
   }
+#endif
 
   std::cout << std::endl << "Success!" << std::endl;
   return 0;

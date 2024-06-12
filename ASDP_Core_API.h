@@ -1537,7 +1537,7 @@ public:
 /// @brief Temperature message.
 class MessageTemperature : public Message {
 public:
-  /// @brief Construct a MessagePartialStorageList and store it into a buffer from a StreamPacket.
+  /// @brief Construct a MessageTemperature and store it into a buffer from a StreamPacket.
   /// @param [in] packet Pointer to the StreamPacket containing the message.
   /// @param [in] timeCode Time code for the message.
   /// @param [in] cameraID Camera ID for the temperature (0 for system sensor).
