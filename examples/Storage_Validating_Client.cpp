@@ -99,16 +99,47 @@ std::shared_ptr<Message> WaitForMessageType(std::shared_ptr<Receiver> receiver, 
   return empty;
 }
 
+std::string GetStreamList(CoreClient &client, std::shared_ptr<Receiver> receiver, std::vector<uint32_t>& IDs, float seconds)
+{
+  // Determine how many streams are stored.
+  Status status = client.SendCommandPacket(CommandPacketListStoredStreams());
+  if (status != OKAY) {
+    return "Failed to send storage command: " + ErrorMessage(status);
+  }
+  std::shared_ptr<Message> msg = WaitForMessageType(receiver, STORED_STREAMS, 5.0);
+  if (msg == nullptr) {
+    return "Did not get stored streams message.";
+  }
+  MessageStoredStreamList storedStreams(*msg);
+  if (storedStreams.GetConstructorStatus() != OKAY) {
+    return "Failed to construct stored streams message: " + ErrorMessage(storedStreams.GetConstructorStatus());
+  }
+  status = storedStreams.GetIDs(IDs);
+  if (status != OKAY) {
+    return "Failed to get stored stream IDs: " + ErrorMessage(status);
+  }
+  return "";
+}
+
+void Usage(const char* name)
+{
+  std::cerr << "Usage: " << name << " [--destructive] <ip_address>" << std::endl;
+  std::cerr << "  --destructive: Run tests that will change the state of the server (requires Module connected to camera)" << std::endl;
+}
+
 int main(int argc, char** argv)
 {
   std::string ip_address;
+  bool destructive = false;
   size_t realParams = 0;
 
   // Parse the command line arguments, with the first non-flag argument being the
   // name of the IP address to listen on.  There is a --serial flag to specify
   // the serial number of the server, which defaults to 1.
   for (int i = 1; i < argc; ++i) {
-    if (argv[i][0] == '-' ) {
+    if (std::string(argv[i]) == "--destructive") {
+      destructive = true;
+    } else if (argv[i][0] == '-' ) {
       std::cerr << "Unknown flag: " << argv[i] << std::endl;
       return 1;
     } else switch (realParams++) {
@@ -116,12 +147,12 @@ int main(int argc, char** argv)
         ip_address = argv[i];
         break;
       default:
-        std::cerr << "Usage: " << argv[0] << " <ip_address>" << std::endl;
+        Usage(argv[0]);
         return 2;
     }
   }
   if (realParams != 1) {
-    std::cerr << "Usage: " << argv[0] << " <ip_address>" << std::endl;
+    Usage(argv[0]);
     return 2;
   }
 
@@ -229,6 +260,21 @@ int main(int argc, char** argv)
     return 15;
   }
 
+  // Report the disk-space information.
+  uint64_t totalSpace, freeSpace;
+  status = state.GetTotalDiskSpace(totalSpace);
+  if (status != OKAY) {
+    std::cerr << "Failed to get total disk space: " << ErrorMessage(status) << std::endl;
+    return 15;
+  }
+  std::cout << "Total disk space: " << totalSpace << " bytes" << std::endl;
+  status = state.GetRemainingDiskSpace(freeSpace);
+  if (status != OKAY) {
+    std::cerr << "Failed to get remaining disk space: " << ErrorMessage(status) << std::endl;
+    return 15;
+  }
+  std::cout << "Free disk space: " << freeSpace << " bytes" << std::endl;
+
   // Report whether the device is set to record data at start-up.  Then switch it to the opposite
   // setting and back to the original setting and make sure that both take effect.  Get two state
   // messages to ensure that the change is complete.
@@ -297,26 +343,11 @@ int main(int argc, char** argv)
   }
 
   // Determine how many streams are stored.
-  status = client.SendCommandPacket(CommandPacketListStoredStreams());
-  if (status != OKAY) {
-    std::cerr << "Failed to send storage command: " << ErrorMessage(status) << std::endl;
-    return 30;
-  }
-  msg = WaitForMessageType(receiver, STORED_STREAMS, 5.0);
-  if (msg == nullptr) {
-    std::cerr << "Did not get stored streams message." << std::endl;
-    return 31;
-  }
-  MessageStoredStreamList storedStreams(*msg);
-  if (storedStreams.GetConstructorStatus() != OKAY) {
-    std::cerr << "Failed to construct stored streams message: " << ErrorMessage(storedStreams.GetConstructorStatus()) << std::endl;
-    return 32;
-  }
   std::vector<uint32_t> IDs;
-  status = storedStreams.GetIDs(IDs);
-  if (status != OKAY) {
-    std::cerr << "Failed to get stored stream IDs: " << ErrorMessage(status) << std::endl;
-    return 33;
+  std::string retStreams = GetStreamList(client, receiver, IDs, 5.0);
+  if (!retStreams.empty()) {
+    std::cerr << retStreams << std::endl;
+    return 27;
   }
   size_t numStreams = IDs.size();
   std::cout << "There are " << numStreams << " stored streams." << std::endl;
@@ -367,7 +398,7 @@ int main(int argc, char** argv)
   }
   std::cout << "  Storing is now " << (newStoring ? "on" : "off") << std::endl;
   if (newStoring == storing) {
-    if (!newStoring) {
+    if (!newStoring && !destructive) {
       std::cerr << "  (Warning: Storing could not be turned on, but that may be because the device is not connected to a camera)"
         << std::endl;
     } else {
@@ -414,30 +445,100 @@ int main(int argc, char** argv)
   }
 
   // Determine how many streams are stored and see if it matches what we expect.
-  status = client.SendCommandPacket(CommandPacketListStoredStreams());
-  if (status != OKAY) {
-    std::cerr << "Failed to send storage command: " << ErrorMessage(status) << std::endl;
-    return 130;
-  }
-  msg = WaitForMessageType(receiver, STORED_STREAMS, 5.0);
-  if (msg == nullptr) {
-    std::cerr << "Did not get stored streams message." << std::endl;
-    return 131;
-  }
-  storedStreams = MessageStoredStreamList(*msg);
-  if (storedStreams.GetConstructorStatus() != OKAY) {
-    std::cerr << "Failed to construct stored streams message: " << ErrorMessage(storedStreams.GetConstructorStatus()) << std::endl;
-    return 132;
-  }
-  status = storedStreams.GetIDs(IDs);
-  if (status != OKAY) {
-    std::cerr << "Failed to get stored stream IDs: " << ErrorMessage(status) << std::endl;
-    return 133;
+  retStreams = GetStreamList(client, receiver, IDs, 5.0);
+  if (!retStreams.empty()) {
+    std::cerr << retStreams << std::endl;
+    return 113;
   }
   numStreams = IDs.size();
   if (numStreams != numExpectedStreams) {
     std::cerr << "Expected " << numExpectedStreams << " stored streams, but got " << numStreams << std::endl;
-    return 134;
+    return 114;
+  }
+
+  if (destructive) {
+    // Stop recording so that the next test can delete the last stored stream.  Wait until we have a report
+    // that we are no longer storing.
+    std::cout << "Turning off storing" << std::endl;
+    status = client.SendCommandPacket(CommandPacketStopRecording());
+    if (status != OKAY) {
+      std::cerr << "Failed to send start/stop recording command: " << ErrorMessage(status) << std::endl;
+      return 200;
+    }
+    /// @todo Wait for report rather than sleeping.
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+
+    // Make sure we have at least one stream.
+    if (numStreams < 1) {
+      std::cerr << "No stored streams: toggling storage should have made a new one." << std::endl;
+      return 201;
+    }
+
+    // Delete the first stored stream.
+    std::cout << "Deleting first stored stream" << std::endl;
+    status = client.SendCommandPacket(CommandPacketEraseStoredStream(IDs.front()));
+    if (status != OKAY) {
+      std::cerr << "Failed to delete stored stream: " << ErrorMessage(status) << std::endl;
+      return 202;
+    }
+    numStreams--;
+
+    // Determine how many streams are stored and see if it matches what we expect.
+    retStreams = GetStreamList(client, receiver, IDs, 5.0);
+    if (!retStreams.empty()) {
+      std::cerr << retStreams << std::endl;
+      return 203;
+    }
+    if (numStreams != IDs.size()) {
+      std::cerr << "Expected " << numStreams << " stored streams, but got " << IDs.size() << std::endl;
+      return 204;
+    }
+
+    // Delete all stored streams and make sure they are all gone.
+    std::cout << "Deleting all stored streams" << std::endl;
+    status = client.SendCommandPacket(CommandPacketEraseAllStoredStreams());
+    if (status != OKAY) {
+      std::cerr << "Failed to delete all stored streams: " << ErrorMessage(status) << std::endl;
+      return 202;
+    }
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+    retStreams = GetStreamList(client, receiver, IDs, 5.0);
+    if (!IDs.empty()) {
+      std::cerr << "Could not delete all stored streams, " << IDs.size() << " remain" << std::endl;
+      return 203;
+    }
+
+    // Trying to delete a stream this is currently being recorded should fail.
+    std::cout << "Trying to delete a stream that is currently being recorded" << std::endl;
+    status = client.SendCommandPacket(CommandPacketStartRecording());
+    if (status != OKAY) {
+      std::cerr << "Failed to send start recording command: " << ErrorMessage(status) << std::endl;
+      return 205;
+    }
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    status = client.SendCommandPacket(CommandPacketEraseAllStoredStreams());
+    if (status != OKAY) {
+      std::cerr << "Failed to delete all stored streams: " << ErrorMessage(status) << std::endl;
+      return 206;
+    }
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+    retStreams = GetStreamList(client, receiver, IDs, 5.0);
+    if (IDs.size() != 1) {
+      std::cerr << "Error: Expected 1 stored stream, found " << IDs.size() << std::endl;
+      return 207;
+    }
+    status = client.SendCommandPacket(CommandPacketStopRecording());
+    if (status != OKAY) {
+      std::cerr << "Failed to send stop recording command: " << ErrorMessage(status) << std::endl;
+      return 208;
+    }
+
+    // Turn off storing so we don't fill up the disk.
+    status = client.SendCommandPacket(CommandPacketStopRecording());
+    if (status != OKAY) {
+      std::cerr << "Failed to send start/stop recording command: " << ErrorMessage(status) << std::endl;
+      return 209;
+    }
   }
 
   /// @todo Add more tests here.
