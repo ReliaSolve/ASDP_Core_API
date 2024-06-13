@@ -2483,19 +2483,19 @@ protected:
 
   // State variables that are per server.  These should be overridden in the constructor if needed
   // and maintained by the derived class.  These are used to fill in the state packet.
-  std::vector<FeatureID> m_features;    ///< The features of the server (filled in by derived class)
-  std::vector<CameraInfo> m_cameras;    ///< Cameras available on the server (filled in by derived class)
-  uint32_t m_numTemperaturesPerCamera;  ///< Number of temperature sensors per camera (filled in by derived class)
-  uint32_t m_numSystemTemperatures;     ///< Number of system temperature sensors (filled in by derived class)
-  uint8_t m_storing;                    ///< The state of storing (filled in by derived class)
-  uint8_t m_camerasStreaming;           ///< The state of cameras streaming (filled in by derived class)
-  uint8_t m_replaying;                  ///< The state of replaying (filled in by derived class)
-  uint8_t m_replayAtEnd;                ///< The state of replay at end (filled in by derived class)
-  uint8_t m_recordOnReset;              ///< The state of start-up recording (filled in by derived class)
-  std::vector<TriggerInfo> m_triggers;  ///< Trigger information (filled in by derived class)
-  uint64_t m_totalDiskSpace;            ///< Total disk space (filled in by derived class)
-  uint64_t m_remainingDiskSpace;        ///< Free disk space (filled in by derived class)
-  Time m_streamReplayTime;              ///< The current replay time (filled in by derived class)
+  std::vector<FeatureID> m_features;        ///< The features of the server (filled in by derived class)
+  std::vector<CameraInfo> m_cameras;        ///< Cameras available on the server (filled in by derived class)
+  uint32_t m_numTemperaturesPerCamera;      ///< Number of temperature sensors per camera (filled in by derived class)
+  uint32_t m_numSystemTemperatures;         ///< Number of system temperature sensors (filled in by derived class)
+  std::atomic<uint8_t> m_storing;           ///< The state of storing (filled in by derived class)
+  std::atomic<uint8_t> m_camerasStreaming;  ///< The state of cameras streaming (filled in by derived class)
+  std::atomic<uint8_t> m_replaying;         ///< The state of replaying (filled in by derived class)
+  uint8_t m_replayAtEnd;                    ///< The state of replay at end (filled in by derived class)
+  uint8_t m_recordOnReset;                  ///< The state of start-up recording (filled in by derived class)
+  std::vector<TriggerInfo> m_triggers;      ///< Trigger information (filled in by derived class)
+  uint64_t m_totalDiskSpace;                ///< Total disk space (filled in by derived class)
+  uint64_t m_remainingDiskSpace;            ///< Free disk space (filled in by derived class)
+  Time m_streamReplayTime;                  ///< The current replay time (filled in by derived class)
 
   /// A list of current clients that we will receive commands from and send responses to.
   std::vector<ClientState> m_clients;
