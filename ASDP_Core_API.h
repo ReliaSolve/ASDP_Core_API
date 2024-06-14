@@ -2588,6 +2588,13 @@ protected:
   /// @brief Implement the specified command.
   /// @param command The command packet to implement.
   /// @param client The client that the command is coming from.
+  virtual void doResumeReplay(const CommandPacketResumeReplay& command, ClientState& client) {
+    sendInvalidCommandMessage(RESUME_REPLAY, client);
+  }
+
+  /// @brief Implement the specified command.
+  /// @param command The command packet to implement.
+  /// @param client The client that the command is coming from.
   virtual void doStopReplay(const CommandPacketStopReplay& command, ClientState& client) {
     sendInvalidCommandMessage(STOP_REPLAY, client);
   }

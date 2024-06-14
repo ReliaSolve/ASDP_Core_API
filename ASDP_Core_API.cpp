@@ -95,6 +95,7 @@ static std::string OpCodeName(OpCode opCode)
   case SET_START_UP_RECORDING_STATE: return "SET_START_UP_RECORDING_STATE";
   case START_REPLAY: return "START_REPLAY";
   case PAUSE_REPLAY: return "PAUSE_REPLAY";
+  case RESUME_REPLAY: return "RESUME_REPLAY";
   case STOP_REPLAY: return "STOP_REPLAY";
   case SET_STREAM_STATE_PERIOD: return "SET_STREAM_STATE_PERIOD";
   case SET_NUC_FLAG_STATE: return "SET_NUC_FLAG_STATE";
@@ -7214,6 +7215,16 @@ std::string CoreServerBase::run()
           return "Failed to construct pause replay command: " + ErrorMessage(status);
         }
         doPauseReplay(pauseReplayCommand, client);
+      }
+      break;
+      case RESUME_REPLAY:
+      {
+        CommandPacketResumeReplay resumeReplayCommand(*command);
+        status = resumeReplayCommand.GetConstructorStatus();
+        if (status != OKAY) {
+          return "Failed to construct resume replay command: " + ErrorMessage(status);
+        }
+        doPauseReplay(resumeReplayCommand, client);
       }
       break;
       case STOP_REPLAY:
