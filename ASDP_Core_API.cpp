@@ -2182,6 +2182,38 @@ Status Message::GetTotalSize(uint32_t& size) const
   return OKAY;
 }
 
+Status Message::CopyToStreamPacket(StreamPacket& packet, Time timeCode) const
+{
+  // Make sure we have enough room in the buffer to add the message to the packet.
+  uint32_t originalSize;
+  Status status = packet.GetTotalLength(originalSize);
+  if (status != OKAY) {
+    return status;
+  }
+  uint32_t mySize;
+  status = GetTotalSize(mySize);
+  if (status != OKAY) {
+    return status;
+  }
+  status = packet.IncreaseTotalLength(mySize);
+  if (status != OKAY) {
+    return status;
+  }
+
+  // Copy the message to the packet.
+  uint32_t packetOffset = packet.m_offset + originalSize;
+  memcpy(packet.m_buffer->data() + packetOffset, m_buffer->data() + m_offset, mySize);
+
+  // Update the time code in the packet if necessary.
+  if (timeCode != Time()) {
+    unsigned char* bufPtr = packet.m_buffer->data() + packetOffset + MESSAGE_HEADER_MESSAGE_TIME_SECONDS_OFFSET;
+    memcpy(bufPtr, &timeCode.seconds, sizeof(timeCode.seconds)); bufPtr += sizeof(timeCode.seconds);
+    memcpy(bufPtr, &timeCode.microseconds, sizeof(timeCode.microseconds)); bufPtr += sizeof(timeCode.microseconds);
+  }
+
+  return OKAY;
+}
+
 Message::~Message()
 {
 }
@@ -2351,6 +2383,68 @@ std::string Message::Test()
     if (rTime != timeCode2) {
       return "Error getting time code from packet for offset message test: time code is not " +
         std::to_string(timeCode2.seconds) + "." + std::to_string(timeCode2.microseconds);
+    }
+  }
+
+  // Test copying a message into a StreamPacket and make sure time adjustment works.
+  {
+    StreamPacket packet;
+    if (packet.GetConstructorStatus() != OKAY) {
+      return "Error constructing stream packet for copy message test: " + ErrorMessage(packet.GetConstructorStatus());
+    }
+    Time timeCode = { 1234, 5678 };
+    Message message(packet, 0, timeCode, FRAME_END);
+    if (message.GetConstructorStatus() != OKAY) {
+      return "Error constructing message: " + ErrorMessage(message.GetConstructorStatus());
+    }
+    Time newTime = { 4321, 8765 };
+    StreamPacket packet2;
+    Status status = message.CopyToStreamPacket(packet2, newTime);
+    if (status != OKAY) {
+      return "Error copying message to packet for copy message test: " + ErrorMessage(status);
+    }
+    std::shared_ptr<Message> message2;
+    status = packet2.GetNextMessage(message2);
+    if (status != OKAY) {
+      return "Error getting message from packet for copy message test: " + ErrorMessage(status);
+    }
+    Time rTime;
+    status = message2->GetTime(rTime);
+    if (status != OKAY) {
+      return "Error getting time code from packet for copy message test: " + ErrorMessage(status);
+    }
+    if (rTime != newTime) {
+      return "Error getting time code from packet for copy message test: time code is not " +
+        std::to_string(newTime.seconds) + "." + std::to_string(newTime.microseconds);
+    }
+    MessageID rID;
+    status = message.GetType(rID);
+    if (status != OKAY) {
+      return "Error getting type from packet for copy message test: " + ErrorMessage(status);
+    }
+    if (rID != FRAME_END) {
+      return "Error getting type from packet for copy message test: type is not FRAME_END but " +
+        std::to_string(rID);
+    }
+
+    // Copy again with no time adjustment.
+    StreamPacket packet3;
+    status = message.CopyToStreamPacket(packet3, Time());
+    if (status != OKAY) {
+      return "Error copying message to packet for copy message test: " + ErrorMessage(status);
+    }
+    std::shared_ptr<Message> message3;
+    status = packet3.GetNextMessage(message3);
+    if (status != OKAY) {
+      return "Error getting message from packet for copy message test: " + ErrorMessage(status);
+    }
+    status = message3->GetTime(rTime);
+    if (status != OKAY) {
+      return "Error getting time code from packet for copy message test: " + ErrorMessage(status);
+    }
+    if (rTime != timeCode) {
+      return "Error getting time code from packet for copy message test: time code is not " +
+        std::to_string(timeCode.seconds) + "." + std::to_string(timeCode.microseconds);
     }
   }
 

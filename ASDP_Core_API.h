@@ -1147,10 +1147,16 @@ public:
   /// @return OKAY if successful, otherwise an error code.
   Status GetConstructorStatus() const;
 
-  /// @brief Get the total size of the message a packed into the message itself.
-  /// @param [out] size Total size of the message a packed into the message itself.
+  /// @brief Get the total size of the message as packed into the message itself.
+  /// @param [out] size Total size of the message as packed into the message itself.
   /// @return OKAY if successful, otherwise an error code.
   Status GetTotalSize(uint32_t& size) const;
+
+  /// @brief Copy the message into a StreamPacket, possibly overriding the time.
+  /// @param [in] packet StreamPacket to copy the message into.
+  /// @param [in] timeCode Time code to override the message's time code with (default Time re-uses existing time).
+  /// @return OKAY if successful, otherwise an error code.
+  Status CopyToStreamPacket(StreamPacket& packet, Time timeCode = Time()) const;
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
