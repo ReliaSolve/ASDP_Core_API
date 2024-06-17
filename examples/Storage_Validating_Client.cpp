@@ -260,6 +260,13 @@ int main(int argc, char** argv)
     return 15;
   }
 
+  // Stop replaying in case it has been turned on.
+  status = client.SendCommandPacket(CommandPacketStopReplay());
+  if (status != OKAY) {
+    std::cerr << "Failed to send stop replay command: " << ErrorMessage(status) << std::endl;
+    return 15;
+  }
+
   // Report the disk-space information.
   uint64_t totalSpace, freeSpace;
   status = state.GetTotalDiskSpace(totalSpace);
@@ -352,111 +359,106 @@ int main(int argc, char** argv)
   size_t numStreams = IDs.size();
   std::cout << "There are " << numStreams << " stored streams." << std::endl;
 
-  // Report whether the device is set to storing.  Then switch it to the opposite
-  // setting and back to the original setting and make sure that both take effect.  Get two state
-  // messages to ensure that the change is complete.  If we are able to toggle storing on and off,
-  // we expect an additional stored stream.
-  size_t numExpectedStreams = numStreams;
-  uint8_t storing;
-  status = state.GetStoring(storing);
-  if (status != OKAY) {
-    std::cerr << "Failed to get storing: " << ErrorMessage(status) << std::endl;
-    return 100;
-  }
-  std::cout << "Storing is " << (storing ? "on" : "off") << std::endl;
-
-  std::cout << "Toggling storing" << std::endl;
-  if (storing) {
-    status = client.SendCommandPacket(CommandPacketStopRecording());
-  } else {
-    status = client.SendCommandPacket(CommandPacketStartRecording());
-  }
-  if (status != OKAY) {
-    std::cerr << "Failed to send start/stop recording command: " << ErrorMessage(status) << std::endl;
-    return 101;
-  }
-  msg = WaitForMessageType(receiver, STATE, 5.0);
-  if (msg == nullptr) {
-    std::cerr << "Did not get state message." << std::endl;
-    return 102;
-  }
-  msg = WaitForMessageType(receiver, STATE, 5.0);
-  if (msg == nullptr) {
-    std::cerr << "Did not get state message." << std::endl;
-    return 103;
-  }
-  state = MessageState(*msg);
-  if (state.GetConstructorStatus() != OKAY) {
-    std::cerr << "Failed to construct state message: " << ErrorMessage(state.GetConstructorStatus()) << std::endl;
-    return 104;
-  }
-  uint8_t newStoring;
-  status = state.GetStoring(newStoring);
-  if (status != OKAY) {
-    std::cerr << "Failed to get storing: " << ErrorMessage(status) << std::endl;
-    return 105;
-  }
-  std::cout << "  Storing is now " << (newStoring ? "on" : "off") << std::endl;
-  if (newStoring == storing) {
-    if (!newStoring && !destructive) {
-      std::cerr << "  (Warning: Storing could not be turned on, but that may be because the device is not connected to a camera)"
-        << std::endl;
-    } else {
-      std::cerr << "Failed to toggle storing" << std::endl;
-      return 106;
-    }
-  } else {
-    numExpectedStreams++;
-  }
-
-  if (storing) {
-    status = client.SendCommandPacket(CommandPacketStartRecording());
-  }
-  else {
-    status = client.SendCommandPacket(CommandPacketStopRecording());
-  } if (status != OKAY) {
-    std::cerr << "Failed to send start/stop recording command: " << ErrorMessage(status) << std::endl;
-    return 107;
-  }
-  msg = WaitForMessageType(receiver, STATE, 5.0);
-  if (msg == nullptr) {
-    std::cerr << "Did not get state message." << std::endl;
-    return 108;
-  }
-  msg = WaitForMessageType(receiver, STATE, 5.0);
-  if (msg == nullptr) {
-    std::cerr << "Did not get state message." << std::endl;
-    return 109;
-  }
-  state = MessageState(*msg);
-  if (state.GetConstructorStatus() != OKAY) {
-    std::cerr << "Failed to construct state message: " << ErrorMessage(state.GetConstructorStatus()) << std::endl;
-    return 110;
-  }
-  status = state.GetStoring(newStoring);
-  if (status != OKAY) {
-    std::cerr << "Failed to get storing: " << ErrorMessage(status) << std::endl;
-    return 111;
-  }
-  std::cout << "  Storing is now " << (newStoring ? "on" : "off") << std::endl;
-  if (newStoring != storing) {
-    std::cerr << "Failed to toggle storing" << std::endl;
-    return 112;
-  }
-
-  // Determine how many streams are stored and see if it matches what we expect.
-  retStreams = GetStreamList(client, receiver, IDs, 5.0);
-  if (!retStreams.empty()) {
-    std::cerr << retStreams << std::endl;
-    return 113;
-  }
-  numStreams = IDs.size();
-  if (numStreams != numExpectedStreams) {
-    std::cerr << "Expected " << numExpectedStreams << " stored streams, but got " << numStreams << std::endl;
-    return 114;
-  }
-
   if (destructive) {
+    // Report whether the device is set to storing.  Then switch it to the opposite
+    // setting and back to the original setting and make sure that both take effect.  Get two state
+    // messages to ensure that the change is complete.  If we are able to toggle storing on and off,
+    // we expect an additional stored stream.
+    size_t numExpectedStreams = numStreams;
+    uint8_t storing;
+    status = state.GetStoring(storing);
+    if (status != OKAY) {
+      std::cerr << "Failed to get storing: " << ErrorMessage(status) << std::endl;
+      return 100;
+    }
+    std::cout << "Storing is " << (storing ? "on" : "off") << std::endl;
+
+    std::cout << "Toggling storing" << std::endl;
+    if (storing) {
+      status = client.SendCommandPacket(CommandPacketStopRecording());
+    } else {
+      status = client.SendCommandPacket(CommandPacketStartRecording());
+    }
+    if (status != OKAY) {
+      std::cerr << "Failed to send start/stop recording command: " << ErrorMessage(status) << std::endl;
+      return 101;
+    }
+    msg = WaitForMessageType(receiver, STATE, 5.0);
+    if (msg == nullptr) {
+      std::cerr << "Did not get state message." << std::endl;
+      return 102;
+    }
+    msg = WaitForMessageType(receiver, STATE, 5.0);
+    if (msg == nullptr) {
+      std::cerr << "Did not get state message." << std::endl;
+      return 103;
+    }
+    state = MessageState(*msg);
+    if (state.GetConstructorStatus() != OKAY) {
+      std::cerr << "Failed to construct state message: " << ErrorMessage(state.GetConstructorStatus()) << std::endl;
+      return 104;
+    }
+    uint8_t newStoring;
+    status = state.GetStoring(newStoring);
+    if (status != OKAY) {
+      std::cerr << "Failed to get storing: " << ErrorMessage(status) << std::endl;
+      return 105;
+    }
+    std::cout << "  Storing is now " << (newStoring ? "on" : "off") << std::endl;
+    if (newStoring == storing) {
+      std::cerr << "Failed to toggle storing (Storage Module may not be connected to Core Module?)" << std::endl;
+      return 106;
+    } else {
+      numExpectedStreams++;
+    }
+
+    if (storing) {
+      status = client.SendCommandPacket(CommandPacketStartRecording());
+    }
+    else {
+      status = client.SendCommandPacket(CommandPacketStopRecording());
+    } if (status != OKAY) {
+      std::cerr << "Failed to send start/stop recording command: " << ErrorMessage(status) << std::endl;
+      return 107;
+    }
+    msg = WaitForMessageType(receiver, STATE, 5.0);
+    if (msg == nullptr) {
+      std::cerr << "Did not get state message." << std::endl;
+      return 108;
+    }
+    msg = WaitForMessageType(receiver, STATE, 5.0);
+    if (msg == nullptr) {
+      std::cerr << "Did not get state message." << std::endl;
+      return 109;
+    }
+    state = MessageState(*msg);
+    if (state.GetConstructorStatus() != OKAY) {
+      std::cerr << "Failed to construct state message: " << ErrorMessage(state.GetConstructorStatus()) << std::endl;
+      return 110;
+    }
+    status = state.GetStoring(newStoring);
+    if (status != OKAY) {
+      std::cerr << "Failed to get storing: " << ErrorMessage(status) << std::endl;
+      return 111;
+    }
+    std::cout << "  Storing is now " << (newStoring ? "on" : "off") << std::endl;
+    if (newStoring != storing) {
+      std::cerr << "Failed to toggle storing" << std::endl;
+      return 112;
+    }
+
+    // Determine how many streams are stored and see if it matches what we expect.
+    retStreams = GetStreamList(client, receiver, IDs, 5.0);
+    if (!retStreams.empty()) {
+      std::cerr << retStreams << std::endl;
+      return 113;
+    }
+    numStreams = IDs.size();
+    if (numStreams != numExpectedStreams) {
+      std::cerr << "Expected " << numExpectedStreams << " stored streams, but got " << numStreams << std::endl;
+      return 114;
+    }
+
     // Stop recording so that the next test can delete the last stored stream.  Wait until we have a report
     // that we are no longer storing.
     std::cout << "Turning off storing" << std::endl;
@@ -533,13 +535,112 @@ int main(int argc, char** argv)
       return 208;
     }
 
-    // Turn off storing so we don't fill up the disk.
+    // Turn off storing after ten seconds so that we get some data but don't fill up the disk.
+    std::cout << "Recording for ten seconds to get sample data set" << std::endl;
+    auto start = std::chrono::high_resolution_clock::now();
+    auto now = std::chrono::high_resolution_clock::now();
+    while (std::chrono::duration<double>(now - start).count() < 10.0) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      now = std::chrono::high_resolution_clock::now();
+    }
+    std::cout << "Turning off storing" << std::endl;
     status = client.SendCommandPacket(CommandPacketStopRecording());
     if (status != OKAY) {
       std::cerr << "Failed to send start/stop recording command: " << ErrorMessage(status) << std::endl;
       return 209;
     }
-  }
+
+    // Find the list of stored streams and make sure that we have at least one.
+    retStreams = GetStreamList(client, receiver, IDs, 5.0);
+    if (!retStreams.empty()) {
+      std::cerr << retStreams << std::endl;
+      return 300;
+    }
+    if (IDs.empty()) {
+      std::cerr << "No stored streams: expected at least one." << std::endl;
+      return 301;
+    }
+
+    // Request replay on the first stored stream, requesting that packets have a time offset of 10000 seconds.
+    // Make sure that we get a state message that says we are replaying in the second message after we start.
+    // Verify that the time on that message is larger than the time we requested.
+    std::cout << "Requesting replay of first stored stream" << std::endl;
+    Time timeOffset(10000, 0);
+    status = client.SendCommandPacket(CommandPacketStartReplay(IDs.front(), timeOffset));
+    if (status != OKAY) {
+      std::cerr << "Failed to send start replay command: " << ErrorMessage(status) << std::endl;
+      return 400;
+    }
+    msg = WaitForMessageType(receiver, STATE, 5.0);
+    if (msg == nullptr) {
+      std::cerr << "Did not get state message." << std::endl;
+      return 401;
+    }
+    msg = WaitForMessageType(receiver, STATE, 5.0);
+    if (msg == nullptr) {
+      std::cerr << "Did not get state message." << std::endl;
+      return 402;
+    }
+    state = MessageState(*msg);
+    if (state.GetConstructorStatus() != OKAY) {
+      std::cerr << "Failed to construct state message: " << ErrorMessage(state.GetConstructorStatus()) << std::endl;
+      return 403;
+    }
+    uint8_t replaying;
+    status = state.GetReplaying(replaying);
+    if (status != OKAY) {
+      std::cerr << "Failed to get replaying: " << ErrorMessage(status) << std::endl;
+      return 404;
+    }
+    if (!replaying) {
+      std::cerr << "Replay did not start" << std::endl;
+      return 405;
+    }
+    Time replayTime;
+    status = state.GetTime(replayTime);
+    if (status != OKAY) {
+      std::cerr << "Failed to get time: " << ErrorMessage(status) << std::endl;
+      return 406;
+    }
+    if (replayTime < timeOffset) {
+      std::cerr << "Replay time is less than requested time offset" << std::endl;
+      return 407;
+    }
+
+    // Stop replay and make sure it stops by checking the value in the second state message arriving after we
+    // change the state.
+    std::cout << "Stopping replay" << std::endl;
+    status = client.SendCommandPacket(CommandPacketStopReplay());
+    if (status != OKAY) {
+      std::cerr << "Failed to send stop replay command: " << ErrorMessage(status) << std::endl;
+      return 500;
+    }
+    msg = WaitForMessageType(receiver, STATE, 5.0);
+    if (msg == nullptr) {
+      std::cerr << "Did not get state message." << std::endl;
+      return 501;
+    }
+    msg = WaitForMessageType(receiver, STATE, 5.0);
+    if (msg == nullptr) {
+      std::cerr << "Did not get state message." << std::endl;
+      return 501;
+    }
+    state = MessageState(*msg);
+    if (state.GetConstructorStatus() != OKAY) {
+      std::cerr << "Failed to construct state message: " << ErrorMessage(state.GetConstructorStatus()) << std::endl;
+      return 502;
+    }
+    status = state.GetReplaying(replaying);
+    if (status != OKAY) {
+      std::cerr << "Failed to get replaying: " << ErrorMessage(status) << std::endl;
+      return 503;
+    }
+    if (replaying) {
+      std::cerr << "Replay did not stop" << std::endl;
+      return 504;
+    }
+
+  } // End of destructive testing section
 
   /// @todo Add more tests here.
 

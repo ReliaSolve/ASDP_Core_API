@@ -5069,18 +5069,23 @@ ReceiverFile::~ReceiverFile()
 
 Status ReceiverFile::IsPacketAvailable(double timeout_seconds, bool& available)
 {
+  // Not available unless proven otherwise.
+  available = false;
+
   // Make sure we have a valid file.
   if (m_file == nullptr) {
     return m_constructorStatus;
   }
-  if (!(*m_file)) {
+  if (m_file->eof()) {
+    // We are at the end of the file, so we don't mark it as available but the check succeeds.
+    return OKAY;
+  }
+  if (m_file->bad() || m_file->fail()) {
     return FILE_FAILURE;
   }
 
-  /// @todo Implement timeout for the case of a file that gets appended to by another thread.
-
-  // Check if there is more data available in the file.
-  available = !m_file->eof();
+  // We are not at the end of the file.
+  available = true;
   return OKAY;
 }
 
@@ -5090,7 +5095,10 @@ Status ReceiverFile::ReceiveBuffer(uint8_t* buffer, size_t& size)
   if (m_file == nullptr) {
     return m_constructorStatus;
   }
-  if (!(*m_file)) {
+  if (m_file->eof()) {
+    return TIMEOUT;
+  }
+  if (m_file->bad() || m_file->fail()) {
     return FILE_FAILURE;
   }
 
@@ -5132,7 +5140,10 @@ Status ReceiverFile::ReceiveCommandPacket(double timeout_seconds, std::shared_pt
   }
   std::shared_ptr<std::vector<uint8_t>> buffer = std::make_shared<std::vector<uint8_t>>(m_maxLen);
   m_file->read(reinterpret_cast<char*>(buffer->data()), PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t));
-  if (!(*m_file)) {
+  if (m_file->eof()) {
+    return TIMEOUT;
+  }
+  if (m_file->bad() || m_file->fail()) {
     return FILE_FAILURE;
   }
 
@@ -5146,7 +5157,10 @@ Status ReceiverFile::ReceiveCommandPacket(double timeout_seconds, std::shared_pt
   // Read the rest of the packet.
   m_file->read(reinterpret_cast<char*>(buffer->data()) + PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t),
     length - PACKET_HEADER_TOTAL_SIZE_OFFSET - sizeof(uint32_t));
-  if (!(*m_file)) {
+  if (m_file->eof()) {
+    return TIMEOUT;
+  }
+  if (m_file->bad() || m_file->fail()) {
     return FILE_FAILURE;
   }
 
@@ -5193,7 +5207,10 @@ Status ReceiverFile::ReceiveStreamPacket(double timeout_seconds, std::shared_ptr
   }
   m_file->read(reinterpret_cast<char*>(buffer->data() + offset),
     PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t));
-  if (!(*m_file)) {
+  if (m_file->eof()) {
+    return TIMEOUT;
+  }
+  if (m_file->bad() || m_file->fail()) {
     return FILE_FAILURE;
   }
 
@@ -5210,7 +5227,9 @@ Status ReceiverFile::ReceiveStreamPacket(double timeout_seconds, std::shared_ptr
   if (length == 0) {
     std::vector<uint8_t> padding(m_maxLen);
     while (m_file->read(reinterpret_cast<char*>(padding.data()), m_maxLen)) {
-      // Do nothing.
+      if (m_file->eof()) {
+        break;
+      }
     }
     return TIMEOUT;
   }
@@ -5218,7 +5237,10 @@ Status ReceiverFile::ReceiveStreamPacket(double timeout_seconds, std::shared_ptr
   // Read the rest of the packet.
   m_file->read(reinterpret_cast<char*>(buffer->data()) + offset + PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t),
     length - PACKET_HEADER_TOTAL_SIZE_OFFSET - sizeof(uint32_t));
-  if (!(*m_file)) {
+  if (m_file->eof()) {
+    return TIMEOUT;
+  }
+  if (m_file->bad() || m_file->fail()) {
     return FILE_FAILURE;
   }
 
@@ -7181,7 +7203,7 @@ std::string CoreServerBase::run()
       std::lock_guard<std::recursive_mutex> lock(m_mutex);
       for (auto newClient : newClients) {
         if (m_verbosity >= 1) {
-          std::cout << "Got new client, version "
+          std::cout << "Got new client, total of " << m_clients.size() + 1 << ", version "
             << newClient->major << "." << newClient->minor << "." << newClient->patch << std::endl;
         }
 
