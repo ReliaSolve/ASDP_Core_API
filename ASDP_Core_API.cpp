@@ -499,7 +499,7 @@ std::string Timer::Test()
   }
 
   // Test the Timer class methods for cases that should work and cases that should fail.
-{
+  {
     Timer timer;
     Time coreTime;
     std::chrono::steady_clock::time_point localTime = std::chrono::steady_clock::now();
@@ -7890,7 +7890,7 @@ std::string asdp::SpinFreeQueue_Test()
 }
 
 static void TimerTestThread(SpinFreeAccurateTimer<int>& timer, std::shared_ptr< SpinFreeQueue<int> > queue,
-  std::shared_ptr<std::atomic_bool> ret)
+  std::shared_ptr<std::string> ret)
 {
   int element = 0;
   auto start = std::chrono::steady_clock::now();
@@ -7902,22 +7902,22 @@ static void TimerTestThread(SpinFreeAccurateTimer<int>& timer, std::shared_ptr< 
   for (size_t i = 0; i < 4; i++) {
     int value;
     if (!queue->dequeue(value, std::chrono::milliseconds(1000))) {
-      *ret = false;
+      *ret = "Could not dequeue value";
       return;
     }
     auto end = std::chrono::steady_clock::now();
     diff = end - start;
     if ((diff < std::chrono::milliseconds(100 * (i + 1))) ||
-      (diff > std::chrono::milliseconds(100 * (i + 1)) + std::chrono::microseconds(200))) {
-      *ret = false;
+        (diff > std::chrono::milliseconds(100 * (i + 1)) + std::chrono::microseconds(200))) {
+      *ret = "Time out of range for delay " + std::to_string(100 * (i+1));
       return;
     }
   }
   if (diff > std::chrono::milliseconds(401)) {
-    *ret = false;
+    *ret = "Time delay too large";
     return;
   }
-  *ret = true;
+  *ret = "";
   return;
 }
 
@@ -7957,11 +7957,11 @@ std::string asdp::SpinFreeAccurateTimer_Test()
   {
     SpinFreeAccurateTimer<int> timer;
     std::vector< std::shared_ptr< SpinFreeQueue<int> > > queues;
-    std::vector< std::shared_ptr<std::atomic_bool> > rets;
+    std::vector< std::shared_ptr<std::string> > rets;
     std::vector< std::thread > threads;
     for (size_t i = 0; i < 10; i++) {
       std::shared_ptr<SpinFreeQueue<int> > queue(new SpinFreeQueue<int>);
-      std::shared_ptr<std::atomic_bool> ret(new std::atomic_bool(false));
+      std::shared_ptr<std::string> ret = std::make_shared<std::string>();
       queues.push_back(queue);
       rets.push_back(ret);
       threads.push_back(std::thread(TimerTestThread, std::ref(timer), queue, ret));
@@ -7970,8 +7970,8 @@ std::string asdp::SpinFreeAccurateTimer_Test()
       thread.join();
     }
     for (auto ret : rets) {
-      if (!(*ret)) {
-        return "Timer test thread failed";
+      if (!ret->empty()) {
+        return "Timer test thread failed: " + *ret;
       }
     }
   }
