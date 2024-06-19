@@ -586,12 +586,20 @@ int main(int argc, char** argv)
       return 301;
     }
 
+    // Compute a time offset that is 10000 seconds in the future compared to the current stream time.
+    Time currentTime;
+    status = state.GetTime(currentTime);
+    if (status != OKAY) {
+      std::cerr << "Failed to get current time: " << ErrorMessage(status) << std::endl;
+      return 302;
+    }
+
     // Request replay on the first stored stream, requesting that packets have a time offset of 10000 seconds.
     // Make sure that we get a start-of-replay event.
     // Make sure that we get a state message that says we are replaying after that event.
     // Verify that the time on that message is larger than the time we requested.
     std::cout << "Requesting replay of first stored stream" << std::endl;
-    Time timeOffset(10000, 0);
+    Time timeOffset(10000 + currentTime.seconds, 0);
     status = client.SendCommandPacket(CommandPacketStartReplay(IDs.front(), timeOffset));
     if (status != OKAY) {
       std::cerr << "Failed to send start replay command: " << ErrorMessage(status) << std::endl;
@@ -637,6 +645,7 @@ int main(int argc, char** argv)
     // Stop replay.
     // Make sure that we get a start-of-replay event.
     // Make sure that we get a state message that says we are replaying after that event.
+    // Make sure that the time on that message is smaller than the time we requested (time shifted back).
     std::cout << "Stopping replay" << std::endl;
     status = client.SendCommandPacket(CommandPacketStopReplay());
     if (status != OKAY) {
@@ -665,6 +674,17 @@ int main(int argc, char** argv)
     if (replaying) {
       std::cerr << "Replay did not stop" << std::endl;
       return 504;
+    }
+    status = state.GetTime(replayTime);
+    if (status != OKAY) {
+      std::cerr << "Failed to get time: " << ErrorMessage(status) << std::endl;
+      return 505;
+    }
+    if (replayTime >= timeOffset) {
+      std::cerr << "Replay time is not less than requested time offset: "
+        << replayTime.seconds << ":" << replayTime.microseconds << " vs. "
+        << timeOffset.seconds << ":" << timeOffset.microseconds << std::endl;
+      return 506;
     }
 
   } // End of destructive testing section
