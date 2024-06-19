@@ -416,7 +416,8 @@ std::string StreamEndpoint::Test()
 }
 
 Timer::Timer()
-  : m_coreOffset({0, 0})
+  : m_coreNegativeOffset({0, 0})
+  , m_corePositiveOffset({0, 0})
 {
 }
 
@@ -429,16 +430,16 @@ Status Timer::GetCoreTime(Time& core_time, const std::chrono::steady_clock::time
   };
 
   // Verify that the local time is not before the core offset.
-  if (localTime < m_coreOffset) {
+  if (localTime + m_corePositiveOffset < m_coreNegativeOffset) {
     return BAD_PARAMETER;
   }
 
-  // Subtract the core offset.
-  core_time = localTime - m_coreOffset;
+  // Adjust the time
+  core_time = localTime + m_corePositiveOffset - m_coreNegativeOffset;
   return OKAY;
 }
 
-Status Timer::SetCoreOffset(Time offset)
+Status Timer::SetCoreNegativeOffset(Time offset)
 {
   // Ensure that the offset is not too large.
   std::chrono::steady_clock::time_point local_time = std::chrono::steady_clock::now();
@@ -450,7 +451,13 @@ Status Timer::SetCoreOffset(Time offset)
     return BAD_PARAMETER;
   }
 
-  m_coreOffset = offset;
+  m_coreNegativeOffset = offset;
+  return OKAY;
+}
+
+Status Timer::SetCorePositiveOffset(Time offset)
+{
+  m_corePositiveOffset = offset;
   return OKAY;
 }
 
@@ -517,10 +524,10 @@ std::string Timer::Test()
       return "Error getting core time: " + std::to_string(coreTime.seconds) + "." + std::to_string(coreTime.microseconds);
     }
 
-    // Test the SetCoreOffset method.
-    status = timer.SetCoreOffset(localTimeStruct);
+    // Test the SetCoreNegativeOffset method.
+    status = timer.SetCoreNegativeOffset(localTimeStruct);
     if (status != OKAY) {
-      return "Error setting core offset: " + ErrorMessage(status);
+      return "Error setting core negative offset: " + ErrorMessage(status);
     }
 
     // Test the GetCoreTime method again.
@@ -532,12 +539,46 @@ std::string Timer::Test()
       return "Error getting core time: " + std::to_string(coreTime.seconds) + "." + std::to_string(coreTime.microseconds);
     }
 
-    // Test the SetCoreOffset method with a bad parameter.
+    // Test the SetCoreNegativeOffset method with a bad parameter.
     Time badTimeStruct = localTimeStruct;
     badTimeStruct.seconds += 1;
-    status = timer.SetCoreOffset(badTimeStruct);
+    status = timer.SetCoreNegativeOffset(badTimeStruct);
     if (status != BAD_PARAMETER) {
       return "Error: Permitted to set core offset when should not have been: " + ErrorMessage(status);
+    }
+  }
+
+  // Test using both a positive and negative offset.
+  {
+    Timer timer;
+    Time coreTime;
+    std::chrono::steady_clock::time_point localTime = std::chrono::steady_clock::now();
+    Time localTimeStruct = {
+      (uint32_t)std::chrono::duration_cast<std::chrono::microseconds>(localTime.time_since_epoch()).count() / 1000000,
+      (uint32_t)std::chrono::duration_cast<std::chrono::microseconds>(localTime.time_since_epoch()).count() % 1000000
+    };
+
+    // Set the negative offset to 1 second.
+    Time negativeOffset = { 1, 0 };
+    Status status = timer.SetCoreNegativeOffset(negativeOffset);
+    if (status != OKAY) {
+      return "Error setting core negative offset: " + ErrorMessage(status);
+    }
+
+    // Set the positive offset to 1 seconds.
+    Time positiveOffset = { 2, 5 };
+    status = timer.SetCorePositiveOffset(positiveOffset);
+    if (status != OKAY) {
+      return "Error setting core positive offset: " + ErrorMessage(status);
+    }
+
+    // Get the core time and verify that it is 1.5 larger.
+    status = timer.GetCoreTime(coreTime, localTime);
+    if (status != OKAY) {
+      return "Error getting core time: " + ErrorMessage(status);
+    }
+    if (coreTime != localTimeStruct + Time({ 1, 5 })) {
+      return "Error getting core time: " + std::to_string(coreTime.seconds) + "." + std::to_string(coreTime.microseconds);
     }
   }
 
@@ -7944,7 +7985,7 @@ std::string asdp::SpinFreeAccurateTimer_Test()
       diff = end - start;
       if ((diff < std::chrono::milliseconds(100 * (i + 1))) ||
         (diff > std::chrono::milliseconds(100 * (i + 1)) + std::chrono::microseconds(200))) {
-        return "Timer fired wrong time: " + std::to_string(std::chrono::duration_cast<std::chrono::microseconds>(diff).count() / 1e3);
+        return "Timer fired at the wrong time: " + std::to_string(std::chrono::duration_cast<std::chrono::microseconds>(diff).count() / 1e3);
       }
     }
     if (diff > std::chrono::milliseconds(401)) {

@@ -377,6 +377,24 @@ public:
   Status GetCoreTime(Time& core_time,
     const std::chrono::steady_clock::time_point local_time = std::chrono::steady_clock::now()) const;
 
+  /// @brief Set the offset between Core time and local time, subtracted from local time.
+  /// @details Note that both negative and positive offsets can be provided.  The Core time
+  /// is localtime + positive offset - negative offset.  This method should only be called
+  /// from the Core class.
+  /// @param [in] offset Offset between Core time and local time.
+  /// @return OKAY if successful, otherwise an error code.
+  /// Returns BAD_PARAMETER if the offset is too large.
+  Status SetCoreNegativeOffset(Time offset);
+
+  /// @brief Set the offset between Core time and local time, added to local time.
+  /// @details Note that both negative and positive offsets can be provided.  The Core time
+  /// is localtime + positive offset - negative offset.  This method should only be called
+  /// from the Core class.
+  /// @param [in] offset Offset between Core time and local time.
+  /// @return OKAY if successful, otherwise an error code.
+  /// Returns BAD_PARAMETER if the offset is too large.
+  Status SetCorePositiveOffset(Time offset);
+
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
   static std::string Test();
@@ -388,13 +406,8 @@ protected:
   Timer(Timer&&) = delete;
   Timer& operator=(Timer&&) = delete;
 
-  /// @brief Set the offset between Core time and local time.
-  /// @param [in] offset Offset between Core time and local time.
-  /// @return OKAY if successful, otherwise an error code.
-  /// Returns BAD_PARAMETER if the offset is too large.
-  Status SetCoreOffset(Time offset);
-
-  Time m_coreOffset;  ///< Offset between Core time and local time.
+  Time m_coreNegativeOffset;  ///< Offset subtracted from local time to get Core time.
+  Time m_corePositiveOffset;  ///< Offset added to Core time to get local time.
 
   friend class StreamWriter;  // So it can implement Test().
   friend class Core;
@@ -726,6 +739,7 @@ public:
   static std::string Test();
 };
 
+/// @brief Command packet to set the NUC flag state.
 class CommandPacketSetNUCFlagState : public CommandPacket {
 public:
   /// @brief Construct a brand-new command buffer with the SET_NUC_FLAG_STATE opcode.
