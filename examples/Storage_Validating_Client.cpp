@@ -550,7 +550,32 @@ int main(int argc, char** argv)
       return 209;
     }
 
+    // If the system supports temperature and poses, request them.
+    if (features[TEMPERATURE_API_AVAILABLE]) {
+      std::cout << "Requesting temperature" << std::endl;
+      status = client.SendCommandPacket(CommandPacketStreamTemperatures());
+      if (status != OKAY) {
+        std::cerr << "Failed to send request temperature command: " << ErrorMessage(status) << std::endl;
+        return 210;
+      }
+    }
+    if (features[POSE_API_ORIENTATION_AVAILABLE]) {
+      std::cout << "Requesting orientation" << std::endl;
+      status = client.SendCommandPacket(CommandPacketStreamPoses());
+      if (status != OKAY) {
+        std::cerr << "Failed to send request orientation command: " << ErrorMessage(status) << std::endl;
+        return 211;
+      }
+    }
+
+    status = client.SendCommandPacket(CommandPacketStopReplay());
+    if (status != OKAY) {
+      std::cerr << "Failed to send stop replay command: " << ErrorMessage(status) << std::endl;
+      return 15;
+    }
+
     // Find the list of stored streams and make sure that we have at least one.
+    // This will also gobble up any state and other messages that stacked up while we were doing other things.
     retStreams = GetStreamList(client, receiver, IDs, 5.0);
     if (!retStreams.empty()) {
       std::cerr << retStreams << std::endl;

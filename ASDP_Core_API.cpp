@@ -7126,7 +7126,7 @@ Status CoreServerBase::SendStateMessage(ClientState& client)
 Status CoreServerBase::SendClockSyncMessage(ClientState& client)
 {
   if (m_verbosity >= 100) {
-    std::cout << "Sending clock sync" << std::endl;
+    std::cout << "        Sending clock sync" << std::endl;
   }
 
   std::shared_ptr<StreamWriter> writer = client.m_writer;
