@@ -529,11 +529,6 @@ int main(int argc, char** argv)
       std::cerr << "Error: Expected 1 stored stream, found " << IDs.size() << std::endl;
       return 207;
     }
-    status = client.SendCommandPacket(CommandPacketStopRecording());
-    if (status != OKAY) {
-      std::cerr << "Failed to send stop recording command: " << ErrorMessage(status) << std::endl;
-      return 208;
-    }
 
     // Turn off storing after ten seconds so that we get some data but don't fill up the disk.
     std::cout << "Recording for ten seconds to get sample data set" << std::endl;
@@ -642,6 +637,9 @@ int main(int argc, char** argv)
       return 408;
     }
 
+    // Wait a few seconds and then stop replay.
+    std::this_thread::sleep_for(std::chrono::seconds(3));
+
     // Stop replay.
     // Make sure that we get a start-of-replay event.
     // Make sure that we get a state message that says we are replaying after that event.
@@ -659,32 +657,32 @@ int main(int argc, char** argv)
     msg = WaitForMessageType(receiver, STATE, 5.0);
     if (msg == nullptr) {
       std::cerr << "Did not get state message." << std::endl;
-      return 501;
+      return 502;
     }
     state = MessageState(*msg);
     if (state.GetConstructorStatus() != OKAY) {
       std::cerr << "Failed to construct state message: " << ErrorMessage(state.GetConstructorStatus()) << std::endl;
-      return 502;
+      return 503;
     }
     status = state.GetReplaying(replaying);
     if (status != OKAY) {
       std::cerr << "Failed to get replaying: " << ErrorMessage(status) << std::endl;
-      return 503;
+      return 504;
     }
     if (replaying) {
       std::cerr << "Replay did not stop" << std::endl;
-      return 504;
+      return 505;
     }
     status = state.GetTime(replayTime);
     if (status != OKAY) {
       std::cerr << "Failed to get time: " << ErrorMessage(status) << std::endl;
-      return 505;
+      return 506;
     }
     if (replayTime >= timeOffset) {
       std::cerr << "Replay time is not less than requested time offset: "
         << replayTime.seconds << ":" << replayTime.microseconds << " vs. "
         << timeOffset.seconds << ":" << timeOffset.microseconds << std::endl;
-      return 506;
+      return 507;
     }
 
   } // End of destructive testing section
