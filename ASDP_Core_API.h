@@ -140,8 +140,8 @@ enum EventID : uint32_t {
   END_OF_REPLAY                 = 770,
   NUC_FLAG_STATE                = 771,    ///< Sent on the camera UDP stream.
   ON_CAMERA_NUC_STATE           = 772,    ///< Sent on the camera UDP stream.
-  PAUSE_REPLAY                  = 773,
-  RESUME_REPLAY                 = 774,
+  REPLAY_PAUSED                 = 773,
+  REPLAY_RESUMED                = 774,
 };
 
 //---------------------------------------------------------------------------

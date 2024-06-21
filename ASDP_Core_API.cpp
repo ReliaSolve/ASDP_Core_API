@@ -120,7 +120,7 @@ static std::string OpCodeName(OpCode opCode)
 // Definitions of static constants used below.
 
 static const unsigned char MAGIC_COOKIE[4] = { 'A', 'S', 'D', 'P' };
-static const unsigned char VERSION[4] = { 3, 3, 0, 0 };
+static const unsigned char VERSION[4] = { 3, 3, 1, 0 };
 
 static const uint32_t PACKET_HEADER_TOTAL_SIZE_OFFSET = 0;
 static const uint32_t PACKET_BASIC_HEADER_SIZE = sizeof(uint32_t);
@@ -7381,7 +7381,7 @@ std::string CoreServerBase::run()
         if (status != OKAY) {
           return "Failed to construct resume replay command: " + ErrorMessage(status);
         }
-        doPauseReplay(resumeReplayCommand, client);
+        doResumeReplay(resumeReplayCommand, client);
       }
       break;
       case STOP_REPLAY:

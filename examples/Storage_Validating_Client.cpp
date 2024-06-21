@@ -637,13 +637,37 @@ int main(int argc, char** argv)
       return 408;
     }
 
-    // Wait a few seconds and then stop replay.
-    std::this_thread::sleep_for(std::chrono::seconds(3));
+    // Wait a few seconds and then pause replay.
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+    std::cout << "Pausing replay" << std::endl;
+    status = client.SendCommandPacket(CommandPacketPauseReplay());
+    if (status != OKAY) {
+      std::cerr << "Failed to send pause replay command: " << ErrorMessage(status) << std::endl;
+      return 409;
+    }
+    if (!WaitForEventType(receiver, REPLAY_PAUSED, 5.0).empty()) {
+      std::cerr << "Did not get replay-paused event." << std::endl;
+      return 410;
+    }
 
-    // Stop replay.
+    // Wait a few seconds and then resume replay.
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+    std::cout << "Resuming replay" << std::endl;
+    status = client.SendCommandPacket(CommandPacketResumeReplay());
+    if (status != OKAY) {
+      std::cerr << "Failed to send resume replay command: " << ErrorMessage(status) << std::endl;
+      return 411;
+    }
+    if (!WaitForEventType(receiver, REPLAY_RESUMED, 5.0).empty()) {
+      std::cerr << "Did not get replay-resumed event." << std::endl;
+      return 412;
+    }
+
+    // Wait a few second and then stop replay.
     // Make sure that we get a start-of-replay event.
     // Make sure that we get a state message that says we are replaying after that event.
     // Make sure that the time on that message is smaller than the time we requested (time shifted back).
+    std::this_thread::sleep_for(std::chrono::seconds(2));
     std::cout << "Stopping replay" << std::endl;
     status = client.SendCommandPacket(CommandPacketStopReplay());
     if (status != OKAY) {
