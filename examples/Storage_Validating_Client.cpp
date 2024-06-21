@@ -568,148 +568,148 @@ int main(int argc, char** argv)
       std::cerr << "Failed to send stop replay command: " << ErrorMessage(status) << std::endl;
       return 15;
     }
-
-    // Find the list of stored streams and make sure that we have at least one.
-    // This will also gobble up any state and other messages that stacked up while we were doing other things.
-    retStreams = GetStreamList(client, receiver, IDs, 5.0);
-    if (!retStreams.empty()) {
-      std::cerr << retStreams << std::endl;
-      return 300;
-    }
-    if (IDs.empty()) {
-      std::cerr << "No stored streams: expected at least one." << std::endl;
-      return 301;
-    }
-
-    // Compute a time offset that is 10000 seconds in the future compared to the current stream time.
-    Time currentTime;
-    status = state.GetTime(currentTime);
-    if (status != OKAY) {
-      std::cerr << "Failed to get current time: " << ErrorMessage(status) << std::endl;
-      return 302;
-    }
-
-    // Request replay on the first stored stream, requesting that packets have a time offset of 10000 seconds.
-    // Make sure that we get a start-of-replay event.
-    // Make sure that we get a state message that says we are replaying after that event.
-    // Verify that the time on that message is larger than the time we requested.
-    std::cout << "Requesting replay of first stored stream" << std::endl;
-    Time timeOffset(10000 + currentTime.seconds, 0);
-    status = client.SendCommandPacket(CommandPacketStartReplay(IDs.front(), timeOffset));
-    if (status != OKAY) {
-      std::cerr << "Failed to send start replay command: " << ErrorMessage(status) << std::endl;
-      return 400;
-    }
-    if (!WaitForEventType(receiver, START_OF_REPLAY, 5.0).empty()) {
-      std::cerr << "Did not get start-of-replay event." << std::endl;
-      return 401;
-    }
-    msg = WaitForMessageType(receiver, STATE, 5.0);
-    if (msg == nullptr) {
-      std::cerr << "Did not get state message." << std::endl;
-      return 403;
-    }
-    state = MessageState(*msg);
-    if (state.GetConstructorStatus() != OKAY) {
-      std::cerr << "Failed to construct state message: " << ErrorMessage(state.GetConstructorStatus()) << std::endl;
-      return 404;
-    }
-    uint8_t replaying;
-    status = state.GetReplaying(replaying);
-    if (status != OKAY) {
-      std::cerr << "Failed to get replaying: " << ErrorMessage(status) << std::endl;
-      return 405;
-    }
-    if (!replaying) {
-      std::cerr << "Replay did not start" << std::endl;
-      return 406;
-    }
-    Time replayTime;
-    status = state.GetTime(replayTime);
-    if (status != OKAY) {
-      std::cerr << "Failed to get time: " << ErrorMessage(status) << std::endl;
-      return 407;
-    }
-    if (replayTime < timeOffset) {
-      std::cerr << "Replay time is less than requested time offset: "
-        << replayTime.seconds << ":" << replayTime.microseconds << " vs. "
-        << timeOffset.seconds << ":" << timeOffset.microseconds << std::endl;
-      return 408;
-    }
-
-    // Wait a few seconds and then pause replay.
-    std::this_thread::sleep_for(std::chrono::seconds(2));
-    std::cout << "Pausing replay" << std::endl;
-    status = client.SendCommandPacket(CommandPacketPauseReplay());
-    if (status != OKAY) {
-      std::cerr << "Failed to send pause replay command: " << ErrorMessage(status) << std::endl;
-      return 409;
-    }
-    if (!WaitForEventType(receiver, REPLAY_PAUSED, 5.0).empty()) {
-      std::cerr << "Did not get replay-paused event." << std::endl;
-      return 410;
-    }
-
-    // Wait a few seconds and then resume replay.
-    std::this_thread::sleep_for(std::chrono::seconds(2));
-    std::cout << "Resuming replay" << std::endl;
-    status = client.SendCommandPacket(CommandPacketResumeReplay());
-    if (status != OKAY) {
-      std::cerr << "Failed to send resume replay command: " << ErrorMessage(status) << std::endl;
-      return 411;
-    }
-    if (!WaitForEventType(receiver, REPLAY_RESUMED, 5.0).empty()) {
-      std::cerr << "Did not get replay-resumed event." << std::endl;
-      return 412;
-    }
-
-    // Wait a few second and then stop replay.
-    // Make sure that we get a start-of-replay event.
-    // Make sure that we get a state message that says we are replaying after that event.
-    // Make sure that the time on that message is smaller than the time we requested (time shifted back).
-    std::this_thread::sleep_for(std::chrono::seconds(2));
-    std::cout << "Stopping replay" << std::endl;
-    status = client.SendCommandPacket(CommandPacketStopReplay());
-    if (status != OKAY) {
-      std::cerr << "Failed to send stop replay command: " << ErrorMessage(status) << std::endl;
-      return 500;
-    }
-    if (!WaitForEventType(receiver, END_OF_REPLAY, 5.0).empty()) {
-      std::cerr << "Did not get end-of-replay event." << std::endl;
-      return 501;
-    }
-    msg = WaitForMessageType(receiver, STATE, 5.0);
-    if (msg == nullptr) {
-      std::cerr << "Did not get state message." << std::endl;
-      return 502;
-    }
-    state = MessageState(*msg);
-    if (state.GetConstructorStatus() != OKAY) {
-      std::cerr << "Failed to construct state message: " << ErrorMessage(state.GetConstructorStatus()) << std::endl;
-      return 503;
-    }
-    status = state.GetReplaying(replaying);
-    if (status != OKAY) {
-      std::cerr << "Failed to get replaying: " << ErrorMessage(status) << std::endl;
-      return 504;
-    }
-    if (replaying) {
-      std::cerr << "Replay did not stop" << std::endl;
-      return 505;
-    }
-    status = state.GetTime(replayTime);
-    if (status != OKAY) {
-      std::cerr << "Failed to get time: " << ErrorMessage(status) << std::endl;
-      return 506;
-    }
-    if (replayTime >= timeOffset) {
-      std::cerr << "Replay time is not less than requested time offset: "
-        << replayTime.seconds << ":" << replayTime.microseconds << " vs. "
-        << timeOffset.seconds << ":" << timeOffset.microseconds << std::endl;
-      return 507;
-    }
-
   } // End of destructive testing section
+
+  // Find the list of stored streams and make sure that we have at least one.
+  // This will also gobble up any state and other messages that stacked up while we were doing other things.
+  retStreams = GetStreamList(client, receiver, IDs, 5.0);
+  if (!retStreams.empty()) {
+    std::cerr << retStreams << std::endl;
+    return 300;
+  }
+  if (IDs.empty()) {
+    std::cerr << "No stored streams: expected at least one." << std::endl;
+    return 301;
+  }
+
+  // Compute a time offset that is 10000 seconds in the future compared to the current stream time.
+  Time currentTime;
+  status = state.GetTime(currentTime);
+  if (status != OKAY) {
+    std::cerr << "Failed to get current time: " << ErrorMessage(status) << std::endl;
+    return 302;
+  }
+
+  // Request replay on the first stored stream, requesting that packets have a time offset of 10000 seconds.
+  // Make sure that we get a start-of-replay event.
+  // Make sure that we get a state message that says we are replaying after that event.
+  // Verify that the time on that message is larger than the time we requested.
+  std::cout << "Requesting replay of first stored stream" << std::endl;
+  Time timeOffset(10000 + currentTime.seconds, 0);
+  status = client.SendCommandPacket(CommandPacketStartReplay(IDs.front(), timeOffset));
+  if (status != OKAY) {
+    std::cerr << "Failed to send start replay command: " << ErrorMessage(status) << std::endl;
+    return 400;
+  }
+  if (!WaitForEventType(receiver, START_OF_REPLAY, 5.0).empty()) {
+    std::cerr << "Did not get start-of-replay event." << std::endl;
+    return 401;
+  }
+  msg = WaitForMessageType(receiver, STATE, 5.0);
+  if (msg == nullptr) {
+    std::cerr << "Did not get state message." << std::endl;
+    return 403;
+  }
+  state = MessageState(*msg);
+  if (state.GetConstructorStatus() != OKAY) {
+    std::cerr << "Failed to construct state message: " << ErrorMessage(state.GetConstructorStatus()) << std::endl;
+    return 404;
+  }
+  uint8_t replaying;
+  status = state.GetReplaying(replaying);
+  if (status != OKAY) {
+    std::cerr << "Failed to get replaying: " << ErrorMessage(status) << std::endl;
+    return 405;
+  }
+  if (!replaying) {
+    std::cerr << "Replay did not start" << std::endl;
+    return 406;
+  }
+  Time replayTime;
+  status = state.GetTime(replayTime);
+  if (status != OKAY) {
+    std::cerr << "Failed to get time: " << ErrorMessage(status) << std::endl;
+    return 407;
+  }
+  if (replayTime < timeOffset) {
+    std::cerr << "Replay time is less than requested time offset: "
+      << replayTime.seconds << ":" << replayTime.microseconds << " vs. "
+      << timeOffset.seconds << ":" << timeOffset.microseconds << std::endl;
+    return 408;
+  }
+
+  // Wait a few seconds and then pause replay.
+  std::this_thread::sleep_for(std::chrono::seconds(2));
+  std::cout << "Pausing replay" << std::endl;
+  status = client.SendCommandPacket(CommandPacketPauseReplay());
+  if (status != OKAY) {
+    std::cerr << "Failed to send pause replay command: " << ErrorMessage(status) << std::endl;
+    return 409;
+  }
+  if (!WaitForEventType(receiver, REPLAY_PAUSED, 5.0).empty()) {
+    std::cerr << "Did not get replay-paused event." << std::endl;
+    return 410;
+  }
+
+  // Wait a few seconds and then resume replay.
+  std::this_thread::sleep_for(std::chrono::seconds(2));
+  std::cout << "Resuming replay" << std::endl;
+  status = client.SendCommandPacket(CommandPacketResumeReplay());
+  if (status != OKAY) {
+    std::cerr << "Failed to send resume replay command: " << ErrorMessage(status) << std::endl;
+    return 411;
+  }
+  if (!WaitForEventType(receiver, REPLAY_RESUMED, 5.0).empty()) {
+    std::cerr << "Did not get replay-resumed event." << std::endl;
+    return 412;
+  }
+
+  // Wait a few second and then stop replay.
+  // Make sure that we get a start-of-replay event.
+  // Make sure that we get a state message that says we are replaying after that event.
+  // Make sure that the time on that message is smaller than the time we requested (time shifted back).
+  std::this_thread::sleep_for(std::chrono::seconds(2));
+  std::cout << "Stopping replay" << std::endl;
+  status = client.SendCommandPacket(CommandPacketStopReplay());
+  if (status != OKAY) {
+    std::cerr << "Failed to send stop replay command: " << ErrorMessage(status) << std::endl;
+    return 500;
+  }
+  if (!WaitForEventType(receiver, END_OF_REPLAY, 5.0).empty()) {
+    std::cerr << "Did not get end-of-replay event." << std::endl;
+    return 501;
+  }
+  msg = WaitForMessageType(receiver, STATE, 5.0);
+  if (msg == nullptr) {
+    std::cerr << "Did not get state message." << std::endl;
+    return 502;
+  }
+  state = MessageState(*msg);
+  if (state.GetConstructorStatus() != OKAY) {
+    std::cerr << "Failed to construct state message: " << ErrorMessage(state.GetConstructorStatus()) << std::endl;
+    return 503;
+  }
+  status = state.GetReplaying(replaying);
+  if (status != OKAY) {
+    std::cerr << "Failed to get replaying: " << ErrorMessage(status) << std::endl;
+    return 504;
+  }
+  if (replaying) {
+    std::cerr << "Replay did not stop" << std::endl;
+    return 505;
+  }
+  status = state.GetTime(replayTime);
+  if (status != OKAY) {
+    std::cerr << "Failed to get time: " << ErrorMessage(status) << std::endl;
+    return 506;
+  }
+  if (replayTime >= timeOffset) {
+    std::cerr << "Replay time is not less than requested time offset: "
+      << replayTime.seconds << ":" << replayTime.microseconds << " vs. "
+      << timeOffset.seconds << ":" << timeOffset.microseconds << std::endl;
+    return 507;
+  }
+
 
   /// @todo Add more tests here.
 
