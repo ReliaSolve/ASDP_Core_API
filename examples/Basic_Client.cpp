@@ -101,12 +101,12 @@ int main(int argc, char** argv)
 
   // Send a few commands to the server, waiting a few seconds in between.
   std::shared_ptr<CommandPacket> command;
-  auto start = std::chrono::high_resolution_clock::now();
+  auto start = std::chrono::steady_clock::now();
   size_t i = 0;
   while (i < 3) {
 
     // See if it is time to send a command.
-    auto now = std::chrono::high_resolution_clock::now();
+    auto now = std::chrono::steady_clock::now();
     std::chrono::duration<double> elapsed = now - start;
     if (elapsed.count() >= 2.0) {
       std::cout << "  Sending state streaming interval interval command " << i << std::endl;
@@ -115,7 +115,7 @@ int main(int argc, char** argv)
         std::cerr << "Failed to send command: " << ErrorMessage(status) << std::endl;
         return 11;
       }
-      start = std::chrono::high_resolution_clock::now();
+      start = std::chrono::steady_clock::now();
       i++;
     }
 
@@ -145,7 +145,6 @@ int main(int argc, char** argv)
       return 14;
     }    
   }
-
 
   return 0;
 }

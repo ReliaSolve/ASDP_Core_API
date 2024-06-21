@@ -381,8 +381,7 @@ public:
 
   /// @brief Set the offset between Core time and local time, subtracted from local time.
   /// @details Note that both negative and positive offsets can be provided.  The Core time
-  /// is localtime + positive offset - negative offset.  This method should only be called
-  /// from the Core class.
+  /// is localtime + positive offset - negative offset.  This helps with clock synchronization.
   /// @param [in] offset Offset between Core time and local time.
   /// @return OKAY if successful, otherwise an error code.
   /// Returns BAD_PARAMETER if the offset is too large.
@@ -390,8 +389,7 @@ public:
 
   /// @brief Set the offset between Core time and local time, added to local time.
   /// @details Note that both negative and positive offsets can be provided.  The Core time
-  /// is localtime + positive offset - negative offset.  This method should only be called
-  /// from the Core class.
+  /// is localtime + positive offset - negative offset.  This helps with clock synchronization.
   /// @param [in] offset Offset between Core time and local time.
   /// @return OKAY if successful, otherwise an error code.
   /// Returns BAD_PARAMETER if the offset is too large.
@@ -2148,8 +2146,7 @@ public:
   /// @brief Flush the current packet, sending it and getting a new one.
   ///
   /// The current packet is sent and a new one is created.  The sequence number
-  /// is incremented and the time code is updated.  If there are no messages in
-  /// the current packet, nothing is done.
+  /// is incremented.  If there are no messages in the current packet, nothing is done.
   /// @return OKAY if successful, otherwise an error code.
   Status Flush();
 
