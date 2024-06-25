@@ -52,6 +52,8 @@ There are also utility classes included in the library, each of which has an ass
 header file.  These include:
 - **ASDP_BufferPool** - A thread-safe asdp::BufferPool class to manage a pool of buffers.
 - **ASDP_SpinFreeQueue** - A thread-safe asdp::SpinFreeQueue class to manage a queue without spin-waiting.
+- **ASDP_SpinFreeAccurateTimer** - A thread-safe asdp::SpinFreeAccurateTimer class that uses a single spin-waiting thread to service
+multiple threads that must launch tasks at specific times.
 
 ## Included system test programs
 

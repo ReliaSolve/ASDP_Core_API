@@ -282,6 +282,15 @@ int main(int argc, char** argv)
   }
   std::cout << "Free disk space: " << freeSpace << " bytes" << std::endl;
 
+  // Find out how many cameras are connected.
+  std::vector<CameraInfo> cameras;
+  status = state.GetCameras(cameras);
+  if (status != OKAY) {
+    std::cerr << "Failed to get camera information: " << ErrorMessage(status) << std::endl;
+    return 15;
+  }
+  std::cout << "There are " << cameras.size() << " cameras connected." << std::endl;
+
   // Report whether the device is set to record data at start-up.  Then switch it to the opposite
   // setting and back to the original setting and make sure that both take effect.  Get two state
   // messages to ensure that the change is complete.
@@ -704,6 +713,74 @@ int main(int argc, char** argv)
     return 507;
   }
 
+  // If we have at least one camera, try streaming data from the first one during replay.
+  if (cameras.size() > 0) {
+    uint32_t camID = 1;
+
+    // Construct a UDP receiver for a stream from the camera.
+    ReceiverUDP receiverUDP(ip_address);
+    if (receiverUDP.GetConstructorStatus() != OKAY) {
+      std::cerr << "Error constructing ReceiverUDP: " << ErrorMessage(receiverUDP.GetConstructorStatus()) << std::endl;
+      return 600;
+    }
+    uint16_t port;
+    asdp::Status status = receiverUDP.GetPort(port);
+    if (status != asdp::OKAY) {
+      std::cerr << "Error getting port from ReceiverUDP: " << ErrorMessage(status) << std::endl;
+      return 601;
+    }
+
+    // Request the camera to stream images.
+    StreamEndpoint endpoint(ip_address, port);
+    SubregionDescription region;
+    region.cameraID = camID;
+    region.skipFrames = 0;
+    region.startTimeSeconds = 0;
+    region.startTimeMicroseconds = 0;
+    region.left = 0;
+    region.top = 0;
+    region.right = cameras[camID - 1].width - 1;
+    region.bottom = cameras[camID - 1].height - 1;
+    status = client.SendCommandPacket(CommandPacketStreamSubregion(endpoint, region));
+    if (status != OKAY) {
+      std::cerr << "Failed to stream images: " << ErrorMessage(status) << std::endl;
+      return 602;
+    }
+
+    // Request replay on the first stored stream, requesting that packets have a time offset of 10000 seconds.
+    std::cout << "Requesting replay of first stored stream to check for image stream data" << std::endl;
+    Time timeOffset(10000, 0);
+    status = client.SendCommandPacket(CommandPacketStartReplay(IDs.front(), timeOffset));
+    if (status != OKAY) {
+      std::cerr << "Failed to send start replay command: " << ErrorMessage(status) << std::endl;
+      return 603;
+    }
+
+    // See if we receive any image messages from the camera over the next second.
+    std::shared_ptr<asdp::StreamPacket> receiveStreamPacket;
+    size_t offset = 0;
+    Status statusUDP = receiverUDP.ReceiveStreamPacket(1.0, receiveStreamPacket, offset);
+
+    // Stop streaming in any case
+    status = client.SendCommandPacket(CommandPacketCancelSubregion(camID, endpoint));
+    if (status != OKAY) {
+      std::cerr << "Failed to cancel stream images: " << ErrorMessage(status) << std::endl;
+      return 604;
+    }
+
+    // Stop replay in any case
+    status = client.SendCommandPacket(CommandPacketStopReplay());
+    if (status != OKAY) {
+      std::cerr << "Failed to send stop replay command: " << ErrorMessage(status) << std::endl;
+      return 605;
+    }
+
+    // Fail if we did not get a StreamPacket.
+    if (statusUDP != asdp::OKAY) {
+      std::cerr << "Error receiving StreamPacket: " << ErrorMessage(statusUDP) << std::endl;
+      return 606;
+    }
+  }
 
   /// @todo Add more tests here.
 

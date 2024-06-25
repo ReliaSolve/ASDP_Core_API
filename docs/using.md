@@ -13,15 +13,18 @@ no warnings or errors.  Values above it and less than or equal to HIGHEST_WARNIN
 are warnings, and values above it are errors.  The helper function asdp::ErrorMessage()
 takes in an asdp::Status and provides a string description of the status.
 
-// List the example programs
-// List the test programs
+# Example programs
+
+See the Examples menu for a list of example programs showing how to use and test the system.
+
 \example ASDP_Core_Speed_Measurements.cpp
-\example Basic_Server.cpp
-\example Basic_Client.cpp
+\example Base_Server.cpp
 \example Base_Validating_Client.cpp
-\example Storage_Validating_Client.cpp
+\example Basic_Client.cpp
+\example Basic_Server.cpp
+\example Image_Saving_Client.cpp
 \example Speed_Test_Receiver.cpp
 \example Speed_Test_Sender.cpp
-\example Image_Saving_Client.cpp
+\example Storage_Validating_Client.cpp
 
 \example ASDP_Core_Test.cpp
