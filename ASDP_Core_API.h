@@ -2456,6 +2456,11 @@ protected:
       return !(*this == rhs);
     }
 
+    /// @brief Less than operator just judges by the client pointer (enables map insertion)
+    bool operator<(const ClientState& rhs) const {
+      return m_client.get() < rhs.m_client.get();
+    }
+
   protected:
     ClientState() = delete;
   };

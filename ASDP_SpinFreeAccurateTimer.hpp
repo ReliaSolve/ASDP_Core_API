@@ -59,9 +59,9 @@ public:
 private:
   /// @brief An entry describing what to do at a specific time.
   struct Entry {
-    std::chrono::steady_clock::time_point time;   ///< The time to fire.
-    T element;                                    ///< The entry to push onto the queue.
-    std::shared_ptr< asdp::SpinFreeQueue<T> > queue;    ///< Queue to push the entry onto.
+    std::chrono::steady_clock::time_point time;       ///< The time to fire.
+    T element = {};                                   ///< The entry to push onto the queue.
+    std::shared_ptr< asdp::SpinFreeQueue<T> > queue;  ///< Queue to push the entry onto.
   };
 
   /// @brief The list of entries describing what timer actions to take.
