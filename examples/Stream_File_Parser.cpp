@@ -141,7 +141,8 @@ int main(int argc, char** argv)
   }
 
   if (badPackets) {
-    std::cerr << "Warning: " << badPackets << " packets had errors." << std::endl;
+    std::cerr << "Error: " << badPackets << " packets had errors." << std::endl;
+    return 1000;
   }
 
   return 0;
