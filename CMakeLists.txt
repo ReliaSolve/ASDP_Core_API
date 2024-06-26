@@ -123,6 +123,7 @@ if(BUILD_EXAMPLES)
     Speed_Test_Sender
     Speed_Test_Receiver
     Image_Saving_Client
+    Stream_File_Parser
   )
   foreach (BASE ${EXAMPLES})
     # C++ example

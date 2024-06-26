@@ -5099,6 +5099,11 @@ ReceiverFile::ReceiverFile(std::string fileName, uint32_t maxLen)
     m_constructorStatus = BAD_PARAMETER;
     return;
   }
+  if (!m_file->is_open()) {
+    m_constructorStatus = FILE_FAILURE;
+    m_file.reset();
+    return;
+  }
 }
 
 ReceiverFile::~ReceiverFile()
