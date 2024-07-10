@@ -125,8 +125,7 @@ int main(int argc, char** argv)
         status = packet->GetTotalLength(size);
         if (status == OKAY) {
           std::cerr << "  Packet size: " << size << std::endl;
-        }
-        else {
+        } else {
           std::cerr << "  Error reading packet size: " << ErrorMessage(status) << std::endl;
         }
         badPackets++;

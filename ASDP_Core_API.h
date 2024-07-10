@@ -1633,18 +1633,20 @@ public:
   Status GetAltitude(float& altitude) const;
 
   /// @brief Get the rotation about the X, Y, and Z axes in degrees.
-  /// @param [out] rot Rotation about the X, Y, and Z axes in degrees. (1e-6 if not available)
+  /// @param [out] rot Rotation about the X, Y, and Z axes in degrees.
+  /// The rotation tells how to re-orient an object with canonical orientation to the
+  /// helicopter orientation. (1e-6 if not available)
   /// @return OKAY if successful, otherwise an error code.
   Status GetRot(std::array<float, 3>& rot) const;
 
-  /// @brief Get the velocity in the X, Y, and Z directions in meters per second.
-  /// @param [out] vel Velocity in the X, Y, and Z directions in meters per second.
+  /// @brief Get the velocity in the X, Y, and Z directions in meters per second in helicopter coordinates.
+  /// @param [out] vel Velocity in the X, Y, and Z directions in meters per second in helicopter coordinates.
   /// (1e-6 if not available)
   /// @return OKAY if successful, otherwise an error code.
   Status GetVel(std::array<float, 3>& vel) const;
 
-  /// @brief Get the rotational velocity about the X, Y, and Z axes in degrees per second.
-  /// @param [out] rotVel Rotational velocity about the X, Y, and Z axes in degrees per second.
+  /// @brief Get the rotational velocity about the X, Y, and Z axes in degrees per second in helicopter coordinates.
+  /// @param [out] rotVel Rotational velocity about the X, Y, and Z axes in degrees per second in helicopter coordinates.
   /// (1e-6 if not available)
   /// @return OKAY if successful, otherwise an error code.
   Status GetRotVel(std::array<float, 3>& rotVel) const;
