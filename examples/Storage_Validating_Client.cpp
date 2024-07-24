@@ -668,7 +668,7 @@ int main(int argc, char** argv)
   }
 
   // Wait a few second and then stop replay.
-  // Make sure that we get a start-of-replay event.
+  // Make sure that we get an end-of-replay event.
   // Make sure that we get a state message that says we are replaying after that event.
   // Make sure that the time on that message is smaller than the time we requested (time shifted back).
   std::this_thread::sleep_for(std::chrono::seconds(2));
