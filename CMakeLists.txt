@@ -86,6 +86,7 @@ set (asdp_HEADERS
 
 add_library(ASDP_Core_API STATIC ${asdp_SOURCES} ${asdp_HEADERS})
 # Hide all symbols that are not explicitly exported from the library
+set_target_properties(ASDP_Core_API PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
 set_target_properties(ASDP_Core_API PROPERTIES C_VISIBILITY_PRESET hidden)
 set_target_properties(ASDP_Core_API PROPERTIES CXX_VISIBILITY_PRESET hidden)
 set_target_properties(ASDP_Core_API PROPERTIES VISIBILITY_INLINES_HIDDEN 1)
