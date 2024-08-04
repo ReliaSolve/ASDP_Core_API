@@ -3,6 +3,10 @@
 # for 60fps UDP transmission of 9000-byte packets from up to 25 cameras.  This
 # script is for the specific network cards installed on the ASDP servers.
 
+# Grab the Mellanox tune utility
+git clone https://github.com/Mellanox/mlnx-tools ~/mlnx-tools
+sudo python3 ~/mlnx-tools/python/mlnx_tune -p HIGH_THROUGHPUT
+
 # Enable jumbo packets on each interface
 echo "Two of the following commands will fail, due to different names on different hosts"
 sudo ifconfig enp1s0f0np0 mtu 9000
