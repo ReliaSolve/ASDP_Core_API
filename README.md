@@ -66,3 +66,9 @@ skipped.  The program describes its usage when it is run.
 
 The program **Speed_Test_Sender** pairs with the *Speed_Test_Receiver* program to enable
 tests to be run.  The program describes its usage when it is run.
+
+# System network configuration scripts
+
+The **network_tuning.sh script** can be used to configure the network for the ASDP
+servers on a Linux system.  It configures the MTU, the global receive buffer size, and the
+the global UDP buffer pool size.
