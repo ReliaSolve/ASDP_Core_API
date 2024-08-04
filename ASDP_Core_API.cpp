@@ -321,6 +321,9 @@ static uint32_t FindSubnetMask(std::string ipAddress)
 
   free(adapterInfo);
 #else
+  // Return entire mask for localhost
+  if (ipAddress == "127.0.0.1" || ipAddress == "localhost") { return ret; }
+
   struct ifaddrs* ifAddrStruct = NULL;
   struct ifaddrs* ifa = NULL;
   void* tmpAddrPtr = NULL;
@@ -6889,15 +6892,16 @@ std::string CoreClient::Test()
     return "Error getting client discovery thread status: " + ErrorMessage(status);
   }
 
-  // Listen for a server on the CoreClient, waiting 1 second to find one.
-  std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+  // Listen for a server on the CoreClient, waiting 2 seconds to find one.
+  std::this_thread::sleep_for(std::chrono::milliseconds(2000));
   std::vector<std::string> servers;
   status = coreClient.IdentifiedServers(servers);
   if (status != OKAY) {
     return "Error getting identified servers: " + ErrorMessage(status);
   }
   if (servers.size() != 1) {
-    return "Error getting identified servers: " + std::to_string(servers.size());
+    return "Error getting identified servers, found " + std::to_string(servers.size()) +
+        " (wait a minute between tests to let sockets close)";
   }
 
   // Try sending a CommandPacketReset from the CoreClient to the CoreServer, which
@@ -7670,14 +7674,15 @@ std::string asdp::Test()
   //-------------------------------------------------------------------
   // Tests for helper functions.
   {
-    uint32_t subnetMask = FindSubnetMask("localhost");
+    uint32_t subnetMask = FindSubnetMask("127.0.0.1");
     if (subnetMask != 0xffffffff) {
       return "Error finding subnet mask: " + std::to_string(subnetMask);
     }
     uint32_t localHostIP = (127 << 24) + 1;
     uint32_t broadcastAddress = MakeBroadcastAddress(localHostIP);
     if (broadcastAddress != localHostIP) {
-      return "Error making broadcast address: " + std::to_string(broadcastAddress);
+      return "Error making broadcast address: " + std::to_string(broadcastAddress)
+        + " not " + std::to_string(localHostIP);
     }
   }
 
