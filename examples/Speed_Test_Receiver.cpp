@@ -74,7 +74,7 @@ static void receiveDataThread(ReceiverUDP& receiveSocket, size_t bytesPerPacket,
   // partial writes to disk.
   while (packetsReceived < totalPackets) {
 
-    // Find out which block we are.  If we are at the end of a block, copy the whole block.
+    // Find out which packet we are.  If we are at the end of a block, copy the whole block.
     size_t which = packetsReceived % packetsPerWrite;
     if (which == 0 && packetsReceived > 0) {
       if (sender) {
