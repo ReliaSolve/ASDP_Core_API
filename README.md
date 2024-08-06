@@ -71,4 +71,24 @@ tests to be run.  The program describes its usage when it is run.
 
 The **network_tuning.sh script** can be used to configure the network for the ASDP
 servers on a Linux system.  It configures the MTU, the global receive buffer size, and the
-the global UDP buffer pool size.
+the global UDP buffer pool size.  It also downloads and runs the Mellanox tuning script.
+
+To ensure that this runs at boot time, you can copy the script to /usr/local/bin and then
+add the following into a new file named /etc/systemd/system/network_tuning.service:
+
+```
+[Unit]
+Description=ASDP Network Tuning
+Wants=network.target
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/network_tuning.sh
+Type=oneshot
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Then run `sudo systemctl enable network_tuning.service` to enable the service.
