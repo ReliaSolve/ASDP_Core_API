@@ -7562,12 +7562,15 @@ std::string CoreServerBase::run()
     // Remove all bad clients from our vector of clients.
     for (auto badClient : badClients) {
       if (m_verbosity >= 1) {
-        std::cout << "Closing client" << std::endl;
+        std::cout << "Closing client..." << std::endl;
       }
       auto it = std::find(m_clients.begin(), m_clients.end(), badClient);
       if (it != m_clients.end()) {
         clientBeingRemoved(*it);
         m_clients.erase(it);
+      }
+      if (m_verbosity >= 1) {
+        std::cout << "...done closing client" << std::endl;
       }
     }
 
