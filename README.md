@@ -92,3 +92,10 @@ WantedBy=multi-user.target
 ```
 
 Then run `sudo systemctl enable network_tuning.service` to enable the service.
+
+# Model generation scripts
+
+The Python script **Make_Camera_Config_File.py** can be used to generate a regular-layout camera
+configuration file for the ASDP system.  The script describes its usage when it is run with the --help
+command-line option.  The --simulation option constructs additional information for use by the
+FlightSim repository to generate a flight path with oversized cameras and distorted images.
