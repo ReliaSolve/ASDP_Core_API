@@ -191,6 +191,9 @@ static const uint32_t MESSAGE_HEADER_MESSAGE_TYPE_OFFSET = 3 * sizeof(uint32_t);
 #undef WIN32_LEAN_AND_MEAN
 #endif
 
+// Ignore this flag on Windows; it is not defined and also not needed.
+#define MSG_NOSIGNAL 0
+
 #endif
 
 //----------------------------------------------------------------------------
