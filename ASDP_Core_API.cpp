@@ -4554,7 +4554,7 @@ Status SenderUDP::Send(const void* buffer, uint32_t length)
   }
 
   // Send the data.
-  int result = sendto(m_socket->socket, (const char*)buffer, length, 0,
+  int result = sendto(m_socket->socket, (const char*)buffer, length, MSG_NOSIGNAL,
     (const sockaddr *)&(m_socket->addr), sizeof(m_socket->addr));
   if (result == SOCKET_ERROR) {
     return SOCKET_FAILURE;
@@ -4579,7 +4579,7 @@ Status SenderUDP::SendCommandPacket(const CommandPacket& packet)
   }
 
   // Send the data.
-  int result = sendto(m_socket->socket, (const char*)packet.MyData(), length, 0,
+  int result = sendto(m_socket->socket, (const char*)packet.MyData(), length, MSG_NOSIGNAL,
     (const sockaddr*)&(m_socket->addr), sizeof(m_socket->addr));
   if (result == SOCKET_ERROR) {
     return SOCKET_FAILURE;
@@ -4603,8 +4603,8 @@ Status SenderUDP::SendStreamPacket(const StreamPacket& packet)
     return status;
   }
 
-  // Send the data.
-  int result = sendto(m_socket->socket, (const char*)packet.MyData(), length, 0,
+  // Send the data.  Don't let it create the SIGPIPE signal.
+  int result = sendto(m_socket->socket, (const char*)packet.MyData(), length, MSG_NOSIGNAL,
     (const sockaddr*)&(m_socket->addr), sizeof(m_socket->addr));
   if (result == SOCKET_ERROR) {
     return SOCKET_FAILURE;
@@ -5574,7 +5574,7 @@ Status SenderReceiverTCP::Send(const void* buffer, uint32_t length)
   }
 
   // Send the data.
-  int result = send(m_socket->socket, (const char*)buffer, length, 0);
+  int result = send(m_socket->socket, (const char*)buffer, length, MSG_NOSIGNAL);
   if (result == SOCKET_ERROR) {
     return SOCKET_FAILURE;
   }
@@ -5598,7 +5598,7 @@ Status SenderReceiverTCP::SendCommandPacket(const CommandPacket& packet)
   }
 
   // Send the data.
-  int result = send(m_socket->socket, (const char*)packet.MyData(), length, 0);
+  int result = send(m_socket->socket, (const char*)packet.MyData(), length, MSG_NOSIGNAL);
   if (result == SOCKET_ERROR) {
     return SOCKET_FAILURE;
   }
@@ -5622,7 +5622,7 @@ Status SenderReceiverTCP::SendStreamPacket(const StreamPacket& packet)
   }
 
   // Send the data.
-  int result = send(m_socket->socket, (const char*)packet.MyData(), length, 0);
+  int result = send(m_socket->socket, (const char*)packet.MyData(), length, MSG_NOSIGNAL);
   if (result == SOCKET_ERROR) {
     return SOCKET_FAILURE;
   }
