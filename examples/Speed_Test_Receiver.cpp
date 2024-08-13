@@ -150,7 +150,7 @@ int main(int argc, char* argv[])
   int secondsWorth = 10;
   std::string IP = "localhost";
   int port = 12000;
-  int packetsPerWrite = 1;
+  int packetsPerWrite = 16;
   std::string directory;
   size_t realParams = 0;
 
