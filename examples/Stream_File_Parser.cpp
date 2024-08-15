@@ -67,6 +67,7 @@ int main(int argc, char** argv)
   bool available = false;
   receiver.IsPacketAvailable(0.0, available);
   size_t badPackets = 0;
+  uint32_t lastSequenceNumber = 0;
   while (available) {
     // Get the next packet.
     std::shared_ptr<StreamPacket> packet;
@@ -88,6 +89,11 @@ int main(int argc, char** argv)
       return 5;
     }
     std::cout << "Packet " << sequenceNumber << ":";
+
+    if ( (sequenceNumber != 0) && (sequenceNumber != lastSequenceNumber + 1) ) {
+      std::cout << " (skipped)";
+    }
+    lastSequenceNumber = sequenceNumber;
 
     // Read and report the type and time of each message in the packet.
     std::shared_ptr<Message> msg;
