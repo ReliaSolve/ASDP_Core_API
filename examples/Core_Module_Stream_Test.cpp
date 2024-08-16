@@ -92,7 +92,6 @@ void StreamReceiverThread(std::shared_ptr<ReceiverUDP> receiverUDP, std::atomic_
 
 int main(int argc, char** argv)
 {
-  uint32_t frameStride = 30;    ///< Read one out of every this many frames. Set to 1 for every frame.
   float durationSeconds = 30;   ///< Run for this many seconds
   std::string ip_address;
   size_t realParams = 0;
@@ -210,7 +209,7 @@ int main(int argc, char** argv)
   // Start receiver threads for each camera, remembering which port each is listening on.
   std::vector<std::thread> receiverThreads;
   std::vector<uint16_t> ports;
-  std::vector<size_t> missedCounts;
+  std::vector<size_t> missedCounts(cameras.size());
   for (size_t i = 0; i < cameras.size(); ++i) {
     std::shared_ptr<ReceiverUDP> receiverUDP = std::make_shared<ReceiverUDP>(ip_address);
     if (receiverUDP->GetConstructorStatus() != OKAY) {
@@ -223,10 +222,10 @@ int main(int argc, char** argv)
       std::cerr << "Error getting port from ReceiverUDP: " << ErrorMessage(status) << std::endl;
       return 31;
     }
-    missedCounts.push_back(0);
     receiverThreads.push_back(std::thread(StreamReceiverThread, receiverUDP, std::ref(done), std::ref(missedCounts[i])));
     ports.push_back(port);
   }
+  std::this_thread::sleep_for(std::chrono::seconds(1));
 
   for (size_t i = 0; i < cameras.size(); ++i) {
     uint32_t camID = i + 1;
@@ -246,11 +245,11 @@ int main(int argc, char** argv)
       return 40;
     }
 
-    // Request the camera to stream full-frame images once every frameStride frames.
+    // Request the camera to stream full-frame images every frame.
     StreamEndpoint endpoint(ip_address, port);
     SubregionDescription region;
     region.cameraID = camID;
-    region.skipFrames = frameStride - 1;
+    region.skipFrames = 0;
     region.startTimeSeconds = 0;
     region.startTimeMicroseconds = 0;
     region.left = 0;
