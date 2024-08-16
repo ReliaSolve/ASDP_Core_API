@@ -26,8 +26,8 @@ std::shared_ptr<Message> WaitForMessageType(std::shared_ptr<Receiver> receiver, 
 {
   std::shared_ptr<Message> empty;   ///< We return this on failure.
   std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+  std::shared_ptr<StreamPacket> response;
   do {
-    std::shared_ptr<StreamPacket> response;
     size_t offset = 0;
     Status status = receiver->ReceiveStreamPacket(0, response, offset);
     if ((status != OKAY) && (status != TIMEOUT)) {
@@ -60,14 +60,14 @@ std::shared_ptr<Message> WaitForMessageType(std::shared_ptr<Receiver> receiver, 
   return empty;
 }
 
-void StreamReceiverThread(std::shared_ptr<ReceiverUDP> receiverUDP, std::atomic_bool &done)
+void StreamReceiverThread(std::shared_ptr<ReceiverUDP> receiverUDP, std::atomic_bool &done, size_t &missed)
 {
+  missed = 0;
   size_t sequenceNumber = 0;
-  size_t numFrames = 0;
+  std::shared_ptr<asdp::StreamPacket> receiveStreamPacket;
   while (!done) {
     // Get the next packet and verify that its sequence number matches what we expect so that
     // we know that we didn't miss any data.
-    std::shared_ptr<asdp::StreamPacket> receiveStreamPacket;
     size_t offset = 0;
     Status status = receiverUDP->ReceiveStreamPacket(10.0, receiveStreamPacket, offset);
     if (status != asdp::OKAY) {
@@ -83,10 +83,7 @@ void StreamReceiverThread(std::shared_ptr<ReceiverUDP> receiverUDP, std::atomic_
       return;
     }
     if (packetSequenceNumber != sequenceNumber++) {
-      std::cerr << " Bad sequence number: " << packetSequenceNumber << ", expected " << sequenceNumber - 1 << std::endl;
-      std::cerr << "  (Presumably dropped network packets, consider re-running)" << std::endl;
-      done = true;
-      return;
+      missed++;
     }
   };
 }
@@ -213,6 +210,7 @@ int main(int argc, char** argv)
   // Start receiver threads for each camera, remembering which port each is listening on.
   std::vector<std::thread> receiverThreads;
   std::vector<uint16_t> ports;
+  std::vector<size_t> missedCounts;
   for (size_t i = 0; i < cameras.size(); ++i) {
     std::shared_ptr<ReceiverUDP> receiverUDP = std::make_shared<ReceiverUDP>(ip_address);
     if (receiverUDP->GetConstructorStatus() != OKAY) {
@@ -225,7 +223,8 @@ int main(int argc, char** argv)
       std::cerr << "Error getting port from ReceiverUDP: " << ErrorMessage(status) << std::endl;
       return 31;
     }
-    receiverThreads.push_back(std::thread(StreamReceiverThread, receiverUDP, std::ref(done)));
+    missedCounts.push_back(0);
+    receiverThreads.push_back(std::thread(StreamReceiverThread, receiverUDP, std::ref(done), std::ref(missedCounts[i])));
     ports.push_back(port);
   }
 
@@ -268,10 +267,13 @@ int main(int argc, char** argv)
   // Wait until one of the threads has set done, sleeping a bit between checks.
   // Stop if it has been durationSeconds since we started.
   std::cout << "Running for " << durationSeconds
-    << " seconds or until a camera thread has a problem receiving data in order." << std::endl;
+    << " seconds or until a camera thread has an error receiving data." << std::endl;
   start = std::chrono::steady_clock::now();
+  std::shared_ptr<StreamPacket> response;
   while (!done) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    // Check for incoming packets on the main stream so that we are consuming them.
+    size_t offset = 0;
+    Status status = receiver->ReceiveStreamPacket(0.1, response, offset);
     if (std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count() >= durationSeconds) {
       done = true;
     }
@@ -282,6 +284,10 @@ int main(int argc, char** argv)
     receiverThreads[i].join();
   }
 
-  std::cout << std::endl << "Success!" << std::endl;
+  // Report how many times each camera missed packets
+  for (size_t i = 0; i < cameras.size(); ++i) {
+    std::cout << "Camera " << i+1 << " had " << missedCounts[i] << " cases of missed packets" << std::endl;
+  }
+
   return 0;
 }
