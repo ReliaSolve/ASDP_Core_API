@@ -125,6 +125,7 @@ if(BUILD_EXAMPLES)
     Speed_Test_Receiver
     Image_Saving_Client
     Stream_File_Parser
+    Core_Module_Stream_Test
   )
   foreach (BASE ${EXAMPLES})
     # C++ example
