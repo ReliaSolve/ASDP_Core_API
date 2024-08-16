@@ -17,6 +17,7 @@
 #include <atomic>
 #include <string.h>
 #include <ASDP_Core_API.h>
+#include <ASDP_BufferPool.h>
 
 using namespace asdp;
 
@@ -63,13 +64,20 @@ std::shared_ptr<Message> WaitForMessageType(std::shared_ptr<Receiver> receiver, 
 void StreamReceiverThread(std::shared_ptr<ReceiverUDP> receiverUDP, std::atomic_bool &done, size_t &missed)
 {
   missed = 0;
+
+  // Pool of buffers for receiving data and writing it to disk.  We pre-allocate them here to
+  // avoid the overhead of creating and destroying them at run time.  We pre-allocate a bunch,
+  // but more will be created as needed.  In fact, we should only really need 1-2 buffers
+  // because we recycle the buffer each time.
+  asdp::BufferPool bufferPool(9000, 10);
+
   size_t sequenceNumber = 0;
   std::shared_ptr<asdp::StreamPacket> receiveStreamPacket;
   while (!done) {
     // Get the next packet and verify that its sequence number matches what we expect so that
     // we know that we didn't miss any data.
     size_t offset = 0;
-    Status status = receiverUDP->ReceiveStreamPacket(10.0, receiveStreamPacket, offset);
+    Status status = receiverUDP->ReceiveStreamPacket(10.0, receiveStreamPacket, offset, bufferPool.GetBuffer());
     if (status != asdp::OKAY) {
       std::cerr << "Error receiving StreamPacket: " << ErrorMessage(status) << std::endl;
       done = true;
