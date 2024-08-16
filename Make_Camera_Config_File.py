@@ -56,6 +56,7 @@ def main():
     parser.add_argument('--overlap_x', type=float, default=5.5, help='Camera overlap in X direction deg (default: 5.5)')
     parser.add_argument('--overlap_y', type=float, default=5.0, help='Camera overlap in Y direction deg (default: 5)')
     parser.add_argument('--simulation', action='store_true', help='Generate simulation oversize and distortion')
+    parser.add_argument('--identical', action='store_true', help='Generate simulation identical to original view')
     parser.add_argument('--wide_field', action='store_true', help='Generate wide-field cameras')
     
     args = parser.parse_args()
@@ -101,9 +102,14 @@ def main():
 
             # Modify distortion data and add fields when simulating
             if args.simulation:
-                dMap = [ [0, 0], [0.1, 0.1], [0.2, 0.21], [0.4, 0.45], [1.0, 1.3], [1.5, 2.2] ]
-                cam["oversizedResolutionPixels"] = [args.pixels_x * 2, args.pixels_y * 2]
-                cam["oversizedFieldOfViewDegrees"] = [args.fov_h + 10, args.fov_v + 10]
+                if args.identical:
+                    # No distortions and the same field of view and resolution  
+                    cam["oversizedResolutionPixels"] = [args.pixels_x, args.pixels_y]
+                    cam["oversizedFieldOfViewDegrees"] = [args.fov_h, args.fov_v]
+                else:
+                    dMap = [ [0, 0], [0.1, 0.1], [0.2, 0.21], [0.4, 0.45], [1.0, 1.3], [1.5, 2.2] ]
+                    cam["oversizedResolutionPixels"] = [args.pixels_x * 2, args.pixels_y * 2]
+                    cam["oversizedFieldOfViewDegrees"] = [args.fov_h + 10, args.fov_v + 10]
 
             cam["distortion"] = { "type": "radial" }
             COP = [0.0, 0.0]
