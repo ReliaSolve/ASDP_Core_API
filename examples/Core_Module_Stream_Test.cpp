@@ -103,6 +103,7 @@ int main(int argc, char** argv)
   float durationSeconds = 30;   ///< Run for this many seconds
   std::string ip_address;
   size_t realParams = 0;
+  uint32_t maxCameras = 0;
   std::atomic_bool done(false);
 
   // Parse the command line arguments, with the first non-flag argument being the
@@ -116,7 +117,13 @@ int main(int argc, char** argv)
       }
       durationSeconds = std::stof(argv[i]);
       continue;
-    } else if (argv[i][0] == '-' ) {
+    } else if (argv[i] == std::string("--maxCameras")) {
+      if (++i >= argc) {
+        std::cerr << "Missing argument for --maxCameras" << std::endl;
+        return 1;
+      }
+      maxCameras = std::stoul(argv[i]);
+    } else if (argv[i][0] == '-') {
       std::cerr << "Unknown flag: " << argv[i] << std::endl;
       return 1;
     } else switch (realParams++) {
@@ -124,12 +131,12 @@ int main(int argc, char** argv)
         ip_address = argv[i];
         break;
       default:
-        std::cerr << "Usage: " << argv[0] << " [-duration S] <ip_address>" << std::endl;
+        std::cerr << "Usage: " << argv[0] << " [--duration S] [--maxCameras C] <ip_address>" << std::endl;
         return 2;
     }
   }
   if (realParams != 1) {
-    std::cerr << "Usage: " << argv[0] << " [-duration S] <ip_address>" << std::endl;
+    std::cerr << "Usage: " << argv[0] << " [--duration S] [--maxCameras C] <ip_address>" << std::endl;
     return 2;
   }
 
@@ -213,6 +220,10 @@ int main(int argc, char** argv)
   std::vector<CameraInfo> cameras;
   status = state.GetCameras(cameras);
   std::cout << "Found " << cameras.size() << " cameras" << std::endl;
+  if ((maxCameras > 0) && (maxCameras < cameras.size())) {
+    std::cout << "Limiting to " << maxCameras << " cameras." << std::endl;
+    cameras.resize(maxCameras);
+  }
 
   // Start receiver threads for each camera, remembering which port each is listening on.
   std::vector<std::thread> receiverThreads;
