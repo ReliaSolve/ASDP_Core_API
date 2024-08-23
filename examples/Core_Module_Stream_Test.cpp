@@ -104,6 +104,7 @@ int main(int argc, char** argv)
   std::string ip_address;
   size_t realParams = 0;
   uint32_t maxCameras = 0;
+  bool summary = false;
   std::atomic_bool done(false);
 
   // Parse the command line arguments, with the first non-flag argument being the
@@ -123,6 +124,8 @@ int main(int argc, char** argv)
         return 1;
       }
       maxCameras = std::stoul(argv[i]);
+    } else if (argv[i] == std::string("--summary")) {
+      summary = true;
     } else if (argv[i][0] == '-') {
       std::cerr << "Unknown flag: " << argv[i] << std::endl;
       return 1;
@@ -131,7 +134,7 @@ int main(int argc, char** argv)
         ip_address = argv[i];
         break;
       default:
-        std::cerr << "Usage: " << argv[0] << " [--duration S] [--maxCameras C] <ip_address>" << std::endl;
+        std::cerr << "Usage: " << argv[0] << " [--duration S] [--maxCameras C] [--summary] <ip_address>" << std::endl;
         return 2;
     }
   }
@@ -146,7 +149,7 @@ int main(int argc, char** argv)
     std::cerr << "Failed to open client: " << ErrorMessage(client.GetConstructorStatus()) << std::endl;
     return 3;
   }
-  std::cout << "Listening for servers on " << ip_address << std::endl;
+  if (!summary) std::cout << "Listening for servers on " << ip_address << std::endl;
 
   // Wait for up to two seconds to allow servers to send Discovery messages.
   std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
@@ -175,13 +178,15 @@ int main(int argc, char** argv)
     std::cerr << "No servers found; be sure to run the server first." << std::endl;
     return 7;
   }
-  std::cout << "Servers found: " << servers.size() << std::endl;
-  for (const std::string& server : servers) {
-    std::cout << "  " << server << std::endl;
+  if (!summary) {
+    std::cout << "Servers found: " << servers.size() << std::endl;
+    for (const std::string& server : servers) {
+      std::cout << "  " << server << std::endl;
+    }
   }
 
   // Connect to the first server found.
-  std::cout << "Connecting to " << servers[0] << std::endl;
+  if (!summary) std::cout << "Connecting to " << servers[0] << std::endl;
   uint16_t major, minor, patch;
   status = client.ConnectToServer(servers[0], major, minor, patch);
   if (status != OKAY) {
@@ -194,7 +199,7 @@ int main(int argc, char** argv)
     std::cerr << "Failed to get server serial number: " << ErrorMessage(status) << std::endl;
     return 9;
   }
-  std::cout << "  Connected to server version " << major << "." << minor << "." << patch
+  if (!summary) std::cout << "  Connected to server version " << major << "." << minor << "." << patch
     << " with serial number " << serialNumber << std::endl;
 
   // Get the main stream receiver
@@ -219,9 +224,9 @@ int main(int argc, char** argv)
   }
   std::vector<CameraInfo> cameras;
   status = state.GetCameras(cameras);
-  std::cout << "Found " << cameras.size() << " cameras" << std::endl;
+  if (!summary) std::cout << "Found " << cameras.size() << " cameras" << std::endl;
   if ((maxCameras > 0) && (maxCameras < cameras.size())) {
-    std::cout << "Limiting to " << maxCameras << " cameras." << std::endl;
+    if (!summary) std::cout << "Limiting to " << maxCameras << " cameras." << std::endl;
     cameras.resize(maxCameras);
   }
 
@@ -284,7 +289,7 @@ int main(int argc, char** argv)
 
   // Wait until one of the threads has set done, sleeping a bit between checks.
   // Stop if it has been durationSeconds since we started.
-  std::cout << "Running for " << durationSeconds
+  if (!summary) std::cout << "Running for " << durationSeconds
     << " seconds or until a camera thread has an error receiving data." << std::endl;
   start = std::chrono::steady_clock::now();
   std::shared_ptr<StreamPacket> response;
@@ -303,8 +308,22 @@ int main(int argc, char** argv)
   }
 
   // Report how many times each camera missed packets
-  for (size_t i = 0; i < cameras.size(); ++i) {
-    std::cout << "Camera " << i+1 << " had " << missedCounts[i] << " cases of missed packets" << std::endl;
+  if (summary) {
+    // Sum up number of cameras with missing packets and number of missing packets across cameras
+    size_t totalMissed = 0;
+    size_t camerasWithMissed = 0;
+    for (size_t i = 0; i < cameras.size(); ++i) {
+      if (missedCounts[i] > 0) {
+        camerasWithMissed++;
+        totalMissed += missedCounts[i];
+      }
+    }
+    std::cout << camerasWithMissed << ", " << totalMissed << std::endl;
+
+  } else {
+    for (size_t i = 0; i < cameras.size(); ++i) {
+      std::cout << "Camera " << i + 1 << " had " << missedCounts[i] << " cases of missed packets" << std::endl;
+    }
   }
 
   return 0;
