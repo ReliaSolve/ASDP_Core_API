@@ -4489,7 +4489,7 @@ SenderUDP::SenderUDP(const StreamEndpoint& endpoint, bool broadcast, std::string
   }
 
   // Set the socket output buffer to be large enough to hold many outgoing packets.
-  int size = 65536 * 8;
+  int size = 65536 * 128;
   if (0 != setsockopt(m_socket->socket, SOL_SOCKET, SO_SNDBUF, (char*)&size, sizeof(size))) {
     m_constructorStatus = SOCKET_FAILURE;
     m_socket.reset();
@@ -4726,7 +4726,7 @@ ReceiverUDP::ReceiverUDP(const StreamEndpoint& endpoint, uint32_t maxLen, bool b
   }
 
   // Set the socket input buffer to be large enough to hold many incoming packets.
-  int size = 65536 * 8;
+  int size = 65536 * 128;
   if (0 != setsockopt(m_socket->socket, SOL_SOCKET, SO_RCVBUF, (char*)&size, sizeof(size))) {
     m_constructorStatus = SOCKET_FAILURE;
     m_socket.reset();
