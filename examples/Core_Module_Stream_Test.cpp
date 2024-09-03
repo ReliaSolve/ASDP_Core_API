@@ -22,6 +22,55 @@
 using namespace asdp;
 
 //==============================================================================
+// Utility functions
+
+std::string WaitForEventType(std::shared_ptr<Receiver> receiver, EventID type, float seconds)
+{
+  std::chrono::high_resolution_clock::time_point start = std::chrono::high_resolution_clock::now();
+  do {
+    std::shared_ptr<StreamPacket> response;
+    size_t offset = 0;
+    Status status = receiver->ReceiveStreamPacket(0, response, offset);
+    if ((status != OKAY) && (status != TIMEOUT)) {
+      return "Failed to receive stream packet: " + ErrorMessage(status);
+    }
+    if (response != nullptr) {
+      std::shared_ptr<Message> message;
+      status = response->GetNextMessage(message);
+      if (status != OKAY) {
+        return "Failed to get message from stream packet: " + ErrorMessage(status);
+      }
+      while (message != nullptr) {
+        MessageID messageType;
+        status = message->GetType(messageType);
+        if (status != OKAY) {
+          return "Failed to get message type: " + ErrorMessage(status);
+        }
+        if (messageType == EVENT) {
+          MessageEvent event(*message);
+          if (event.GetConstructorStatus() != OKAY) {
+            return "Failed to construct event message: " + ErrorMessage(event.GetConstructorStatus());
+          }
+          EventID eventType;
+          status = event.GetType(eventType);
+          if (status != OKAY) {
+            return "Failed to get event type: " + ErrorMessage(status);
+          }
+          if (eventType == type) {
+            // Worked!
+            return "";
+          }
+        }
+        status = response->GetNextMessage(message);
+        if (status != OKAY) {
+          return "Failed to get message from stream packet: " + ErrorMessage(status);
+        }
+      }
+    }
+  } while (std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - start).count() <= seconds);
+
+  return "No message of the requested type received in " + std::to_string(seconds) + " seconds";
+}
 
 std::shared_ptr<Message> WaitForMessageType(std::shared_ptr<Receiver> receiver, MessageID type, float seconds)
 {
@@ -61,6 +110,28 @@ std::shared_ptr<Message> WaitForMessageType(std::shared_ptr<Receiver> receiver, 
   return empty;
 }
 
+std::string GetStreamList(CoreClient& client, std::shared_ptr<Receiver> receiver, std::vector<uint32_t>& IDs, float seconds)
+{
+  // Determine how many streams are stored.
+  Status status = client.SendCommandPacket(CommandPacketListStoredStreams());
+  if (status != OKAY) {
+    return "Failed to send storage command: " + ErrorMessage(status);
+  }
+  std::shared_ptr<Message> msg = WaitForMessageType(receiver, STORED_STREAMS, seconds);
+  if (msg == nullptr) {
+    return "Did not get stored streams message.";
+  }
+  MessageStoredStreamList storedStreams(*msg);
+  if (storedStreams.GetConstructorStatus() != OKAY) {
+    return "Failed to construct stored streams message: " + ErrorMessage(storedStreams.GetConstructorStatus());
+  }
+  status = storedStreams.GetIDs(IDs);
+  if (status != OKAY) {
+    return "Failed to get stored stream IDs: " + ErrorMessage(status);
+  }
+  return "";
+}
+
 void StreamReceiverThread(std::shared_ptr<ReceiverUDP> receiverUDP, std::atomic_bool &done, size_t &missed)
 {
   missed = 0;
@@ -98,12 +169,19 @@ void StreamReceiverThread(std::shared_ptr<ReceiverUDP> receiverUDP, std::atomic_
 
 //==============================================================================
 
+void usage(const char* name)
+{
+  std::cerr << "Usage: " << name << " [--duration S] [--maxCameras C] [--summary] [--replay R] <ip_address>" << std::endl;
+  exit(1);
+}
+
 int main(int argc, char** argv)
 {
   float durationSeconds = 30;   ///< Run for this many seconds
   std::string ip_address;
   size_t realParams = 0;
   uint32_t maxCameras = 0;
+  int replayID = 0;
   bool summary = false;
   std::atomic_bool done(false);
 
@@ -126,6 +204,12 @@ int main(int argc, char** argv)
       maxCameras = std::stoul(argv[i]);
     } else if (argv[i] == std::string("--summary")) {
       summary = true;
+    } else if (argv[i] == std::string("--replay")) {
+      if (++i >= argc) {
+        std::cerr << "Missing argument for --replay" << std::endl;
+        return 1;
+      }
+      replayID = std::stoi(argv[i]);
     } else if (argv[i][0] == '-') {
       std::cerr << "Unknown flag: " << argv[i] << std::endl;
       return 1;
@@ -134,13 +218,11 @@ int main(int argc, char** argv)
         ip_address = argv[i];
         break;
       default:
-        std::cerr << "Usage: " << argv[0] << " [--duration S] [--maxCameras C] [--summary] <ip_address>" << std::endl;
-        return 2;
+        usage(argv[0]);
     }
   }
   if (realParams != 1) {
-    std::cerr << "Usage: " << argv[0] << " [--duration S] [--maxCameras C] <ip_address>" << std::endl;
-    return 2;
+    usage(argv[0]);
   }
 
   // Open a client, specifying the IP address to listen on.
@@ -251,6 +333,44 @@ int main(int argc, char** argv)
   }
   std::this_thread::sleep_for(std::chrono::seconds(1));
 
+  // If we've been asked to replay a stream, do so now.
+  if (replayID > 0) {
+    // Get the list of stored streams.
+    std::vector<uint32_t> IDs;
+    std::string error = GetStreamList(client, receiver, IDs, 5.0);
+    if (!error.empty()) {
+      std::cerr << error << std::endl;
+      return 32;
+    }
+
+    // Find the stream with the requested ID.
+    bool found = false;
+    for (uint32_t ID : IDs) {
+      if (ID == replayID) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      std::cerr << "Stream ID " << replayID << " not found." << std::endl;
+      return 33;
+    }
+
+    // Request the stream to be replayed.
+    status = client.SendCommandPacket(CommandPacketStartReplay(replayID, { 0, 0 }));
+    if (status != OKAY) {
+      std::cerr << "Failed to replay stream: " << ErrorMessage(status) << std::endl;
+      return 34;
+    }
+
+    // Wait for an event saying that we've started to replay.
+    if (!WaitForEventType(receiver, START_OF_REPLAY, 5.0).empty()) {
+      std::cerr << "Did not get start-of-replay event." << std::endl;
+      return 35;
+    }
+  }
+
+  // Configure the cameras to stream full-frame images at their maximum rate.
   for (size_t i = 0; i < cameras.size(); ++i) {
     uint32_t camID = i + 1;
     uint32_t port = ports[i];

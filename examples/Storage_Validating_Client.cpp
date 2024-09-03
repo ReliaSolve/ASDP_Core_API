@@ -106,7 +106,7 @@ std::string GetStreamList(CoreClient &client, std::shared_ptr<Receiver> receiver
   if (status != OKAY) {
     return "Failed to send storage command: " + ErrorMessage(status);
   }
-  std::shared_ptr<Message> msg = WaitForMessageType(receiver, STORED_STREAMS, 5.0);
+  std::shared_ptr<Message> msg = WaitForMessageType(receiver, STORED_STREAMS, seconds);
   if (msg == nullptr) {
     return "Did not get stored streams message.";
   }
