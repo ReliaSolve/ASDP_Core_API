@@ -2162,7 +2162,8 @@ public:
   /// @brief Inserts an externally-defined packet into the stream of packets.
   /// @details Any partially-filled packet is flushed before the new packet is inserted.
   /// The sequence number on the inserted packet is changed to the next sequence number
-  /// in the stream.  The sequence number for the next current packet is incremented.
+  /// in the stream and then the inserted packet is sent immediately.  The sequence number
+  /// for the next current packet is incremented.
   /// @param [in] packet The packet to insert into the stream.
   /// @return OKAY if successful, otherwise an error code.
   Status InsertPacket(StreamPacket &packet);
