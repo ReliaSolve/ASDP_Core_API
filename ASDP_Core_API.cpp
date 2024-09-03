@@ -1992,8 +1992,8 @@ Status StreamPacket::SetSequenceNumber(uint32_t sequenceNumber)
 
 Status StreamPacket::OffsetMessageTimes(double offset)
 {
-  uint32_t seconds = static_cast<uint32_t>(offset);
-  uint32_t microseconds = static_cast<uint32_t>((offset - seconds) * 1000000 + 0.5);
+  uint32_t seconds = static_cast<uint32_t>(fabs(offset));
+  uint32_t microseconds = static_cast<uint32_t>((fabs(offset) - seconds) * 1000000 + 0.5);
 
   std::shared_ptr<Message> msg;
   Status status = GetNextMessage(msg);
@@ -2215,7 +2215,7 @@ std::string StreamPacket::Test()
       return "Error constructing message: " + ErrorMessage(message2.GetConstructorStatus());
     }
 
-    // Offset the time of the message and check that it worked.
+    // Offset the time of the messages and check that it worked.
     Status status = packet.OffsetMessageTimes(1.5);
     if (status != OKAY) {
       return "Error offsetting message times: " + ErrorMessage(status);
@@ -2234,6 +2234,46 @@ std::string StreamPacket::Test()
     }
     if (rTime.seconds != 3 || rTime.microseconds != 500003) {
       return "Error getting time from message: time is not 3.500003";
+    }
+
+    // Offset by a negative time and check that it worked.
+    status = packet.OffsetMessageTimes(-1.5);
+    if (status != OKAY) {
+      return "Error offsetting message times negative: " + ErrorMessage(status);
+    }
+    status = message.GetTime(rTime);
+    if (status != OKAY) {
+      return "Error getting time from negative offset message: " + ErrorMessage(status);
+    }
+    if (rTime.seconds != 1 || rTime.microseconds != 2) {
+      return "Error getting time from negative offset message: time is not 1.2";
+    }
+    status = message2.GetTime(rTime);
+    if (status != OKAY) {
+      return "Error getting time from negative offset message: " + ErrorMessage(status);
+    }
+    if (rTime.seconds != 2 || rTime.microseconds != 3) {
+      return "Error getting time from negative offset message: time is not 2.3";
+    }
+
+    // Offset by a large negative and make sure they clamp to 0.
+    status = packet.OffsetMessageTimes(-12.5);
+    if (status != OKAY) {
+      return "Error offsetting message times negative clamp: " + ErrorMessage(status);
+    }
+    status = message.GetTime(rTime);
+    if (status != OKAY) {
+      return "Error getting time from negative clamp message: " + ErrorMessage(status);
+    }
+    if (rTime.seconds != 0 || rTime.microseconds != 0) {
+      return "Error getting time from negative clamp message: time is not 0.0";
+    }
+    status = message2.GetTime(rTime);
+    if (status != OKAY) {
+      return "Error getting time from negative clamp message: " + ErrorMessage(status);
+    }
+    if (rTime.seconds != 0 || rTime.microseconds != 0) {
+      return "Error getting time from negative clamp message: time is not 0.0";
     }
   }
 
