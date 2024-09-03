@@ -1990,6 +1990,49 @@ Status StreamPacket::SetSequenceNumber(uint32_t sequenceNumber)
   return OKAY;
 }
 
+Status StreamPacket::OffsetMessageTimes(double offset)
+{
+  uint32_t seconds = static_cast<uint32_t>(offset);
+  uint32_t microseconds = static_cast<uint32_t>((offset - seconds) * 1000000 + 0.5);
+
+  std::shared_ptr<Message> msg;
+  Status status = GetNextMessage(msg);
+  if (status != OKAY) {
+    return status;
+  }
+  while (msg != nullptr) {
+    // Compute the new time
+    Time time;
+    status = msg->GetTime(time);
+    if (status != OKAY) {
+      return status;
+    }
+    if (offset < 0) {
+      Time subtractTime(seconds, microseconds);
+      if (time < subtractTime) {
+        time = Time(0, 0);
+      } else {
+        time -= subtractTime;
+      }
+    } else {
+      time += Time(seconds, microseconds);
+    }
+
+    // Set the new time in the message.
+    status = msg->SetTime(time);
+    if (status != OKAY) {
+      return status;
+    }
+
+    // Get the next message.
+    status = GetNextMessage(msg);
+    if (status != OKAY) {
+      return status;
+    }
+  }
+  return OKAY;
+}
+
 Status StreamPacket::GetNextMessage(std::shared_ptr<Message>& message) const
 {
   // Make sure we have enough data to hold the header. Then get the total length
@@ -2152,6 +2195,48 @@ std::string StreamPacket::Test()
     }
   }
 
+  // Test adding messages to a StreamPacket and then using OffsetMessageTimes to adjust them.
+  {
+    // Construct a StreamPacket with a sequence number.
+    StreamPacket packet(1200, 1234);
+    if (packet.GetConstructorStatus() != OKAY) {
+      return "Error constructing stream packet: " + ErrorMessage(packet.GetConstructorStatus());
+    }
+
+    // Add messages to the packet.
+    Time time = { 1, 2 };
+    Message message(packet, 0, time, FRAME_END);
+    if (message.GetConstructorStatus() != OKAY) {
+      return "Error constructing message: " + ErrorMessage(message.GetConstructorStatus());
+    }
+    time = { 2, 3 };
+    Message message2(packet, 0, time, FRAME_BEGIN);
+    if (message2.GetConstructorStatus() != OKAY) {
+      return "Error constructing message: " + ErrorMessage(message2.GetConstructorStatus());
+    }
+
+    // Offset the time of the message and check that it worked.
+    Status status = packet.OffsetMessageTimes(1.5);
+    if (status != OKAY) {
+      return "Error offsetting message times: " + ErrorMessage(status);
+    }
+    Time rTime;
+    status = message.GetTime(rTime);
+    if (status != OKAY) {
+      return "Error getting time from message: " + ErrorMessage(status);
+    }
+    if (rTime.seconds != 2 || rTime.microseconds != 500002) {
+      return "Error getting time from message: time is not 2.500002";
+    }
+    status = message2.GetTime(rTime);
+    if (status != OKAY) {
+      return "Error getting time from message: " + ErrorMessage(status);
+    }
+    if (rTime.seconds != 3 || rTime.microseconds != 500003) {
+      return "Error getting time from message: time is not 3.500003";
+    }
+  }
+
   // Everything worked.
   return "";
 }
@@ -2208,6 +2293,17 @@ Status Message::GetTime(Time& time) const
     sizeof(time.seconds));
   memcpy(&time.microseconds, m_buffer->data() + m_offset + MESSAGE_HEADER_MESSAGE_TIME_MICROSECONDS_SIZE_OFFSET,
     sizeof(time.microseconds));
+  return OKAY;
+}
+
+Status Message::SetTime(Time time)
+{
+  if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE) {
+    return WRITE_PAST_END;
+  }
+  unsigned char* bufPtr = m_buffer->data() + m_offset + MESSAGE_HEADER_MESSAGE_TIME_SECONDS_OFFSET;
+  memcpy(bufPtr, &time.seconds, sizeof(time.seconds)); bufPtr += sizeof(time.seconds);
+  memcpy(bufPtr, &time.microseconds, sizeof(time.microseconds)); bufPtr += sizeof(time.microseconds);
   return OKAY;
 }
 
@@ -2493,6 +2589,21 @@ std::string Message::Test()
       return "Error getting time code from packet for copy message test: time code is not " +
         std::to_string(timeCode.seconds) + "." + std::to_string(timeCode.microseconds);
     }
+  }
+
+  // Set the time to a different value and check that it is set correctly.
+  Time newTimeCode = { 4321, 8765 };
+  status = message.SetTime(newTimeCode);
+  if (status != OKAY) {
+    return "Error setting time code in message for message test: " + ErrorMessage(status);
+  }
+  status = message.GetTime(rTimeCode);
+  if (status != OKAY) {
+    return "Error getting set time code from message for message test: " + ErrorMessage(status);
+  }
+  if (rTimeCode != newTimeCode) {
+    return "Error setting set time code in message for message test: time code is not " +
+      std::to_string(newTimeCode.seconds) + "." + std::to_string(newTimeCode.microseconds);
   }
 
   return "";
@@ -6164,6 +6275,35 @@ Status StreamWriter::GetCurrentPacket(std::shared_ptr<StreamPacket>& packet) con
   return OKAY;
 }
 
+Status StreamWriter::InsertPacket(StreamPacket& packet)
+{
+  // Flush any current packet.
+  Status status = Flush();
+  if (status != OKAY) {
+    return status;
+  }
+
+  // Adjust the sequence number in the packet.
+  status = packet.SetSequenceNumber(m_sequenceNumber++);
+  if (status != OKAY) {
+    return status;
+  }
+
+  // Insert the packet.
+  status = m_sender->SendStreamPacket(packet);
+  if (status != OKAY) {
+    return status;
+  }
+
+  // Adjust the sequence number in the current packet.
+  status = m_currentPacket->SetSequenceNumber(m_sequenceNumber);
+  if (status != OKAY) {
+    return status;
+  }
+
+  return OKAY;
+}
+
 Status StreamWriter::Flush()
 {
   // Make sure we have a valid sender.
@@ -6305,6 +6445,43 @@ std::string StreamWriter::Test()
   status = receiver.ReceiveStreamPacket(0.05, receiveStreamPacket, offset);
   if (status != TIMEOUT) {
     return "Received unexpected packet";
+  }
+
+  // Insert a packet and make sure it is received with the correct sequence number.
+  StreamPacket packet(1000, 100);
+  MessageFrameBegin message(packet, Time(), 1, 2, 1920, 1080, 0.001f, 1.0f);
+  status = streamWriter->InsertPacket(packet);
+  if (status != OKAY) {
+    return "Error inserting packet: " + ErrorMessage(status);
+  }
+  status = receiver.ReceiveStreamPacket(0.5, receiveStreamPacket, offset);
+  if (status != OKAY) {
+    return "Error receiving inserted StreamPacket: " + ErrorMessage(status);
+  }
+  if (receiveStreamPacket == nullptr) {
+    return "Empty inserted StreamPacket packet";
+  }
+  uint32_t sequenceNumber;
+  status = receiveStreamPacket->GetSequenceNumber(sequenceNumber);
+  if (status != OKAY) {
+    return "Error getting inserted sequence number: " + ErrorMessage(status);
+  }
+  if (sequenceNumber != 10) {
+    return "Unexpected inserted sequence number: " + std::to_string(sequenceNumber);
+  }
+
+  // Verify that the current packet's sequence number is correct.
+  std::shared_ptr<StreamPacket> currentPacket;
+  status = streamWriter->GetCurrentPacket(currentPacket);
+  if (status != OKAY) {
+    return "Error getting current packet after insertion: " + ErrorMessage(status);
+  }
+  status = currentPacket->GetSequenceNumber(sequenceNumber);
+  if (status != OKAY) {
+    return "Error getting current packet sequence number after insertion: " + ErrorMessage(status);
+  }
+  if (sequenceNumber != 11) {
+    return "Unexpected current packet sequence number after insertion: " + std::to_string(sequenceNumber);
   }
 
   // Make sure we can set the maximum packet size in the constructor.

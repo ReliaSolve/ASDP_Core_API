@@ -1077,6 +1077,13 @@ public:
   /// @return OKAY if successful, otherwise an error code.
   Status SetSequenceNumber(uint32_t sequenceNumber);
 
+  /// @brief Offset all of the times for the messages in the packet.
+  /// @details This is useful when adjusting the times for a packet that is being replayed.
+  /// It replaces the times on all messages in place.
+  /// @param [in] offset Signed fractional time in seconds to add, clamping to 0 if negative.
+  /// @return OKAY if successful, otherwise an error code.
+  Status OffsetMessageTimes(double offset);
+
   /// @brief Get the next message from the buffer
   /// @param [inout] message Pointer to the next message in the buffer. Client
   /// initially sets this to nullptr, which asks for the first message in
@@ -1190,6 +1197,11 @@ protected:
   /// total offset, so if the message is in a StreamPacket, it will be the offset into
   /// the StreamPacket plus the offset into the message.
   Message(std::shared_ptr<std::vector<uint8_t>> existingBuffer, uint32_t offset);
+
+  /// @brief Set the message time.
+  /// @param [in] time Time code for the message.
+  /// @return OKAY if successful, otherwise an error code.
+  Status SetTime(Time time);
 
   Status m_constructorStatus;                       ///< Status of the constructor.
 
@@ -2126,10 +2138,12 @@ protected:
 class StreamWriter {
 public:
   /// @brief Construct a StreamWriter object.
+  /// @details This constructor creates a StreamWriter object that will generate
+  /// a sequence of packets to send to a client.  It allocates the first packet
+  /// of the specified size and sets the sequence number to 0.
   /// @param [in] sender Pointer to the sender object to use to send the packets.
   /// @param [in] maxPayloadSize Maximum size of a packet payload to send.
-  StreamWriter(std::shared_ptr<Sender> sender,
-    uint32_t maxPayloadSize = 9000 - 28);
+  StreamWriter(std::shared_ptr<Sender> sender, uint32_t maxPayloadSize = 9000 - 28);
 
   /// @brief Virtual destructor so all derived class pointers will destroy properly.
   ///
@@ -2140,15 +2154,23 @@ public:
   /// @return Constructor status.
   Status GetConstructorStatus() const;
 
-  /// @brief Get the current packet being used.
+  /// @brief Get the current packet being filled in.
   /// @param [out] packet The current packet being used.
   /// @return OKAY if successful, otherwise an error code.
   Status GetCurrentPacket(std::shared_ptr<StreamPacket>& packet) const;
 
+  /// @brief Inserts an externally-defined packet into the stream of packets.
+  /// @details Any partially-filled packet is flushed before the new packet is inserted.
+  /// The sequence number on the inserted packet is changed to the next sequence number
+  /// in the stream.  The sequence number for the next current packet is incremented.
+  /// @param [in] packet The packet to insert into the stream.
+  /// @return OKAY if successful, otherwise an error code.
+  Status InsertPacket(StreamPacket &packet);
+
   /// @brief Flush the current packet, sending it and getting a new one.
-  ///
-  /// The current packet is sent and a new one is created.  The sequence number
-  /// is incremented.  If there are no messages in the current packet, nothing is done.
+  /// @details The current packet is sent and a new one is created.  The sequence number
+  /// is incremented for the new packet.  If there are no messages in the current packet,
+  /// nothing is done.
   /// @return OKAY if successful, otherwise an error code.
   Status Flush();
 
