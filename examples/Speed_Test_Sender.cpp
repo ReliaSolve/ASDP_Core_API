@@ -286,7 +286,7 @@ int main(int argc, char* argv[])
       }
       std::string fileName;
       if (directory.size() > 0) {
-        fileName = directory + "/" + std::to_string(i*threads + j + 1) + ".asdp";
+        fileName = directory + "/" + std::to_string(i*sendsPerThread + j + 1) + ".asdp";
       }
       myFileNames.push_back(fileName);
     }
