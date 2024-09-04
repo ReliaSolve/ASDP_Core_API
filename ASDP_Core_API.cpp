@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <atomic>
 #include <vector>
+#include <cmath>
 #include <stdio.h>
 #include <fcntl.h>
 #ifdef _WIN32
