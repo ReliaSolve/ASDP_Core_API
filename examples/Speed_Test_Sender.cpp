@@ -249,7 +249,7 @@ int main(int argc, char* argv[])
   std::cout << "ASDP Speed Test Sender" << std::endl;
   std::cout << "Sends data to a Speed_Test_Receiver at the requested rate" << std::endl;
   std::cout << "Run this after running the receiver." << std::endl;
-  std::cout << "Usage: Speed_Test_Sender [--cameras <number>] [--threads <number>] [--fps <number>] [--secondsWorth <number>] [--IP <string>] [--port <number>] [--NIC <string>] [directory]" << std::endl;
+  std::cout << "Usage: Speed_Test_Sender [--cameras <number>] [--threads <number>] [--fps <number>] [--secondsWorth <number>] [--IP <string>] [--port <number>] [--width <number>] [--NIC <string>] [directory]" << std::endl;
   std::cout << "       It sends to the port specified and a number above it for each camera." << std::endl;
   std::cout << "The parameters here must match those used by the receiver except for threads must evenly divide cameras." << std::endl;
   std::cout << "NICName specifies the IP address on a NIC to be used for sending, default uses the system-selected port" << std::endl;
@@ -258,6 +258,7 @@ int main(int argc, char* argv[])
   std::cout << std::endl;
   std::cout << "Cameras: " << cameras << std::endl;
   std::cout << "Threads: " << threads << std::endl;
+  std::cout << "Width: " << width << std::endl;
   std::cout << "FPS: " << fps << std::endl;
   std::cout << "Seconds worth of data: " << secondsWorth << std::endl;
   std::cout << "Sending to IP:Port and following: " << IP << ":" << port << std::endl;
