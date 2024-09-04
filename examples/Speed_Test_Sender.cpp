@@ -197,6 +197,7 @@ int main(int argc, char* argv[])
 {
   int cameras = 25;
   int threads = 5;
+  int width = 1024;
   float fps = 60.0;
   float secondsWorth = 10;
   std::string IP = "localhost";
@@ -217,8 +218,11 @@ int main(int argc, char* argv[])
       secondsWorth = std::stof(argv[++i]);
     } else if (arg == "--IP") {
       IP = argv[++i];
-    } else if (arg == "--port") {
+    }
+    else if (arg == "--port") {
       port = std::stoi(argv[++i]);
+    } else if (arg == "--width") {
+      width = std::stoi(argv[++i]);
     } else if (arg == "--NIC") {
       NICName = argv[++i];
     } else if (arg[0] == '-') {
@@ -268,8 +272,8 @@ int main(int argc, char* argv[])
   size_t packetsPerFrame = 342;
   size_t totalPacketsPerCamera = static_cast<size_t>(fps * secondsWorth) * packetsPerFrame;
 
-  // We send three lines of 1024 pixels of 2 bytes each.
-  size_t bytesPerPacket = 1024 * 2 * 3;
+  // We send three lines of width pixels of 2 bytes each.
+  size_t bytesPerPacket = width * 2 * 3;
 
   // Create sockets for sending and receiving. There is a batch of them for each sending thread.
   std::vector< std::vector<SenderUDP> > sendSockets;

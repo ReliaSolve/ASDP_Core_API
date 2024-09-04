@@ -147,6 +147,7 @@ int main(int argc, char* argv[])
 {
   int cameras = 25;
   float fps = 60.0;
+  int width = 1024;
   int secondsWorth = 10;
   std::string IP = "localhost";
   int port = 12000;
@@ -164,8 +165,11 @@ int main(int argc, char* argv[])
       secondsWorth = std::stoi(argv[++i]);
     } else if (arg == "--IP") {
       IP = argv[++i];
-    } else if (arg == "--port") {
+    }
+    else if (arg == "--port") {
       port = std::stoi(argv[++i]);
+    } else if (arg == "--width") {
+      width = std::stoi(argv[++i]);
     } else if (arg == "--packetsPerWrite") {
       packetsPerWrite = std::stoi(argv[++i]);
     } else if (arg[0] == '-') {
@@ -187,7 +191,7 @@ int main(int argc, char* argv[])
   std::cout << "ASDP Speed Test Receiver" << std::endl;
   std::cout << "Listens for data from the Speed_Test_Sender and checks for dropped packets" << std::endl;
   std::cout << "Run this before running the sender." << std::endl;
-  std::cout << "Usage: Speed_Test_Receiver [--cameras <number>] [--fps <number>] [--secondsWorth <number>] [--IP <string>] [--port <number>] [--packetsPerWrite <number>] [directory]" << std::endl;
+  std::cout << "Usage: Speed_Test_Receiver [--cameras <number>] [--fps <number>] [--secondsWorth <number>] [--IP <string>] [--port <number>] [--width <number>] [--packetsPerWrite <number>] [directory]" << std::endl;
   std::cout << "       It listens on the port specified and a number above it for each camera." << std::endl;
   std::cout << "The parameters here must match those used by the sender." << std::endl;
   std::cout << "If directory is not specified, the data is copied to a memory buffer" << std::endl;
@@ -207,8 +211,8 @@ int main(int argc, char* argv[])
   size_t packetsPerFrame = 342;
   size_t totalPacketsPerCamera = static_cast<size_t>(fps * secondsWorth) * packetsPerFrame;
 
-  // We receive three lines of 1024 pixels of 2 bytes each.
-  size_t bytesPerPacket = 1024 * 2 * 3;
+  // We receive three lines of width pixels of 2 bytes each.
+  size_t bytesPerPacket = width * 2 * 3;
 
   // Create the receive sockets.
   std::vector<ReceiverUDP> receiveSockets;
