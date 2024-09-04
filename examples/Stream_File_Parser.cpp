@@ -81,14 +81,20 @@ int main(int argc, char** argv)
       return 4;
     }
 
-    // Read and print the packet sequence number.
-    uint32_t sequenceNumber;
+    // Read and print the packet sequence number and length.
+    uint32_t sequenceNumber, length;
     status = packet->GetSequenceNumber(sequenceNumber);
     if (status != OKAY) {
       std::cerr << "Error reading sequence number: " << ErrorMessage(status) << std::endl;
       return 5;
     }
-    std::cout << "Packet " << sequenceNumber << ":";
+    status = packet->GetTotalLength(length);
+    if (status != OKAY) {
+      std::cerr << "Error reading packet length: " << ErrorMessage(status) << std::endl;
+      return 6;
+    }
+    std::cout << "Packet " << sequenceNumber << " (size ";
+    std::cout << length << "):";
 
     if ( (sequenceNumber != 0) && (sequenceNumber != lastSequenceNumber + 1) ) {
       std::cout << " (skipped)";
