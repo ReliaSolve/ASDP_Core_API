@@ -147,7 +147,7 @@ int main(int argc, char* argv[])
 {
   int cameras = 25;
   float fps = 60.0;
-  int width = 1024;
+  int width = 1280;
   int secondsWorth = 10;
   std::string IP = "localhost";
   int port = 12000;
