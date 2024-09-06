@@ -27,5 +27,7 @@ See the Examples menu for a list of example programs showing how to use and test
 \example Speed_Test_Sender.cpp
 \example Storage_Validating_Client.cpp
 \example Stream_File_Parser.cpp
+\example Core_Module_Stream_Test.cpp
+\example Measure_Camera_Frame_Rate.cpp
 
 \example ASDP_Core_Test.cpp

@@ -126,6 +126,7 @@ if(BUILD_EXAMPLES)
     Image_Saving_Client
     Stream_File_Parser
     Core_Module_Stream_Test
+    Measure_Camera_Frame_Rate
   )
   foreach (BASE ${EXAMPLES})
     # C++ example
