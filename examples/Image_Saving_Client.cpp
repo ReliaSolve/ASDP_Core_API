@@ -444,6 +444,8 @@ int main(int argc, char** argv)
           break;
         case asdp::FRAME_DATA:
           {
+            // Don't do anything if we haven't created fileData yet.
+            if (fileData == nullptr) { break; }
             // Find out how many pixels are in the frame and sum their values.
             asdp::MessageFrameData frameData(*message);
             if (frameData.GetConstructorStatus() != asdp::OKAY) {
@@ -487,6 +489,8 @@ int main(int argc, char** argv)
         break;
         case asdp::FRAME_END:
           {
+            // Don't do anything if we haven't created fileData yet.
+            if (fileData == nullptr) { break; }
             numFrames++;
             std::cout << "Writing " << fileName << std::endl;
             std::lock_guard<std::mutex> lock(fileDataMutex);
