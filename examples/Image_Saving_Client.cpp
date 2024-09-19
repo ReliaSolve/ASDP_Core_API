@@ -20,6 +20,7 @@
 using namespace asdp;
 
 //==============================================================================
+// Utility functions
 
 std::shared_ptr<Message> WaitForMessageType(std::shared_ptr<Receiver> receiver, MessageID type, float seconds)
 {
@@ -57,6 +58,76 @@ std::shared_ptr<Message> WaitForMessageType(std::shared_ptr<Receiver> receiver, 
   } while (std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count() <= seconds);
 
   return empty;
+}
+
+std::string WaitForEventType(std::shared_ptr<Receiver> receiver, EventID type, float seconds)
+{
+  std::chrono::high_resolution_clock::time_point start = std::chrono::high_resolution_clock::now();
+  do {
+    std::shared_ptr<StreamPacket> response;
+    size_t offset = 0;
+    Status status = receiver->ReceiveStreamPacket(0, response, offset);
+    if ((status != OKAY) && (status != TIMEOUT)) {
+      return "Failed to receive stream packet: " + ErrorMessage(status);
+    }
+    if (response != nullptr) {
+      std::shared_ptr<Message> message;
+      status = response->GetNextMessage(message);
+      if (status != OKAY) {
+        return "Failed to get message from stream packet: " + ErrorMessage(status);
+      }
+      while (message != nullptr) {
+        MessageID messageType;
+        status = message->GetType(messageType);
+        if (status != OKAY) {
+          return "Failed to get message type: " + ErrorMessage(status);
+        }
+        if (messageType == EVENT) {
+          MessageEvent event(*message);
+          if (event.GetConstructorStatus() != OKAY) {
+            return "Failed to construct event message: " + ErrorMessage(event.GetConstructorStatus());
+          }
+          EventID eventType;
+          status = event.GetType(eventType);
+          if (status != OKAY) {
+            return "Failed to get event type: " + ErrorMessage(status);
+          }
+          if (eventType == type) {
+            // Worked!
+            return "";
+          }
+        }
+        status = response->GetNextMessage(message);
+        if (status != OKAY) {
+          return "Failed to get message from stream packet: " + ErrorMessage(status);
+        }
+      }
+    }
+  } while (std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - start).count() <= seconds);
+
+  return "No message of the requested type received in " + std::to_string(seconds) + " seconds";
+}
+
+std::string GetStreamList(CoreClient& client, std::shared_ptr<Receiver> receiver, std::vector<uint32_t>& IDs, float seconds)
+{
+  // Determine how many streams are stored.
+  Status status = client.SendCommandPacket(CommandPacketListStoredStreams());
+  if (status != OKAY) {
+    return "Failed to send storage command: " + ErrorMessage(status);
+  }
+  std::shared_ptr<Message> msg = WaitForMessageType(receiver, STORED_STREAMS, seconds);
+  if (msg == nullptr) {
+    return "Did not get stored streams message.";
+  }
+  MessageStoredStreamList storedStreams(*msg);
+  if (storedStreams.GetConstructorStatus() != OKAY) {
+    return "Failed to construct stored streams message: " + ErrorMessage(storedStreams.GetConstructorStatus());
+  }
+  status = storedStreams.GetIDs(IDs);
+  if (status != OKAY) {
+    return "Failed to get stored stream IDs: " + ErrorMessage(status);
+  }
+  return "";
 }
 
 //==============================================================================
@@ -101,21 +172,33 @@ void SaveFileThread()
   std::cout << "SaveFileThread done" << std::endl;
 }
 
-
 //==============================================================================
+
+void usage(const char* name)
+{
+  std::cerr << "Usage: " << name << " [--replay R] <ip_address>" << std::endl;
+  exit(1);
+}
 
 int main(int argc, char** argv)
 {
   uint32_t frameStride = 30;    ///< Read one out of every this many frames. Set to 1 for every frame.
   float durationSeconds = 10;   ///< Run for this many seconds
   std::string ip_address;
+  int replayID = 0;
   size_t realParams = 0;
 
   // Parse the command line arguments, with the first non-flag argument being the
   // name of the IP address to listen on.  There is a --serial flag to specify
   // the serial number of the server, which defaults to 1.
   for (int i = 1; i < argc; ++i) {
-    if (argv[i][0] == '-' ) {
+    if (argv[i] == std::string("--replay")) {
+      if (++i >= argc) {
+        std::cerr << "Missing argument for --replay" << std::endl;
+        return 1;
+      }
+      replayID = std::stoi(argv[i]);
+    } else if (argv[i][0] == '-') {
       std::cerr << "Unknown flag: " << argv[i] << std::endl;
       return 1;
     } else switch (realParams++) {
@@ -212,6 +295,43 @@ int main(int argc, char** argv)
   std::vector<CameraInfo> cameras;
   status = state.GetCameras(cameras);
   std::cout << "Found " << cameras.size() << " cameras" << std::endl;
+
+  // If we've been asked to replay a stream, do so now.
+  if (replayID > 0) {
+    // Get the list of stored streams.
+    std::vector<uint32_t> IDs;
+    std::string error = GetStreamList(client, receiver, IDs, 5.0);
+    if (!error.empty()) {
+      std::cerr << error << std::endl;
+      return 32;
+    }
+
+    // Find the stream with the requested ID.
+    bool found = false;
+    for (uint32_t ID : IDs) {
+      if (ID == replayID) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      std::cerr << "Stream ID " << replayID << " not found." << std::endl;
+      return 33;
+    }
+
+    // Request the stream to be replayed.
+    status = client.SendCommandPacket(CommandPacketStartReplay(replayID, { 0, 0 }));
+    if (status != OKAY) {
+      std::cerr << "Failed to replay stream: " << ErrorMessage(status) << std::endl;
+      return 34;
+    }
+
+    // Wait for an event saying that we've started to replay.
+    if (!WaitForEventType(receiver, START_OF_REPLAY, 5.0).empty()) {
+      std::cerr << "Did not get start-of-replay event." << std::endl;
+      return 35;
+    }
+  }
 
   // If we have at least one camera, try streaming data from it at its highest rate.
   uint32_t camID = 1;
