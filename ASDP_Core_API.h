@@ -2134,6 +2134,7 @@ protected:
 /// keeping track of the current packet and sending it when it is full, but
 /// the caller is responsible for ensuring that a message fits in the current
 /// packet or else flushing the current packet and starting a new one.
+/// It is not thread-safe.
 
 class StreamWriter {
 public:
