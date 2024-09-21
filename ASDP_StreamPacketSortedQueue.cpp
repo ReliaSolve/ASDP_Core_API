@@ -70,8 +70,7 @@ std::string StreamPacketSortedQueue::Test()
   // Test the case where we receive packets in order.  Each push should result in a single output.
   for (size_t i = 0; i < 50; i++) {
     // We must generate this using new because std::make_shared does not have access to the private constructor.
-    StreamPacket *packetPtr = new StreamPacket;
-    std::shared_ptr<StreamPacket> packet(packetPtr);
+    std::shared_ptr<StreamPacket> packet(new StreamPacket);
     packet->SetSequenceNumber(i+100);
     std::list< std::shared_ptr<StreamPacket> > output = queue.AddPacket(packet);
     if (output.size() != 1) {
@@ -86,8 +85,7 @@ std::string StreamPacketSortedQueue::Test()
   // Test the case where packets are out of order (in this case, backwards).  We should not receive
   // any packets until we get to the end and then we should get them all.
   for (size_t i = 155; i >= 150; i--) {
-    StreamPacket *packetPtr = new StreamPacket;
-    std::shared_ptr<StreamPacket> packet(packetPtr);
+    std::shared_ptr<StreamPacket> packet(new StreamPacket);
     packet->SetSequenceNumber(i);
     std::list< std::shared_ptr<StreamPacket> > output = queue.AddPacket(packet);
     if (i == 150) {
@@ -126,8 +124,7 @@ std::string StreamPacketSortedQueue::Test()
 
   // Test the case where we exceed the maximum held count.  We should get all packets back when we do so.
   for (size_t i = 200; i < 210; i++) {
-    StreamPacket *packetPtr = new StreamPacket;
-    std::shared_ptr<StreamPacket> packet(packetPtr);
+    std::shared_ptr<StreamPacket> packet(new StreamPacket);
     packet->SetSequenceNumber(i);
     std::list< std::shared_ptr<StreamPacket> > output = queue.AddPacket(packet);
     if (output.size() != 0) {
@@ -135,8 +132,7 @@ std::string StreamPacketSortedQueue::Test()
     }
   }
   {
-    StreamPacket *packetPtr = new StreamPacket;
-    std::shared_ptr<StreamPacket> packet(packetPtr);
+    std::shared_ptr<StreamPacket> packet(new StreamPacket);
     packet->SetSequenceNumber(210);
     std::list< std::shared_ptr<StreamPacket> > output = queue.AddPacket(packet);
     if (output.size() != 11) {
@@ -149,8 +145,7 @@ std::string StreamPacketSortedQueue::Test()
     uint32_t seqNum = 211;
     uint32_t bigSeqNum = 1000;
     for (size_t i = 0; i < 10; i++) {
-      StreamPacket* packetPtr = new StreamPacket;
-      std::shared_ptr<StreamPacket> packet(packetPtr);
+      std::shared_ptr<StreamPacket> packet(new StreamPacket);
       if (i % 2 == 0) {
         packet->SetSequenceNumber(bigSeqNum++);
       }
