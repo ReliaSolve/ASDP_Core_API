@@ -73,6 +73,7 @@ set (asdp_SOURCES
   ASDP_Core_API.cpp
   ASDP_BufferPool.cpp
   ASDP_ImageSource.cpp
+  ASDP_StreamPacketSortedQueue.cpp
 )
 
 #-----------------------------------------------------------------------------
@@ -82,6 +83,7 @@ set (asdp_HEADERS
   ASDP_Core_API.h
   ASDP_BufferPool.h
   ASDP_ImageSource.h
+  ASDP_StreamPacketSortedQueue.h
   ASDP_SpinFreeQueue.hpp
   ASDP_SpinFreeAccurateTimer.hpp
 )

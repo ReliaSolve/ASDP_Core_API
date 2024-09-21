@@ -1132,6 +1132,8 @@ protected:
 
   friend class StreamWriter;
 
+  friend class StreamPacketSortedQueue;
+
   friend class Message;
   friend class MessageDiscovery;
   friend class MessageState;
