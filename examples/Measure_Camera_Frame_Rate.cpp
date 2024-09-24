@@ -153,6 +153,8 @@ void StreamReceiverThread(std::shared_ptr<ReceiverUDP> receiverUDP, std::atomic_
       done = true;
       return;
     }
+    // We don't need to sort the StreamPackets -- if they arrive out of order, we'll still get
+    // the begin-frame messages.
 
     // Find all of the messages in the packet. If any of them is a start-frame message, increment
     // the frame count.
