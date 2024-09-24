@@ -136,7 +136,7 @@ void StreamReceiverThread(std::shared_ptr<ReceiverUDP> receiverUDP, std::atomic_
 {
   missed = 0;
 
-  // Pool of buffers for receiving data and writing it to disk.  We pre-allocate them here to
+  // Pool of buffers for receiving data.  We pre-allocate them here to
   // avoid the overhead of creating and destroying them at run time.  We pre-allocate a bunch,
   // but more will be created as needed.  In fact, we should only really need 1-2 buffers
   // because we recycle the buffer each time.

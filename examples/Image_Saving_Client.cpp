@@ -16,6 +16,7 @@
 #include <atomic>
 #include <string.h>
 #include <ASDP_Core_API.h>
+#include <ASDP_StreamPacketSortedQueue.h>
 
 using namespace asdp;
 
@@ -386,6 +387,10 @@ int main(int argc, char** argv)
     // Start a thread to save the images to disk.
     saveFileThread = std::thread(SaveFileThread);
 
+    // Use a sorting queue to ensure that we process the messages in order even if the UDP packets
+    // arrive out of order.
+    StreamPacketSortedQueue sortedQueue(50);
+
     // Do analysis on frames until we've run for 30 seconds.
     // We initialize the data every FRAME_BEGIN, accumulate over all FRAME_DATA, and complete at FRAME_END
     start = std::chrono::steady_clock::now();
@@ -396,43 +401,39 @@ int main(int argc, char** argv)
     do {
       // Get the next packet and verify that its sequence number matches what we expect so that
       // we know that we didn't miss any data.
-      std::shared_ptr<asdp::StreamPacket> receiveStreamPacket;
+      std::shared_ptr<asdp::StreamPacket> packet;
       size_t offset = 0;
-      status = receiverUDP.ReceiveStreamPacket(10.0, receiveStreamPacket, offset);
+      status = receiverUDP.ReceiveStreamPacket(10.0, packet, offset);
       if (status != asdp::OKAY) {
         std::cerr << "Error receiving StreamPacket: " << ErrorMessage(status) << std::endl;
         return 33;
       }
-      uint32_t packetSequenceNumber;
-      status = receiveStreamPacket->GetSequenceNumber(packetSequenceNumber);
-      if (status != asdp::OKAY) {
-        std::cerr << "Error getting sequence number from StreamPacket: " << ErrorMessage(status) << std::endl;
-        return 34;
+      // Add to the sorted queue and then handle any messages that are ready to be processed.
+      std::list< std::shared_ptr<StreamPacket> > readyPackets = sortedQueue.AddPacket(packet);
+      if (readyPackets.size() > 1) {
+        std::cerr << "Warning: More than one packet ready to process (re-ordered or missing packet)." << std::endl;
       }
-      if (packetSequenceNumber != sequenceNumber++) {
-        std::cerr << " Bad sequence number: " << packetSequenceNumber << ", expected " << sequenceNumber - 1 << std::endl;
-        std::cerr << "  (Presumably dropped network packets, consider re-running)" << std::endl;
-        done = true;
-        saveFileThread.join();
-        return 35;
-      }
+      while (!readyPackets.empty()) {
 
-      // Get and handle all messages from the packet.
-      std::shared_ptr<asdp::Message> message;
-      status = receiveStreamPacket->GetNextMessage(message);
-      if (status != asdp::OKAY) {
-        std::cerr << "Error getting message from packet: " << ErrorMessage(status) << std::endl;
-        return 36;
-      }
-      while (message != nullptr) {
-        asdp::MessageID rID;
-        status = message->GetType(rID);
+        std::shared_ptr<asdp::StreamPacket> receiveStreamPacket = readyPackets.front();
+        readyPackets.pop_front();
+
+        // Get and handle all messages from the packet.
+        std::shared_ptr<asdp::Message> message;
+        status = receiveStreamPacket->GetNextMessage(message);
         if (status != asdp::OKAY) {
-          std::cerr << "Error getting type from message: " << ErrorMessage(status) << std::endl;
-          return 37;
+          std::cerr << "Error getting message from packet: " << ErrorMessage(status) << std::endl;
+          return 36;
         }
-        switch (rID) {
-        case asdp::FRAME_BEGIN:
+        while (message != nullptr) {
+          asdp::MessageID rID;
+          status = message->GetType(rID);
+          if (status != asdp::OKAY) {
+            std::cerr << "Error getting type from message: " << ErrorMessage(status) << std::endl;
+            return 37;
+          }
+          switch (rID) {
+          case asdp::FRAME_BEGIN:
           {
             fileName = "saved_image_" + std::to_string(numFrames) + ".pgm";
             fileData.reset(new FileData);
@@ -442,7 +443,7 @@ int main(int argc, char** argv)
             fileData->size = size;
           }
           break;
-        case asdp::FRAME_DATA:
+          case asdp::FRAME_DATA:
           {
             // Don't do anything if we haven't created fileData yet.
             if (fileData == nullptr) { break; }
@@ -474,7 +475,7 @@ int main(int argc, char** argv)
               std::cerr << "Error getting bottom from FrameData message: " << ErrorMessage(status) << std::endl;
               return 43;
             }
-            uint8_t *rawData;
+            uint8_t* rawData;
             status = frameData.GetDataPointer(rawData);
             if (status != asdp::OKAY) {
               std::cerr << "Error getting data pointer from FrameData message: " << ErrorMessage(status) << std::endl;
@@ -486,8 +487,8 @@ int main(int argc, char** argv)
             size_t size = (right - left + 1) * (bottom - top + 1) * sizeof(uint16_t);
             memcpy(fileData->data + (top * stride + left) * sizeof(uint16_t), rawData, size);
           }
-        break;
-        case asdp::FRAME_END:
+          break;
+          case asdp::FRAME_END:
           {
             // Don't do anything if we haven't created fileData yet.
             if (fileData == nullptr) { break; }
@@ -497,14 +498,15 @@ int main(int argc, char** argv)
             fileDataList.push_back(fileData);
           }
           break;
-        default:
-          break;
-        }
+          default:
+            break;
+          }
 
-        status = receiveStreamPacket->GetNextMessage(message);
-        if (status != asdp::OKAY) {
-          std::cerr << "Error getting first message from packet: " << ErrorMessage(status) << std::endl;
-          return 45;
+          status = receiveStreamPacket->GetNextMessage(message);
+          if (status != asdp::OKAY) {
+            std::cerr << "Error getting first message from packet: " << ErrorMessage(status) << std::endl;
+            return 45;
+          }
         }
       }
 
