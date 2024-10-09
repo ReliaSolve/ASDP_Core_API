@@ -117,7 +117,7 @@ std::string ClockSynchronizer::Test()
     ClockSynchronizer synchronizer(timer, Time(0,0));
     auto now = std::chrono::steady_clock::now();
     double nowSeconds = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
-    Time positive(nowSeconds+1, 0);
+    Time positive(nowSeconds + 1, 0);
     if (!synchronizer.AddDataPoint(positive, now)) {
       return "Initial positive offset AddDataPoint() failed";
     }
@@ -137,8 +137,8 @@ std::string ClockSynchronizer::Test()
     ClockSynchronizer synchronizer(timer, Time(0, 0));
     auto now = std::chrono::steady_clock::now();
     double nowSeconds = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
-    Time positive(nowSeconds - 1, 0);
-    if (!synchronizer.AddDataPoint(positive, now)) {
+    Time negative(nowSeconds - 1, 0);
+    if (!synchronizer.AddDataPoint(negative, now)) {
       return "Initial negative offset AddDataPoint() failed";
     }
     Time coreTime;
@@ -156,7 +156,7 @@ std::string ClockSynchronizer::Test()
   {
     Timer* tPtr = new Timer;
     std::shared_ptr<Timer> timer(tPtr);
-    ClockSynchronizer synchronizer(timer, Time(2, 0));
+    ClockSynchronizer synchronizer(timer, Time(3, 0));
     auto now = std::chrono::steady_clock::now();
     double nowSeconds = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
     Time positive(nowSeconds + 1, 0);
@@ -168,8 +168,8 @@ std::string ClockSynchronizer::Test()
     if (status != OKAY) {
       return "Transmission delay GetCoreTime() failed";
     }
-    // We should have reduced the seconds by a net of 1.
-    if (coreTime.seconds != nowSeconds + 1) {
+    // We should have reduced the seconds by a net of -2 (+1 then -3 for transmission delay).
+    if (coreTime.seconds != nowSeconds - 2) {
       return "Transmission delay failed";
     }
   }

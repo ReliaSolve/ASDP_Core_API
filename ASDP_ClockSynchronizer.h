@@ -58,7 +58,7 @@ namespace asdp {
   private:
     std::shared_ptr<Timer> m_timer; ///< The Timer to adjust.
     /// The expected delay in microseconds between the server packing its CLOCK_SYNC message and the client unpacking it.
-    int16_t m_transmissionDelay;
+    int64_t m_transmissionDelay;
 
     /// @brief Compute the positive or negative offset in microseconds between the server and local times.
     /// @details The offset is the difference between the server and the local times minus the transmission delay.
