@@ -411,6 +411,7 @@ protected:
 
   friend class StreamWriter;  // So it can implement Test().
   friend class Core;
+  friend class ClockSynchronizer; // So it can implement Test().
 };
 
 //---------------------------------------------------------------------------
