@@ -131,6 +131,25 @@ std::string GetStreamList(CoreClient& client, std::shared_ptr<Receiver> receiver
   return "";
 }
 
+static bool isBigEndian() {
+  union {
+    uint32_t i;
+    char c[4];
+  } testUnion = { 0x01020304 };
+
+  return testUnion.c[0] == 1;
+}
+
+static void fixEndian(uint8_t *data, size_t size) {
+  if (!isBigEndian()) {
+    uint16_t *data16 = reinterpret_cast<uint16_t *>(data);
+    for (size_t i = 0; i < size / 2; i++) {
+      uint16_t& value = data16[i];
+      value = (value >> 8) | (value << 8);
+    }
+  }
+}
+
 //==============================================================================
 // Helper classes and thread function to save images to disk without blocking the
 // main thread.
@@ -165,6 +184,7 @@ void SaveFileThread()
       return;
     }
     f << "P5\n" << "1280 1024\n" << "65535\n" << std::endl;
+    fixEndian(fileData->data, fileData->size);
     f.write((const char *)fileData->data, fileData->size);
     delete [] fileData->data;
     f.close();
@@ -391,7 +411,7 @@ int main(int argc, char** argv)
     // arrive out of order.
     StreamPacketSortedQueue sortedQueue(50);
 
-    // Do analysis on frames until we've run for 30 seconds.
+    // Process frames until we've run for the specified duration.
     // We initialize the data every FRAME_BEGIN, accumulate over all FRAME_DATA, and complete at FRAME_END
     start = std::chrono::steady_clock::now();
     size_t sequenceNumber = 0;
