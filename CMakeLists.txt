@@ -133,6 +133,7 @@ if(BUILD_EXAMPLES)
     Stream_File_Parser
     Core_Module_Stream_Test
     Measure_Camera_Frame_Rate
+    Stream_File_To_Images
   )
   foreach (BASE ${EXAMPLES})
     # C++ example
