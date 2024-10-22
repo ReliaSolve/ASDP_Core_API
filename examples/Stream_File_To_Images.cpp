@@ -5,6 +5,7 @@
 // This is parser for a stored stream file.  It saves a series of images named based on the
 // time of the image begin frame.
 
+#include <string.h>
 #include <iostream>
 #include <chrono>
 #include <ASDP_Core_API.h>
