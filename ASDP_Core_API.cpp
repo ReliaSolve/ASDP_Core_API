@@ -121,7 +121,7 @@ static std::string OpCodeName(OpCode opCode)
 // Definitions of static constants used below.
 
 static const unsigned char MAGIC_COOKIE[4] = { 'A', 'S', 'D', 'P' };
-static const unsigned char VERSION[4] = { 4, 0, 0, 0 };
+static const unsigned char VERSION[4] = { 4, 1, 0, 0 };
 
 static const uint32_t PACKET_HEADER_TOTAL_SIZE_OFFSET = 0;
 static const uint32_t PACKET_BASIC_HEADER_SIZE = sizeof(uint32_t);
@@ -6713,6 +6713,9 @@ void CoreServer::DiscoveryThread()
             receiveBuffer.resize(size);
             if (status != OKAY) {
               newConnection.reset();
+            } else if (receiveBuffer[0] != VERSION[0]) {
+              // The major versions don't match, so we drop the connection.
+              newConnection.reset();
             } else {
               // We have established a new connection, keep track of it.
               std::shared_ptr<ClientInfo> SI = std::make_shared<ClientInfo>();
@@ -7011,6 +7014,12 @@ Status CoreClient::ConnectToServer(std::string serverURL, uint16_t& major, uint1
     return status;
   }
   UnpackVersion(receiveBuffer.data(), major, minor, patch);
+
+  // Make sure the major versions match.
+  if (major != VERSION[0]) {
+    m_stream.reset();
+    return INCOMPATIBLE_API_VERSION;
+  }
 
   // Record our IP address.
   status = m_stream->GetIP(m_IP);
