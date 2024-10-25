@@ -121,7 +121,7 @@ static std::string OpCodeName(OpCode opCode)
 // Definitions of static constants used below.
 
 static const unsigned char MAGIC_COOKIE[4] = { 'A', 'S', 'D', 'P' };
-static const unsigned char VERSION[4] = { 3, 7, 0, 0 };
+static const unsigned char VERSION[4] = { 4, 0, 0, 0 };
 
 static const uint32_t PACKET_HEADER_TOTAL_SIZE_OFFSET = 0;
 static const uint32_t PACKET_BASIC_HEADER_SIZE = sizeof(uint32_t);
@@ -4400,7 +4400,7 @@ std::string MessageTemperature::Test()
 }
 
 MessagePose::MessagePose(StreamPacket& packet, Time timeCode,
-    float longitude, float latitude, float altitude,
+    double longitude, double latitude, double altitude,
     std::array<float, 3> rot, std::array<float, 3> vel, std::array<float, 3> rotVel)
   : Message(packet, sizeof(longitude) + sizeof(latitude) + sizeof(altitude) +
     3 * sizeof(float) + 3 * sizeof(float) + 3 * sizeof(float), timeCode, POSE)
@@ -4431,57 +4431,57 @@ MessagePose::MessagePose(Message& baseMessage)
   }
 }
 
-Status MessagePose::GetLongitude(float& longitude) const
+Status MessagePose::GetLongitude(double& longitude) const
 {
-  if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE + sizeof(float)) {
+  if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE + sizeof(longitude)) {
     return READ_PAST_END;
   }
   memcpy(&longitude, m_buffer->data() + m_offset + MESSAGE_BASE_SIZE, sizeof(longitude));
   return OKAY;
 }
 
-Status MessagePose::GetLatitude(float& latitude) const
+Status MessagePose::GetLatitude(double& latitude) const
 {
-  if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE + 2 * sizeof(float)) {
+  if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE + 2 * sizeof(latitude)) {
     return READ_PAST_END;
   }
-  memcpy(&latitude, m_buffer->data() + m_offset + MESSAGE_BASE_SIZE + sizeof(float), sizeof(latitude));
+  memcpy(&latitude, m_buffer->data() + m_offset + MESSAGE_BASE_SIZE + sizeof(latitude), sizeof(latitude));
   return OKAY;
 }
 
-Status MessagePose::GetAltitude(float& altitude) const
+Status MessagePose::GetAltitude(double& altitude) const
 {
-  if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE + 3 * sizeof(float)) {
+  if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE + 3 * sizeof(altitude)) {
     return READ_PAST_END;
   }
-  memcpy(&altitude, m_buffer->data() + m_offset + MESSAGE_BASE_SIZE + 2 * sizeof(float), sizeof(altitude));
+  memcpy(&altitude, m_buffer->data() + m_offset + MESSAGE_BASE_SIZE + 2 * sizeof(altitude), sizeof(altitude));
   return OKAY;
 }
 
 Status MessagePose::GetRot(std::array<float, 3>& rot) const
 {
-  if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE + 6 * sizeof(float)) {
+  if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE + 3 * sizeof(double) + 3 * sizeof(float)) {
     return READ_PAST_END;
   }
-  memcpy(rot.data(), m_buffer->data() + m_offset + MESSAGE_BASE_SIZE + 3 * sizeof(float), 3 * sizeof(float));
+  memcpy(rot.data(), m_buffer->data() + m_offset + MESSAGE_BASE_SIZE + 3 * sizeof(double), 3 * sizeof(float));
   return OKAY;
 }
 
 Status MessagePose::GetVel(std::array<float, 3>& vel) const
 {
-  if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE + 9 * sizeof(float)) {
+  if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE + 3 * sizeof(double) + 6 * sizeof(float)) {
     return READ_PAST_END;
   }
-  memcpy(vel.data(), m_buffer->data() + m_offset + MESSAGE_BASE_SIZE + 6 * sizeof(float), 3 * sizeof(float));
+  memcpy(vel.data(), m_buffer->data() + m_offset + MESSAGE_BASE_SIZE + 3 * sizeof(double) + 3 * sizeof(float), 3 * sizeof(float));
   return OKAY;
 }
 
 Status MessagePose::GetRotVel(std::array<float, 3>& rotvel) const
 {
-  if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE + 12 * sizeof(float)) {
+  if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE + 3 * sizeof(double) + 9 * sizeof(float)) {
     return READ_PAST_END;
   }
-  memcpy(rotvel.data(), m_buffer->data() + m_offset + MESSAGE_BASE_SIZE + 9 * sizeof(float), 3 * sizeof(float));
+  memcpy(rotvel.data(), m_buffer->data() + m_offset + MESSAGE_BASE_SIZE + 3 * sizeof(double) + 6 * sizeof(float), 3 * sizeof(float));
   return OKAY;
 }
 
@@ -4496,9 +4496,9 @@ std::string MessagePose::Test()
 
     // Add a message.
     Time timeCode = { 1234, 5678 };
-    float longitude = 100.0;
-    float latitude = 200.0;
-    float altitude = 300.0;
+    double longitude = 100.0;
+    double latitude = 200.0;
+    double altitude = 300.0;
     std::array<float, 3> rot = { 1.0, 2.0, 3.0 };
     std::array<float, 3> vel = { 4.0, 5.0, 6.0 };
     std::array<float, 3> rotvel = { 7.0, 8.0, 9.0 };
@@ -4513,9 +4513,9 @@ std::string MessagePose::Test()
     if (status != OKAY) {
       return "Error checking message size for MessagePose test: " + ErrorMessage(status);
     }
-    if (totalLength != STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE + 4 * 3 * sizeof(float)) {
+    if (totalLength != STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE + 3 * sizeof(double) + 3 * 3 * sizeof(float)) {
       return "Error constructing message from buffer for MessagePose test: packet length is not " +
-        std::to_string(STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE + 4 * 3 * sizeof(float))
+        std::to_string(STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE + 3 * sizeof(double) + 3 * 3 * sizeof(float))
         + " but " + std::to_string(totalLength);
     }
 
@@ -4539,7 +4539,7 @@ std::string MessagePose::Test()
     }
 
     // Check the parameters.
-    float rLongitude, rLatitude, rAltitude;
+    double rLongitude, rLatitude, rAltitude;
     std::array<float, 3> rRot, rVel, rRotVel;
     status = message.GetLongitude(rLongitude);
     if (status != OKAY) {

@@ -1625,7 +1625,7 @@ public:
   /// A positive X rotation means that the helicopter is tilting back. (-1e6 if not available)
 
   MessagePose(StreamPacket& packet, Time timeCode,
-    float longitude, float latitude, float altitude,
+    double longitude, double latitude, double altitude,
     std::array<float, 3> rot, std::array<float, 3> vel, std::array<float, 3> rotVel);
 
   /// @brief Type-cast a base Message into a MessagePose packet, re-using its buffer.
@@ -1635,17 +1635,17 @@ public:
   /// @brief Get the longitude in degrees.
   /// @param [out] longitude Longitude in degrees. (-1e6 if not available)
   /// @return OKAY if successful, otherwise an error code.
-  Status GetLongitude(float& longitude) const;
+  Status GetLongitude(double& longitude) const;
 
   /// @brief Get the latitude in degrees.
   /// @param [out] latitude Latitude in degrees. (-1e6 if not available)
   /// @return OKAY if successful, otherwise an error code.
-  Status GetLatitude(float& latitude) const;
+  Status GetLatitude(double& latitude) const;
 
   /// @brief Get the altitude in meters.
   /// @param [out] altitude Altitude in meters. (-1e6 if not available)
   /// @return OKAY if successful, otherwise an error code.
-  Status GetAltitude(float& altitude) const;
+  Status GetAltitude(double& altitude) const;
 
   /// @brief Get the rotation about the X, Y, and Z axes in degrees.
   /// @param [out] rot Rotation about the X, Y, and Z axes in degrees.
