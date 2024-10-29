@@ -107,7 +107,7 @@ target_link_libraries(ASDP_Core_API PUBLIC Threads::Threads)
 set_target_properties(ASDP_Core_API PROPERTIES PUBLIC_HEADER "${asdp_HEADERS}")
 if(OPENMP_FOUND)
     target_compile_options(ASDP_Core_API PUBLIC ${OpenMP_CXX_FLAGS})
-    target_link_options(ASDP_Core_API PUBLIC ${OpenMP_EXE_LINKER_FLAGS})
+    target_link_libraries(ASDP_Core_API PUBLIC ${OpenMP_CXX_LIB_NAMES})
 endif()
 # generate_export_header(ASDP_Core_API)
 
