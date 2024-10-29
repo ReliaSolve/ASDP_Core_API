@@ -93,7 +93,6 @@ set (asdp_HEADERS
 
 add_library(ASDP_Core_API STATIC ${asdp_SOURCES} ${asdp_HEADERS})
 # Hide all symbols that are not explicitly exported from the library
-#set_target_properties(ASDP_Core_API PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
 #set_target_properties(ASDP_Core_API PROPERTIES C_VISIBILITY_PRESET hidden)
 #set_target_properties(ASDP_Core_API PROPERTIES CXX_VISIBILITY_PRESET hidden)
 #set_target_properties(ASDP_Core_API PROPERTIES VISIBILITY_INLINES_HIDDEN 1)
@@ -118,6 +117,8 @@ install(TARGETS ASDP_Core_API EXPORT ${PROJECT_NAME}
   INCLUDES DESTINATION include
   PUBLIC_HEADER DESTINATION include
 )
+# Make it possible to use the library in a DLL
+set_target_properties(ASDP_Core_API PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
 #install(FILES ${PROJECT_BINARY_DIR}/ASDP_EXPORT.h
 #  DESTINATION include COMPONENT headers
 #)
