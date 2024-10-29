@@ -32,6 +32,7 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
 find_package(Threads REQUIRED)
 find_package(Doxygen)
+find_package(OpenMP)
 
 #-----------------------------------------------------------------------------
 # Build options.
@@ -92,17 +93,22 @@ set (asdp_HEADERS
 
 add_library(ASDP_Core_API STATIC ${asdp_SOURCES} ${asdp_HEADERS})
 # Hide all symbols that are not explicitly exported from the library
-set_target_properties(ASDP_Core_API PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
-set_target_properties(ASDP_Core_API PROPERTIES C_VISIBILITY_PRESET hidden)
-set_target_properties(ASDP_Core_API PROPERTIES CXX_VISIBILITY_PRESET hidden)
-set_target_properties(ASDP_Core_API PROPERTIES VISIBILITY_INLINES_HIDDEN 1)
+#set_target_properties(ASDP_Core_API PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
+#set_target_properties(ASDP_Core_API PROPERTIES C_VISIBILITY_PRESET hidden)
+#set_target_properties(ASDP_Core_API PROPERTIES CXX_VISIBILITY_PRESET hidden)
+#set_target_properties(ASDP_Core_API PROPERTIES VISIBILITY_INLINES_HIDDEN 1)
+target_include_directories(ASDP_Core_API PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}
+)
 target_include_directories(ASDP_Core_API PUBLIC
-  #${CMAKE_CURRENT_SOURCE_DIR}
-  #${CMAKE_BINARY_DIR}
   ${CMAKE_INSTALL_PREFIX}/include
 )
 target_link_libraries(ASDP_Core_API PUBLIC Threads::Threads)
 set_target_properties(ASDP_Core_API PROPERTIES PUBLIC_HEADER "${asdp_HEADERS}")
+if(OPENMP_FOUND)
+    target_compile_options(ASDP_Core_API PUBLIC ${OpenMP_CXX_FLAGS})
+    target_link_options(ASDP_Core_API PUBLIC ${OpenMP_EXE_LINKER_FLAGS})
+endif()
 # generate_export_header(ASDP_Core_API)
 
 install(TARGETS ASDP_Core_API EXPORT ${PROJECT_NAME}
