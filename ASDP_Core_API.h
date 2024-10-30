@@ -1610,8 +1610,8 @@ public:
   /// @brief Construct a MessagePose and store it into a buffer from a StreamPacket.
   /// @param [in] packet Pointer to the StreamPacket containing the message.
   /// @param [in] timeCode Time code for the message.
-  /// @param [in] longitude Longitude in degrees. (-1e6 if not available)
   /// @param [in] latitude Latitude in degrees. (-1e6 if not available)
+  /// @param [in] longitude Longitude in degrees. (-1e6 if not available)
   /// @param [in] altitude Altitude in meters. (-1e6 if not available)
   /// @param [in] rot Rotation in degrees around the X, Y, and Z axes in that order.
   /// The canonical orientation has X pointing East, Y pointing North, and Z pointing up
@@ -1625,7 +1625,7 @@ public:
   /// A positive X rotation means that the helicopter is tilting back. (-1e6 if not available)
 
   MessagePose(StreamPacket& packet, Time timeCode,
-    double longitude, double latitude, double altitude,
+    double latitude, double longitude, double altitude,
     std::array<float, 3> rot, std::array<float, 3> vel, std::array<float, 3> rotVel);
 
   /// @brief Type-cast a base Message into a MessagePose packet, re-using its buffer.

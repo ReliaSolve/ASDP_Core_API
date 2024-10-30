@@ -121,7 +121,7 @@ static std::string OpCodeName(OpCode opCode)
 // Definitions of static constants used below.
 
 static const unsigned char MAGIC_COOKIE[4] = { 'A', 'S', 'D', 'P' };
-static const unsigned char VERSION[4] = { 4, 1, 0, 0 };
+static const unsigned char VERSION[4] = { 5, 0, 0, 0 };
 
 static const uint32_t PACKET_HEADER_TOTAL_SIZE_OFFSET = 0;
 static const uint32_t PACKET_BASIC_HEADER_SIZE = sizeof(uint32_t);
@@ -4400,7 +4400,7 @@ std::string MessageTemperature::Test()
 }
 
 MessagePose::MessagePose(StreamPacket& packet, Time timeCode,
-    double longitude, double latitude, double altitude,
+    double latitude, double longitude, double altitude,
     std::array<float, 3> rot, std::array<float, 3> vel, std::array<float, 3> rotVel)
   : Message(packet, sizeof(longitude) + sizeof(latitude) + sizeof(altitude) +
     3 * sizeof(float) + 3 * sizeof(float) + 3 * sizeof(float), timeCode, POSE)
@@ -4502,7 +4502,7 @@ std::string MessagePose::Test()
     std::array<float, 3> rot = { 1.0, 2.0, 3.0 };
     std::array<float, 3> vel = { 4.0, 5.0, 6.0 };
     std::array<float, 3> rotvel = { 7.0, 8.0, 9.0 };
-    MessagePose message(packet, timeCode, longitude, latitude, altitude, rot, vel, rotvel);
+    MessagePose message(packet, timeCode, latitude, longitude, altitude, rot, vel, rotvel);
     if (message.GetConstructorStatus() != OKAY) {
       return "Error constructing MessagePose: " + ErrorMessage(message.GetConstructorStatus());
     }
