@@ -72,6 +72,7 @@ def main():
             cam["id"] = camID
             cam["fieldOfViewDegrees"] = [args.fov_h, args.fov_v]
             cam["resolutionPixels"] = [args.pixels_x, args.pixels_y]
+            cam["cropPixels"] = { "minX": 0, "maxX": args.pixels_x-1, "minY": 0, "maxY": args.pixels_y-1 }
 
             # Odd-numbered columns are rotated with X facing up, even with it facing down.
             # The transformations are complicated by the fact that our Euler order of operations
