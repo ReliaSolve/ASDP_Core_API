@@ -58,6 +58,10 @@ def main():
     parser.add_argument('--simulation', action='store_true', help='Generate simulation oversize and distortion')
     parser.add_argument('--identical', action='store_true', help='Generate simulation identical to original view')
     parser.add_argument('--wide_field', action='store_true', help='Generate wide-field cameras')
+    parser.add_argument('--crop_min_x', type=int, default=0, help='Minimum crop X (default: 0 for whole image, 1 crops 1)')
+    parser.add_argument('--crop_max_x', type=int, default=-1, help='Maximum crop X (default: -1 for whole image, -2 crops 1)')
+    parser.add_argument('--crop_min_y', type=int, default=0, help='Minimum crop Y (default: 0 for whole image, 1 crops 1)')
+    parser.add_argument('--crop_max_y', type=int, default=-1, help='Maximum crop Y (default: -1 for whole image, -2 crops 1)')
     
     args = parser.parse_args()
     
@@ -72,7 +76,8 @@ def main():
             cam["id"] = camID
             cam["fieldOfViewDegrees"] = [args.fov_h, args.fov_v]
             cam["resolutionPixels"] = [args.pixels_x, args.pixels_y]
-            cam["cropPixels"] = { "minX": 0, "maxX": args.pixels_x-1, "minY": 0, "maxY": args.pixels_y-1 }
+            cam["cropPixels"] = { "minX": args.crop_min_x, "maxX": args.pixels_x + args.crop_max_x,
+                                  "minY": args.crop_min_y, "maxY": args.pixels_y + args.crop_max_y }
 
             # Odd-numbered columns are rotated with X facing up, even with it facing down.
             # The transformations are complicated by the fact that our Euler order of operations
