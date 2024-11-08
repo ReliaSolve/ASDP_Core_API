@@ -127,29 +127,30 @@ def main():
             camID += 1
 
     if args.wide_field:
-        # Determine the total field of regard in the horizontal direction and then dividie by
-        # two to find the field of regard for each half of the scene.
+        # Determine the total field of regard in the horizontal direction and then divide by
+        # two to find the field of regard for each half of the scene.  This is the horizontal
+        # field of regard that we need to cover with the wide-field cameras.
         hFOR = args.num_x * args.fov_v - (args.num_x - 1) * args.overlap_x
-        halfHFOR = hFOR / 2.0
+        hFOR /= 2
 
         # Compute the vertical field of regard that corresponds to this horizontal field of regard,
         # scaling by the aspect ratio of the camera and remembering that that half the number of pixels
         # scales as the tangent of the half field of regard.
-        halfVFOR = math.degrees(math.atan(math.tan(math.radians(halfHFOR) * args.pixels_y/args.pixels_x)))
-        print(f"Half horizontal wFOV: {halfHFOR}, half vertical wFOV: {halfVFOR}")
+        vFOR = 2*math.degrees(math.atan(math.tan(math.radians(hFOR/2) * args.pixels_y/args.pixels_x)))
+        print(f"wFOV horizontal wFOV: {hFOR}, vertical wFOV: {vFOR}")
 
         # If the vertical field of regard is smaller than we need, recompute based on the vertical FOR.
-        neededHalfVFOR = (args.num_y * args.fov_h - (args.num_y - 1) * args.overlap_y) / 2
-        if halfVFOR < neededHalfVFOR:
-            halfVFOR = neededHalfVFOR
-            halfHFOR = math.degrees(math.atan(math.tan(math.radians(halfVFOR) * args.pixels_x/args.pixels_y)))
-            print(f"Adjusted half horizontal field of regard: {halfHFOR}, half vertical field of regard: {halfVFOR}")
+        neededVFOR = (args.num_y * args.fov_h - (args.num_y - 1) * args.overlap_y)
+        if vFOR < neededVFOR:
+            vFOR = neededVFOR
+            hFOR = 2*math.degrees(math.atan(math.tan(math.radians(vFOR/2) * args.pixels_x/args.pixels_y)))
+            print(f"Adjusted horizontal field of regard: {hFOR}, vertical field of regard: {vFOR}")
 
         # Add four wide-field cameras, two on each side, each covering the half field of regard
         # on that side.  They have the same fields of view but are offset in space.  They point
         # towards the center of the half field of regard.  They are mounted on the top of the
         # camera ball and are not rotated -- they have a wider field of regard than tall.
-        rotationDegrees = halfHFOR / 2
+        rotationDegrees = hFOR / 2
         for angle in [ -rotationDegrees, rotationDegrees ]:
             # The position is radial distance up and radial distance forward at rotationDegrees,
             # and then slid to the left or right (in its rotated frame) by half the radial distance.
@@ -162,7 +163,7 @@ def main():
             for sign in [-1, 1]:
                 cam = {}
                 cam["id"] = camID
-                cam["fieldOfViewDegrees"] = [halfHFOR, halfVFOR]
+                cam["fieldOfViewDegrees"] = [hFOR, vFOR]
                 cam["resolutionPixels"] = [args.pixels_x, args.pixels_y]
                 cam["cropPixels"] = { "minX": args.crop_min_x, "maxX": args.pixels_x + args.crop_max_x,
                                       "minY": args.crop_min_y, "maxY": args.pixels_y + args.crop_max_y }
@@ -178,11 +179,11 @@ def main():
                     if args.identical:
                         # No distortions and the same field of view and resolution  
                         cam["oversizedResolutionPixels"] = [args.pixels_x, args.pixels_y]
-                        cam["oversizedFieldOfViewDegrees"] = [2*halfHFOR, 2*halfVFOR]
+                        cam["oversizedFieldOfViewDegrees"] = [hFOR, vFOR]
                     else:
                         dMap = [ [0, 0], [0.1, 0.1], [0.2, 0.21], [0.4, 0.45], [1.0, 1.3], [1.5, 2.2] ]
                         cam["oversizedResolutionPixels"] = [args.pixels_x * 2, args.pixels_y * 2]
-                        cam["oversizedFieldOfViewDegrees"] = [2*halfHFOR + 10, 2*halfVFOR + 10]
+                        cam["oversizedFieldOfViewDegrees"] = [hFOR + 10, vFOR + 10]
 
                 cam["distortion"] = { "type": "radial" }
                 COP = [0.0, 0.0]
