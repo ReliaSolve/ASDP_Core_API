@@ -178,11 +178,11 @@ def main():
                     if args.identical:
                         # No distortions and the same field of view and resolution  
                         cam["oversizedResolutionPixels"] = [args.pixels_x, args.pixels_y]
-                        cam["oversizedFieldOfViewDegrees"] = [halfHFOR, halfVFOR]
+                        cam["oversizedFieldOfViewDegrees"] = [2*halfHFOR, 2*halfVFOR]
                     else:
                         dMap = [ [0, 0], [0.1, 0.1], [0.2, 0.21], [0.4, 0.45], [1.0, 1.3], [1.5, 2.2] ]
                         cam["oversizedResolutionPixels"] = [args.pixels_x * 2, args.pixels_y * 2]
-                        cam["oversizedFieldOfViewDegrees"] = [halfHFOR + 10, halfVFOR + 10]
+                        cam["oversizedFieldOfViewDegrees"] = [2*halfHFOR + 10, 2*halfVFOR + 10]
 
                 cam["distortion"] = { "type": "radial" }
                 COP = [0.0, 0.0]
