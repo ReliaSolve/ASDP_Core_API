@@ -133,6 +133,9 @@ def main():
         hFOR = args.num_x * args.fov_v - (args.num_x - 1) * args.overlap_x
         hFOR /= 2
 
+        # We rotate by this amount even if we end up needing to scale up to match the vertical field of regard.
+        rotationDegrees = hFOR / 2
+
         # Compute the vertical field of regard that corresponds to this horizontal field of regard,
         # scaling by the aspect ratio of the camera and remembering that that half the number of pixels
         # scales as the tangent of the half field of regard.
@@ -150,7 +153,6 @@ def main():
         # on that side.  They have the same fields of view but are offset in space.  They point
         # towards the center of the half field of regard.  They are mounted on the top of the
         # camera ball and are not rotated -- they have a wider field of regard than tall.
-        rotationDegrees = hFOR / 2
         for angle in [ -rotationDegrees, rotationDegrees ]:
             # The position is radial distance up and radial distance forward at rotationDegrees,
             # and then slid to the left or right (in its rotated frame) by half the radial distance.
@@ -170,10 +172,23 @@ def main():
                 cam["orientationDegrees"] = [0, 0, angle]
                 cam["positionMeters"] = [forwardX + sign * leftX, forwardY + sign * leftY, Z]
 
-                # Generate the distortion data, which is unity when we're not simulating and will be filled in by
-                # calibration data.  We don't apply distortion to the wide-field cameras, and we make a very wide
-                # map.
-                dMap = [ [0, 0], [15, 15] ]
+                # Generate the distortion data.  Make a very wide map to cover the field of view.
+                dMap = [ [0, 0], [10, 10] ]
+
+                # Modify distortion data and add fields when simulating
+                if args.simulation:
+                    if args.identical:
+                        # No distortions and the same field of view and resolution
+                        cam["oversizedResolutionPixels"] = [args.pixels_x, args.pixels_y]
+                        cam["oversizedFieldOfViewDegrees"] = [hFOR, vFOR]
+                    else:
+                        dMap = [ [0, 0],
+                                 [0.1, 0.11], [0.2, 0.25], [0.5, 0.71],
+                                 [1.0, 1.57], [2.0, 3.43], [5.0, 9.29],
+                                 [10.0, 20.0] ]
+                        cam["oversizedResolutionPixels"] = [args.pixels_x * 2, args.pixels_y * 2]
+                        cam["oversizedFieldOfViewDegrees"] = [hFOR + 20, vFOR + 20]
+
                 cam["oversizedResolutionPixels"] = [args.pixels_x, args.pixels_y]
                 cam["oversizedFieldOfViewDegrees"] = [hFOR, vFOR]
 
