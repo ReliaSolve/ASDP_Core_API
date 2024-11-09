@@ -171,19 +171,11 @@ def main():
                 cam["positionMeters"] = [forwardX + sign * leftX, forwardY + sign * leftY, Z]
 
                 # Generate the distortion data, which is unity when we're not simulating and will be filled in by
-                # calibration data.
-                dMap = [ [0, 0], [5, 5] ]
-
-                # Modify distortion data and add fields when simulating
-                if args.simulation:
-                    if args.identical:
-                        # No distortions and the same field of view and resolution  
-                        cam["oversizedResolutionPixels"] = [args.pixels_x, args.pixels_y]
-                        cam["oversizedFieldOfViewDegrees"] = [hFOR, vFOR]
-                    else:
-                        dMap = [ [0, 0], [0.1, 0.1], [0.2, 0.21], [0.4, 0.45], [1.0, 1.3], [1.5, 2.2] ]
-                        cam["oversizedResolutionPixels"] = [args.pixels_x * 2, args.pixels_y * 2]
-                        cam["oversizedFieldOfViewDegrees"] = [hFOR + 10, vFOR + 10]
+                # calibration data.  We don't apply distortion to the wide-field cameras, and we make a very wide
+                # map.
+                dMap = [ [0, 0], [15, 15] ]
+                cam["oversizedResolutionPixels"] = [args.pixels_x, args.pixels_y]
+                cam["oversizedFieldOfViewDegrees"] = [hFOR, vFOR]
 
                 cam["distortion"] = { "type": "radial" }
                 COP = [0.0, 0.0]
