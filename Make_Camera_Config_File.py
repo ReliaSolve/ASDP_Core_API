@@ -187,7 +187,7 @@ def main():
                                  [1.0, 1.57], [2.0, 3.43], [5.0, 9.29],
                                  [10.0, 20.0] ]
                         cam["oversizedResolutionPixels"] = [args.pixels_x * 2, args.pixels_y * 2]
-                        cam["oversizedFieldOfViewDegrees"] = [hFOR + 20, vFOR + 20]
+                        cam["oversizedFieldOfViewDegrees"] = [hFOR + 20, vFOR + 35]
 
                 cam["distortion"] = { "type": "radial" }
                 COP = [0.0, 0.0]
