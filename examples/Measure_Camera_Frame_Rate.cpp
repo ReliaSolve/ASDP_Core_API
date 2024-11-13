@@ -132,7 +132,9 @@ std::string GetStreamList(CoreClient& client, std::shared_ptr<Receiver> receiver
 }
 
 void StreamReceiverThread(std::shared_ptr<ReceiverUDP> receiverUDP, std::atomic_bool &done,
-  std::atomic<size_t> &frames)
+  std::atomic<size_t> &frames,
+  std::vector<std::chrono::steady_clock::time_point> &beginFrameTimes,
+  std::vector<std::chrono::steady_clock::time_point> &endFrameTimes)
 {
   frames = 0;
 
@@ -156,7 +158,7 @@ void StreamReceiverThread(std::shared_ptr<ReceiverUDP> receiverUDP, std::atomic_
     // We don't need to sort the StreamPackets -- if they arrive out of order, we'll still get
     // the begin-frame messages.
 
-    // Find all of the messages in the packet. If any of them is a start-frame message, increment
+    // Find all of the messages in the packet. If any of them is a begin-frame message, increment
     // the frame count.
     std::shared_ptr<asdp::Message> message;
     status = receiveStreamPacket->GetNextMessage(message);
@@ -174,7 +176,11 @@ void StreamReceiverThread(std::shared_ptr<ReceiverUDP> receiverUDP, std::atomic_
         return;
       }
       if (messageType == asdp::FRAME_BEGIN) {
+        beginFrameTimes.push_back(std::chrono::steady_clock::now());
         frames++;
+      }
+      if (messageType == asdp::FRAME_END) {
+        endFrameTimes.push_back(std::chrono::steady_clock::now());
       }
       status = receiveStreamPacket->GetNextMessage(message);
       if (status != asdp::OKAY) {
@@ -190,7 +196,7 @@ void StreamReceiverThread(std::shared_ptr<ReceiverUDP> receiverUDP, std::atomic_
 
 void usage(const char* name)
 {
-  std::cerr << "Usage: " << name << " [--duration S] [--maxCameras C] [--summary] [--replay R] <ip_address>" << std::endl;
+  std::cerr << "Usage: " << name << " [--duration S] [--maxCameras C] [--summary] [--replay R] [--dumpIntervals F] <ip_address>" << std::endl;
   exit(1);
 }
 
@@ -202,11 +208,11 @@ int main(int argc, char** argv)
   uint32_t maxCameras = 0;
   int replayID = 0;
   bool summary = false;
+  std::string dumpFileName;
   std::atomic_bool done(false);
 
   // Parse the command line arguments, with the first non-flag argument being the
-  // name of the IP address to listen on.  There is a --serial flag to specify
-  // the serial number of the server, which defaults to 1.
+  // name of the IP address to listen on.
   for (int i = 1; i < argc; ++i) {
     if (argv[i] == std::string("--duration")) {
       if (++i >= argc) {
@@ -229,6 +235,12 @@ int main(int argc, char** argv)
         return 1;
       }
       replayID = std::stoi(argv[i]);
+    } else if (argv[i] == std::string("--dumpIntervals")) {
+      if (++i >= argc) {
+        std::cerr << "Missing argument for --dumpIntervals" << std::endl;
+        return 1;
+      }
+      dumpFileName = argv[i];
     } else if (argv[i][0] == '-') {
       std::cerr << "Unknown flag: " << argv[i] << std::endl;
       return 1;
@@ -332,9 +344,12 @@ int main(int argc, char** argv)
   }
 
   // Start receiver threads for each camera, remembering which port each is listening on.
+  // Also construct statistics vectors for each camera.
   std::vector<std::thread> receiverThreads;
   std::vector<uint16_t> ports;
   std::vector< std::atomic<size_t> > frameCounts(cameras.size());
+  std::vector< std::vector<std::chrono::steady_clock::time_point> > beginFrameTimes(cameras.size());
+  std::vector< std::vector<std::chrono::steady_clock::time_point> > endFrameTimes(cameras.size());
   for (size_t i = 0; i < cameras.size(); ++i) {
     std::shared_ptr<ReceiverUDP> receiverUDP = std::make_shared<ReceiverUDP>(ip_address);
     if (receiverUDP->GetConstructorStatus() != OKAY) {
@@ -347,7 +362,8 @@ int main(int argc, char** argv)
       std::cerr << "Error getting port from ReceiverUDP: " << ErrorMessage(status) << std::endl;
       return 31;
     }
-    receiverThreads.push_back(std::thread(StreamReceiverThread, receiverUDP, std::ref(done), std::ref(frameCounts[i])));
+    receiverThreads.push_back(std::thread(StreamReceiverThread, receiverUDP, std::ref(done),
+      std::ref(frameCounts[i]), std::ref(beginFrameTimes[i]), std::ref(endFrameTimes[i]) ));
     ports.push_back(port);
   }
   std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -460,6 +476,43 @@ int main(int argc, char** argv)
   // Join all of our threads.
   for (size_t i = 0; i < receiverThreads.size(); ++i) {
     receiverThreads[i].join();
+  }
+
+  // Dump the frame intervals to a file if requested.
+  if (!dumpFileName.empty()) {
+    if (!summary) std::cout << "Writing intervals to " << dumpFileName << std::endl;
+    std::ofstream dumpFile(dumpFileName);
+    if (!dumpFile) {
+      std::cerr << "Failed to open dump file " << dumpFileName << std::endl;
+      return 60;
+    }
+    // Add the header line
+    for (size_t i = 0; i < cameras.size(); ++i) {
+      dumpFile << "BeginIntervals" << i << ",";
+      dumpFile << "EndIntervals" << i;
+      if (i < cameras.size() - 1) {
+        dumpFile << ",";
+      }
+    }
+    dumpFile << std::endl;
+    // Add the data lines.
+    size_t maxFrames = 0;
+    for (size_t i = 0; i < cameras.size(); ++i) {
+      maxFrames = std::max(maxFrames, beginFrameTimes[i].size());
+      maxFrames = std::max(maxFrames, endFrameTimes[i].size());
+    }
+    for (size_t j = 1; j < maxFrames - 1; ++j) {
+      for (size_t i = 0; i < cameras.size(); ++i) {
+        std::chrono::duration<double> intervalB = beginFrameTimes[i][j] - beginFrameTimes[i][j - 1];
+        std::chrono::duration<double> intervalE = endFrameTimes[i][j] - endFrameTimes[i][j - 1];
+        dumpFile << intervalB.count() << "," << intervalE.count();
+        if (j < maxFrames - 1) {
+          dumpFile << ",";
+        }
+      }
+      dumpFile << std::endl;
+    }
+    dumpFile.close();
   }
 
   return 0;
