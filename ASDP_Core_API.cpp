@@ -121,7 +121,7 @@ static std::string OpCodeName(OpCode opCode)
 // Definitions of static constants used below.
 
 static const unsigned char MAGIC_COOKIE[4] = { 'A', 'S', 'D', 'P' };
-static const unsigned char VERSION[4] = { 5, 0, 0, 0 };
+static const unsigned char VERSION[4] = { 5, 1, 0, 0 };
 
 static const uint32_t PACKET_HEADER_TOTAL_SIZE_OFFSET = 0;
 static const uint32_t PACKET_BASIC_HEADER_SIZE = sizeof(uint32_t);
@@ -7307,7 +7307,9 @@ void CoreServerBase::sendInvalidCommandMessage(OpCode opCode, ClientState& clien
   // Send the packet immediately.
   status = writer->Flush();
   if (status != OKAY) {
-    m_error = "Error flushing StreamWriter: " + ErrorMessage(status);
+    // The client has probably disconnected. We'll find out about this the next time through
+    // the run() loop, so we don't need to do anything about it here.
+    //m_error = "Error flushing StreamWriter: " + ErrorMessage(status);
     return;
   }
 }
@@ -7341,7 +7343,9 @@ void CoreServerBase::sendUnrecognizedOpcodeMessage(OpCode opCode, ClientState& c
   // Send the packet immediately.
   status = writer->Flush();
   if (status != OKAY) {
-    m_error = "Error flushing StreamWriter: " + ErrorMessage(status);
+    // The client has probably disconnected. We'll find out about this the next time through
+    // the run() loop, so we don't need to do anything about it here.
+    //m_error = "Error flushing StreamWriter: " + ErrorMessage(status);
     return;
   }
 }
@@ -7373,7 +7377,9 @@ Status CoreServerBase::SendStateMessage(ClientState& client)
     // Retry after flushing the buffer.
     status = writer->Flush();
     if (status != OKAY) {
-      m_error = "Error flushing StreamWriter: " + ErrorMessage(status);
+      // The client has probably disconnected. We'll find out about this the next time through
+      // the run() loop, so we don't need to do anything about it here.
+      //m_error = "Error flushing StreamWriter: " + ErrorMessage(status);
       return status;
     }
     status = writer->GetCurrentPacket(packet);
@@ -7399,7 +7405,9 @@ Status CoreServerBase::SendStateMessage(ClientState& client)
   // Send the packet immediately.
   status = writer->Flush();
   if (status != OKAY) {
-    m_error = "Error flushing StreamWriter: " + ErrorMessage(status);
+    // The client has probably disconnected. We'll find out about this the next time through
+    // the run() loop, so we don't need to do anything about it here.
+    //m_error = "Error flushing StreamWriter: " + ErrorMessage(status);
     return status;
   }
 
@@ -7431,7 +7439,9 @@ Status CoreServerBase::SendClockSyncMessage(ClientState& client)
     // Retry after flushing the buffer.
     status = writer->Flush();
     if (status != OKAY) {
-      m_error = "Error flushing StreamWriter: " + ErrorMessage(status);
+      // The client has probably disconnected. We'll find out about this the next time through
+      // the run() loop, so we don't need to do anything about it here.
+      //m_error = "Error flushing StreamWriter: " + ErrorMessage(status);
       return status;
     }
     status = writer->GetCurrentPacket(packet);
@@ -7450,7 +7460,9 @@ Status CoreServerBase::SendClockSyncMessage(ClientState& client)
   // Send the packet immediately.
   status = writer->Flush();
   if (status != OKAY) {
-    m_error = "Error flushing StreamWriter: " + ErrorMessage(status);
+    // The client has probably disconnected. We'll find out about this the next time through
+    // the run() loop, so we don't need to do anything about it here.
+    //m_error = "Error flushing StreamWriter: " + ErrorMessage(status);
     return status;
   }
 
@@ -7515,7 +7527,9 @@ std::string CoreServerBase::run()
       if (client.m_lastClockSent + client.m_clockPeriod < now) {
         status = SendClockSyncMessage(client);
         if (status != OKAY) {
-          return "Failed to send clock sync packet: " + ErrorMessage(status);
+          // The client is dead, remove it from the list(s).
+          badClients.push_back(client);
+          continue;
         }
         client.m_lastClockSent = now;
       }
@@ -7528,7 +7542,9 @@ std::string CoreServerBase::run()
       if (client.m_lastStateSent + client.m_statePeriod < now) {
         status = SendStateMessage(client);
         if (status != OKAY) {
-          return "Failed to send state packet: " + ErrorMessage(status);
+          // The client is dead, remove it from the list(s).
+          badClients.push_back(client);
+          continue;
         }
         client.m_lastStateSent = now;
       }
