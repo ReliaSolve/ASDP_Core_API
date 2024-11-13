@@ -121,6 +121,83 @@ std::string GetStreamList(CoreClient &client, std::shared_ptr<Receiver> receiver
   return "";
 }
 
+int CountPacketsPerSecond(CoreClient& client, std::string ip_address,
+  CameraInfo& camera, uint32_t camID, uint16_t skipFrames, uint32_t startTimeSeconds)
+{
+  // Construct a UDP receiver for a stream from the camera.
+  ReceiverUDP receiverUDP(ip_address);
+  if (receiverUDP.GetConstructorStatus() != OKAY) {
+    std::cerr << "Error constructing ReceiverUDP: " << ErrorMessage(receiverUDP.GetConstructorStatus()) << std::endl;
+    return -1;
+  }
+  uint16_t port;
+  asdp::Status status = receiverUDP.GetPort(port);
+  if (status != asdp::OKAY) {
+    std::cerr << "Error getting port from ReceiverUDP: " << ErrorMessage(status) << std::endl;
+    return -1;
+  }
+
+  // Request the camera to stream images.
+  StreamEndpoint endpoint(ip_address, port);
+  SubregionDescription region;
+  region.cameraID = camID;
+  region.skipFrames = skipFrames;
+  region.startTimeSeconds = startTimeSeconds;
+  region.startTimeMicroseconds = 0;
+  region.left = 0;
+  region.top = 0;
+  region.right = camera.width - 1;
+  region.bottom = camera.height - 1;
+  status = client.SendCommandPacket(CommandPacketStreamSubregion(endpoint, region));
+  if (status != OKAY) {
+    std::cerr << "Failed to stream images: " << ErrorMessage(status) << std::endl;
+    return -1;
+  }
+
+  // See how many frames we receive from the camera over the next second.
+  size_t numFrames = 0;
+  std::shared_ptr<asdp::StreamPacket> receiveStreamPacket;
+  size_t offset = 0;
+  auto start = std::chrono::high_resolution_clock::now();
+  do {
+    Status statusUDP = receiverUDP.ReceiveStreamPacket(1.0, receiveStreamPacket, offset);
+    if (statusUDP == asdp::OKAY) {
+      // See if we get a begin-frame message. If so, increment the number of frames.
+      std::shared_ptr<Message> message;
+      status = receiveStreamPacket->GetNextMessage(message);
+      if (status != OKAY) {
+        std::cerr << "Error getting next message from StreamPacket: " << ErrorMessage(status) << std::endl;
+        return -1;
+      }
+      while (message != nullptr) {
+        MessageID messageType;
+        status = message->GetType(messageType);
+        if (status != OKAY) {
+          std::cerr << "Error getting message type: " << ErrorMessage(status) << std::endl;
+          return -1;
+        }
+        if (messageType == FRAME_BEGIN) {
+          numFrames++;
+        }
+        status = receiveStreamPacket->GetNextMessage(message);
+        if (status != OKAY) {
+          std::cerr << "Error getting next message from StreamPacket: " << ErrorMessage(status) << std::endl;
+          return -1;
+        }
+      }
+    }
+  } while (std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - start).count() < 1.0);
+
+  // Stop streaming
+  status = client.SendCommandPacket(CommandPacketCancelSubregion(camID, endpoint));
+  if (status != OKAY) {
+    std::cerr << "Failed to cancel stream images: " << ErrorMessage(status) << std::endl;
+    return -1;
+  }
+
+  return numFrames;
+}
+
 void Usage(const char* name)
 {
   std::cerr << "Usage: " << name << " [--destructive] <ip_address>" << std::endl;
@@ -779,6 +856,66 @@ int main(int argc, char** argv)
     if (statusUDP != asdp::OKAY) {
       std::cerr << "Error receiving StreamPacket: " << ErrorMessage(statusUDP) << std::endl;
       return 606;
+    }
+  }
+
+  // If we have at least one camera, try streaming data from the first one at 1/4 rate after a
+  // requested delay during replay.
+  /// @todo
+  if (cameras.size() > 0) {
+    uint32_t camID = 1;
+
+    // Request replay on the first stored stream, requesting that packets have a time offset of 10000 seconds.
+    std::cout << "Checking first stored stream replay to check for skipping frames and start delay" << std::endl;
+    uint32_t secondsOffset = 10000;
+    Time timeOffset(secondsOffset, 0);
+    status = client.SendCommandPacket(CommandPacketStartReplay(IDs.front(), timeOffset));
+    if (status != OKAY) {
+      std::cerr << "Failed to send start replay command: " << ErrorMessage(status) << std::endl;
+      return 603;
+    }
+
+    // See how many frames we receive from the camera over the next second at full rate (skip 0).
+    int numFramesFullRate = CountPacketsPerSecond(client, ip_address, cameras[camID - 1], camID, 0, 0);
+    if (numFramesFullRate < 0) {
+      std::cerr << "Error: Failure to try and get frames." << std::endl;
+      return 604;
+    }
+    if (numFramesFullRate == 0) {
+      std::cerr << "Error: No frames received at full rate." << std::endl;
+      return 605;
+    }
+    std::cout << "  Got " << numFramesFullRate << " frames in one second at full rate." << std::endl;
+
+    // See how many frames we receive from the camera over the next second at 1/10th rate (skip 9).
+    int numFramesTenthRate = CountPacketsPerSecond(client, ip_address, cameras[camID - 1], camID, 9, 0);
+    if (numFramesTenthRate < 0) {
+      std::cerr << "Error: Failure to try and get frames." << std::endl;
+      return 606;
+    }
+    if (numFramesTenthRate == 0) {
+      std::cerr << "Error: No frames received at tenth rate." << std::endl;
+      return 607;
+    }
+    std::cout << "  Got " << numFramesTenthRate << " frames in one second at tenth rate." << std::endl;
+
+    if (numFramesTenthRate * 5 > numFramesFullRate) {
+      std::cerr << "Error: Expected at least 5 times as many frames at full rate as at 1/4 rate." << std::endl;
+      return 608;
+    }
+
+    // We should receive no frames when we ask for time in the far future.
+    int numFramesFuture = CountPacketsPerSecond(client, ip_address, cameras[camID - 1], camID, 9, secondsOffset + 30);
+    std::cout << "  Got " << numFramesFuture << " frames from the future." << std::endl;
+    if (numFramesFuture > 0) {
+      std::cerr << "Error: Received frames from the future." << std::endl;
+      return 609;
+    }
+    // Stop replay now that we're done.
+    status = client.SendCommandPacket(CommandPacketStopReplay());
+    if (status != OKAY) {
+      std::cerr << "Failed to send stop replay command: " << ErrorMessage(status) << std::endl;
+      return 610;
     }
   }
 
