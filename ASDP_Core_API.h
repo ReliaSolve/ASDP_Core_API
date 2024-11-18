@@ -160,12 +160,12 @@ enum FeatureID : uint16_t {
 
 class CameraInfo {
 public:
+  double minTriggerPeriod;    ///< Minimum period between triggers in seconds.
+  double maxTriggerPeriod;    ///< Maximum period between triggers in seconds.
+  uint32_t trigger;           ///< Internal hardware trigger ID camera is tied to (0 = none).
   uint32_t type;              ///< Type of camera (used to look up lens, sensors, etc. in a table)
   uint16_t width;             ///< Width of the camera image in pixels.
   uint16_t height;            ///< Height of the camera image in pixels.
-  float minTriggerPeriod;     ///< Minimum period between triggers in seconds.
-  float maxTriggerPeriod;     ///< Maximum period between triggers in seconds.
-  uint32_t trigger;           ///< Internal hardware trigger ID camera is tied to (0 = none).
 
   /// @brief Equality operator.
   bool operator ==(const CameraInfo& other) const {
@@ -188,12 +188,12 @@ public:
 
 class TriggerInfo {
 public:
+  double period;              ///< Period of the trigger in seconds.
+  float offset;               ///< Offset of the trigger in seconds. A positive offset will cause the local hardware trigger to fire later than the incoming trigger command.  Negative values are clamped to 0.
+  float trackingFactor;       ///< Tracking factor of the trigger. Value in range [0-1] telling fraction of discrepancy to correct when synchronizing with a new incoming trigger.  A value of 1 completely synchronizes with each trigger. A value of 0.1 shifts by 1 / 10th of the distance, smoothing the adjustment to handle jitter in the incoming hardware trigger while following long-time-scale drift.
   uint16_t ID;                ///< ID of the trigger.
   uint8_t mode;               ///< Mode of the trigger (0 = disabled, 1 = unsynchronized, 2 = one-shot software, 3 = periodic software, 4 = one-shot hardware, 5 = periodic hardware).
   uint8_t externalID;         ///< ID of the external trigger to use (0 = none).
-  float period;               ///< Period of the trigger in seconds.
-  float offset;               ///< Offset of the trigger in seconds. A positive offset will cause the local hardware trigger to fire later than the incoming trigger command.  Negative values are clamped to 0.
-  float trackingFactor;       ///< Tracking factor of the trigger. Value in range [0-1] telling fraction of discrepancy to correct when synchronizing with a new incoming trigger.  A value of 1 completely synchronizes with each trigger. A value of 0.1 shifts by 1 / 10th of the distance, smoothing the adjustment to handle jitter in the incoming hardware trigger while following long-time-scale drift.
 
   /// @brief Equality operator.
   bool operator ==(const TriggerInfo& other) const {

@@ -121,7 +121,7 @@ static std::string OpCodeName(OpCode opCode)
 // Definitions of static constants used below.
 
 static const unsigned char MAGIC_COOKIE[4] = { 'A', 'S', 'D', 'P' };
-static const unsigned char VERSION[4] = { 5, 1, 0, 0 };
+static const unsigned char VERSION[4] = { 6, 0, 0, 0 };
 
 static const uint32_t PACKET_HEADER_TOTAL_SIZE_OFFSET = 0;
 static const uint32_t PACKET_BASIC_HEADER_SIZE = sizeof(uint32_t);
@@ -1396,15 +1396,15 @@ std::string CommandPacketStartOnCameraNUC::Test()
 }
 
 CommandPacketConfigureTrigger::CommandPacketConfigureTrigger(TriggerInfo config)
-  : CommandPacket(sizeof(config), CONFIGURE_TRIGGER)
+  : CommandPacket(sizeof(double)+2*sizeof(float)+sizeof(uint16_t)+2*sizeof(uint8_t), CONFIGURE_TRIGGER)
 {
   unsigned char* bufPtr = MyData() + COMMAND_PACKET_BASE_SIZE;
-  memcpy(bufPtr, &config.ID, sizeof(config.ID)); bufPtr += sizeof(config.ID);
-  memcpy(bufPtr, &config.mode, sizeof(config.mode)); bufPtr += sizeof(config.mode);
-  memcpy(bufPtr, &config.externalID, sizeof(config.externalID)); bufPtr += sizeof(config.externalID);
   memcpy(bufPtr, &config.period, sizeof(config.period)); bufPtr += sizeof(config.period);
   memcpy(bufPtr, &config.offset, sizeof(config.offset)); bufPtr += sizeof(config.offset);
   memcpy(bufPtr, &config.trackingFactor, sizeof(config.trackingFactor)); bufPtr += sizeof(config.trackingFactor);
+  memcpy(bufPtr, &config.ID, sizeof(config.ID)); bufPtr += sizeof(config.ID);
+  memcpy(bufPtr, &config.mode, sizeof(config.mode)); bufPtr += sizeof(config.mode);
+  memcpy(bufPtr, &config.externalID, sizeof(config.externalID)); bufPtr += sizeof(config.externalID);
 }
 
 CommandPacketConfigureTrigger::CommandPacketConfigureTrigger(CommandPacket& basePacket)
@@ -1414,10 +1414,17 @@ CommandPacketConfigureTrigger::CommandPacketConfigureTrigger(CommandPacket& base
 
 Status CommandPacketConfigureTrigger::GetConfiguration(TriggerInfo& config) const
 {
-  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + sizeof(config)) {
+  const size_t TRIGGERSIZE = sizeof(double)+2*sizeof(float)+sizeof(uint16_t)+2*sizeof(uint8_t);
+  if (m_buffer->size() < COMMAND_PACKET_BASE_SIZE + TRIGGERSIZE) {
     return READ_PAST_END;
   }
-  memcpy(&config, MyData() + COMMAND_PACKET_BASE_SIZE, sizeof(config));
+  const uint8_t *bufPtr = MyData() + COMMAND_PACKET_BASE_SIZE;
+  memcpy(&config.period, bufPtr, sizeof(config.period)); bufPtr += sizeof(config.period);
+  memcpy(&config.offset, bufPtr, sizeof(config.offset)); bufPtr += sizeof(config.offset);
+  memcpy(&config.trackingFactor, bufPtr, sizeof(config.trackingFactor)); bufPtr += sizeof(config.trackingFactor);
+  memcpy(&config.ID, bufPtr, sizeof(config.ID)); bufPtr += sizeof(config.ID);
+  memcpy(&config.mode, bufPtr, sizeof(config.mode)); bufPtr += sizeof(config.mode);
+  memcpy(&config.externalID, bufPtr, sizeof(config.externalID)); bufPtr += sizeof(config.externalID);
   return OKAY;
 }
 
@@ -2866,10 +2873,11 @@ MessageState::MessageState(StreamPacket& packet, Time timeCode,
     Time streamReplayTime)
   : Message(packet,
       sizeof(uint32_t) + features.size() * sizeof(uint16_t) + (features.size() % 2) * sizeof(uint16_t)
-        + cameras.size() * sizeof(CameraInfo)
+        + cameras.size() * (2*sizeof(double) + 2*sizeof(uint32_t) + 2*sizeof(uint16_t))
         + sizeof(numTempSensorsPerCamera) + sizeof(numExternalTempSensors)
         + 8 /* The byte-sized ones and padding */
-        + sizeof(uint32_t) + triggerConfigs.size() * sizeof(TriggerInfo)
+        + sizeof(uint32_t)
+        + triggerConfigs.size() * (sizeof(double)+2*sizeof(float)+sizeof(uint16_t)+2*sizeof(uint8_t))
         + sizeof(totalDiskSpace) + sizeof(remainingDiskSpace)
         + 2 * sizeof(uint32_t) /* Time */,
       timeCode, STATE)
@@ -2893,12 +2901,12 @@ MessageState::MessageState(StreamPacket& packet, Time timeCode,
   uint32_t numCameras = cameras.size();
   memcpy(bufPtr, &numCameras, sizeof(numCameras)); bufPtr += sizeof(numCameras);
   for (uint32_t i = 0; i < numCameras; i++) {
-    memcpy(bufPtr, &cameras[i].type, sizeof(cameras[i].type)); bufPtr += sizeof(cameras[i].type);
-    memcpy(bufPtr, &cameras[i].width, sizeof(cameras[i].width)); bufPtr += sizeof(cameras[i].width);
-    memcpy(bufPtr, &cameras[i].height, sizeof(cameras[i].height)); bufPtr += sizeof(cameras[i].height);
     memcpy(bufPtr, &cameras[i].minTriggerPeriod, sizeof(cameras[i].minTriggerPeriod)); bufPtr += sizeof(cameras[i].minTriggerPeriod);
     memcpy(bufPtr, &cameras[i].maxTriggerPeriod, sizeof(cameras[i].maxTriggerPeriod)); bufPtr += sizeof(cameras[i].maxTriggerPeriod);
     memcpy(bufPtr, &cameras[i].trigger, sizeof(cameras[i].trigger)); bufPtr += sizeof(cameras[i].trigger);
+    memcpy(bufPtr, &cameras[i].type, sizeof(cameras[i].type)); bufPtr += sizeof(cameras[i].type);
+    memcpy(bufPtr, &cameras[i].width, sizeof(cameras[i].width)); bufPtr += sizeof(cameras[i].width);
+    memcpy(bufPtr, &cameras[i].height, sizeof(cameras[i].height)); bufPtr += sizeof(cameras[i].height);
   }
   memcpy(bufPtr, &numTempSensorsPerCamera, sizeof(numTempSensorsPerCamera)); bufPtr += sizeof(numTempSensorsPerCamera);
   memcpy(bufPtr, &numExternalTempSensors, sizeof(numExternalTempSensors)); bufPtr += sizeof(numExternalTempSensors);
@@ -2911,12 +2919,12 @@ MessageState::MessageState(StreamPacket& packet, Time timeCode,
   uint32_t numTriggers = triggerConfigs.size();
   memcpy(bufPtr, &numTriggers, sizeof(numTriggers)); bufPtr += sizeof(numTriggers);
   for (uint32_t i = 0; i < numTriggers; i++) {
-    memcpy(bufPtr, &triggerConfigs[i].ID, sizeof(triggerConfigs[i].ID)); bufPtr += sizeof(triggerConfigs[i].ID);
-    memcpy(bufPtr, &triggerConfigs[i].mode, sizeof(triggerConfigs[i].mode)); bufPtr += sizeof(triggerConfigs[i].mode);
-    memcpy(bufPtr, &triggerConfigs[i].externalID, sizeof(triggerConfigs[i].externalID)); bufPtr += sizeof(triggerConfigs[i].externalID);
     memcpy(bufPtr, &triggerConfigs[i].period, sizeof(triggerConfigs[i].period)); bufPtr += sizeof(triggerConfigs[i].period);
     memcpy(bufPtr, &triggerConfigs[i].offset, sizeof(triggerConfigs[i].offset)); bufPtr += sizeof(triggerConfigs[i].offset);
     memcpy(bufPtr, &triggerConfigs[i].trackingFactor, sizeof(triggerConfigs[i].trackingFactor)); bufPtr += sizeof(triggerConfigs[i].trackingFactor);
+    memcpy(bufPtr, &triggerConfigs[i].ID, sizeof(triggerConfigs[i].ID)); bufPtr += sizeof(triggerConfigs[i].ID);
+    memcpy(bufPtr, &triggerConfigs[i].mode, sizeof(triggerConfigs[i].mode)); bufPtr += sizeof(triggerConfigs[i].mode);
+    memcpy(bufPtr, &triggerConfigs[i].externalID, sizeof(triggerConfigs[i].externalID)); bufPtr += sizeof(triggerConfigs[i].externalID);
   }
   memcpy(bufPtr, &totalDiskSpace, sizeof(totalDiskSpace)); bufPtr += sizeof(totalDiskSpace);
   memcpy(bufPtr, &remainingDiskSpace, sizeof(remainingDiskSpace)); bufPtr += sizeof(remainingDiskSpace);
@@ -2962,10 +2970,19 @@ Status MessageState::GetCameras(std::vector<CameraInfo>& cameras) const
   uint32_t numCameras;
   memcpy(&numCameras, m_buffer->data() + afterFeaturesOffset, sizeof(numCameras));
   cameras.resize(numCameras);
-  if (m_buffer->size() < afterFeaturesOffset + sizeof(uint32_t) + numCameras * sizeof(CameraInfo)) {
+  const size_t CAMERASIZE = 2*sizeof(double) + 2*sizeof(uint32_t) + 2*sizeof(uint16_t);
+  if (m_buffer->size() < afterFeaturesOffset + sizeof(uint32_t) + numCameras * CAMERASIZE) {
     return READ_PAST_END;
   }
-  memcpy(cameras.data(), m_buffer->data() + afterFeaturesOffset + sizeof(uint32_t), numCameras * sizeof(CameraInfo));
+  const uint8_t* bufPtr = m_buffer->data() + afterFeaturesOffset + sizeof(uint32_t);
+  for (uint32_t c = 0; c < numCameras; c++) {
+    memcpy(&cameras[c].minTriggerPeriod, bufPtr, sizeof(cameras[c].minTriggerPeriod)); bufPtr += sizeof(cameras[c].minTriggerPeriod);
+    memcpy(&cameras[c].maxTriggerPeriod, bufPtr, sizeof(cameras[c].maxTriggerPeriod)); bufPtr += sizeof(cameras[c].maxTriggerPeriod);
+    memcpy(&cameras[c].trigger, bufPtr, sizeof(cameras[c].trigger)); bufPtr += sizeof(cameras[c].trigger);
+    memcpy(&cameras[c].type, bufPtr, sizeof(cameras[c].type)); bufPtr += sizeof(cameras[c].type);
+    memcpy(&cameras[c].width, bufPtr, sizeof(cameras[c].width)); bufPtr += sizeof(cameras[c].width);
+    memcpy(&cameras[c].height, bufPtr, sizeof(cameras[c].height)); bufPtr += sizeof(cameras[c].height);
+  }
   return OKAY;
 }
 
@@ -3078,26 +3095,27 @@ Status MessageState::GetTriggerConfigs(std::vector<TriggerInfo>& triggerConfigs)
     return READ_PAST_END;
   }
   uint32_t numTriggers;
+  const size_t TRIGGERSIZE = sizeof(double)+2*sizeof(float)+sizeof(uint16_t)+2*sizeof(uint8_t);
   memcpy(&numTriggers, m_buffer->data() + afterCamerasOffset + 2 * sizeof(uint32_t) + 8, sizeof(numTriggers));
   triggerConfigs.resize(numTriggers);
-  if (m_buffer->size() < afterCamerasOffset + 2 * sizeof(uint32_t) + 8 + sizeof(uint32_t) + numTriggers * sizeof(TriggerInfo)) {
+  if (m_buffer->size() < afterCamerasOffset + 2 * sizeof(uint32_t) + 8 + sizeof(uint32_t) + numTriggers*TRIGGERSIZE) {
     return READ_PAST_END;
   }
   uint32_t baseOffset = afterCamerasOffset + 2 * sizeof(uint32_t) + 8 + sizeof(uint32_t);
   for (uint32_t i = 0; i < numTriggers; i++) {
-    uint32_t paramOffset = baseOffset + i * sizeof(TriggerInfo);
-    memcpy(&triggerConfigs[i].ID, m_buffer->data() + paramOffset, sizeof(triggerConfigs[i].ID));
-    paramOffset += sizeof(triggerConfigs[i].ID);
-    memcpy(&triggerConfigs[i].mode, m_buffer->data() + paramOffset, sizeof(triggerConfigs[i].mode));
-    paramOffset += sizeof(triggerConfigs[i].mode);
-    memcpy(&triggerConfigs[i].externalID, m_buffer->data() + paramOffset, sizeof(triggerConfigs[i].externalID));
-    paramOffset += sizeof(triggerConfigs[i].externalID);
+    uint32_t paramOffset = baseOffset + i * TRIGGERSIZE;
     memcpy(&triggerConfigs[i].period, m_buffer->data() + paramOffset, sizeof(triggerConfigs[i].period));
     paramOffset += sizeof(triggerConfigs[i].period);
     memcpy(&triggerConfigs[i].offset, m_buffer->data() + paramOffset, sizeof(triggerConfigs[i].offset));
     paramOffset += sizeof(triggerConfigs[i].offset);
     memcpy(&triggerConfigs[i].trackingFactor, m_buffer->data() + paramOffset, sizeof(triggerConfigs[i].trackingFactor));
     paramOffset += sizeof(triggerConfigs[i].trackingFactor);
+    memcpy(&triggerConfigs[i].ID, m_buffer->data() + paramOffset, sizeof(triggerConfigs[i].ID));
+    paramOffset += sizeof(triggerConfigs[i].ID);
+    memcpy(&triggerConfigs[i].mode, m_buffer->data() + paramOffset, sizeof(triggerConfigs[i].mode));
+    paramOffset += sizeof(triggerConfigs[i].mode);
+    memcpy(&triggerConfigs[i].externalID, m_buffer->data() + paramOffset, sizeof(triggerConfigs[i].externalID));
+    paramOffset += sizeof(triggerConfigs[i].externalID);
   }
   return OKAY;
 }
@@ -3179,16 +3197,18 @@ std::string MessageState::Test()
     if (status != OKAY) {
       return "Error checking message size for MessageState test: " + ErrorMessage(status);
     }
+    const size_t CAMERASIZE = 2 * sizeof(double) + 2 * sizeof(uint32_t) + 2 * sizeof(uint16_t);
+    const size_t TRIGGERSIZE = sizeof(double) + 2 * sizeof(float) + sizeof(uint16_t) + 2 * sizeof(uint8_t);
     if (totalLength != STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE + sizeof(uint32_t) + features.size() * sizeof(uint16_t)
       + (features.size() % 2) * sizeof(uint16_t)
-      + cameras.size() * sizeof(CameraInfo) + sizeof(numTempSensorsPerCamera) + sizeof(numExternalTempSensors)
-      + 8 + sizeof(uint32_t) + triggerConfigs.size() * sizeof(TriggerInfo)
+      + cameras.size() * CAMERASIZE + sizeof(numTempSensorsPerCamera) + sizeof(numExternalTempSensors)
+      + 8 + sizeof(uint32_t) + triggerConfigs.size() * TRIGGERSIZE
       + sizeof(totalDiskSpace) + sizeof(remainingDiskSpace) + 2 * sizeof(uint32_t)) {
       return "Error constructing MessageState from buffer: packet length is not " +
         std::to_string(STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE + sizeof(uint32_t) + features.size() * sizeof(uint16_t)
                  + (features.size() % 2) * sizeof(uint16_t)
-                 + cameras.size() * sizeof(CameraInfo) + sizeof(numTempSensorsPerCamera) + sizeof(numExternalTempSensors)
-                 + 8 + sizeof(uint32_t) + triggerConfigs.size() * sizeof(TriggerInfo)
+                 + cameras.size() * CAMERASIZE + sizeof(numTempSensorsPerCamera) + sizeof(numExternalTempSensors)
+                 + 8 + sizeof(uint32_t) + triggerConfigs.size() * TRIGGERSIZE
                  + sizeof(totalDiskSpace) + sizeof(remainingDiskSpace) + 2 * sizeof(uint32_t)) + " but " +
         std::to_string(totalLength);
     }
@@ -3349,7 +3369,8 @@ Status MessageState::GetAfterCamerasOffset(uint32_t& offset) const
   }
   uint32_t numCameras;
   memcpy(&numCameras, m_buffer->data() + afterFeaturesOffset, sizeof(numCameras));
-  offset = afterFeaturesOffset + sizeof(uint32_t) + numCameras * sizeof(CameraInfo);
+  const size_t CAMERASIZE = 2 * sizeof(double) + 2 * sizeof(uint32_t) + 2 * sizeof(uint16_t);
+  offset = afterFeaturesOffset + sizeof(uint32_t) + numCameras * CAMERASIZE;
   return OKAY;
 }
 
@@ -3369,7 +3390,8 @@ Status MessageState::GetAfterTriggerConfigsOffset(uint32_t& offset) const
   offset = afterCamerasOffset + 2 * sizeof(uint32_t) + 8;
   uint32_t numTriggers;
   memcpy(&numTriggers, m_buffer->data() + offset, sizeof(numTriggers));
-  offset += sizeof(uint32_t) + numTriggers * sizeof(TriggerInfo);
+  const size_t TRIGGERSIZE = sizeof(double) + 2 * sizeof(float) + sizeof(uint16_t) + 2 * sizeof(uint8_t);
+  offset += sizeof(uint32_t) + numTriggers * TRIGGERSIZE;
 
   return OKAY;
 }
