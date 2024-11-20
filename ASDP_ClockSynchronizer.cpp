@@ -24,7 +24,9 @@ int64_t ClockSynchronizer::ComputeOffsetMicroseconds(Time serverTime, const std:
 {
   int64_t localTimeMicroseconds = std::chrono::duration_cast<std::chrono::microseconds>(localTime.time_since_epoch()).count();
   int64_t serverTimeMicroseconds = serverTime.seconds * int64_t(1000000) + serverTime.microseconds;
-  return serverTimeMicroseconds - localTimeMicroseconds - m_transmissionDelay;
+  // The transmission delay caused an increase in our local time, which was subtracted from the server time.
+  // We add back in the expected transmission delay to get the actual offset.
+  return serverTimeMicroseconds - localTimeMicroseconds + m_transmissionDelay;
 }
 
 // Function to perform least squares fit
@@ -53,25 +55,25 @@ bool ClockSynchronizer::AddDataPoint(Time serverTime, const std::chrono::steady_
   int64_t offsetMicroseconds = ComputeOffsetMicroseconds(serverTime, localTime);
   m_offsetsInBlock.push_back(offsetMicroseconds);
 
-  // Find the minimum offset in the current block.
-  int64_t minBlockOffsetMicroseconds = offsetMicroseconds;
+  // Find the maximum offset in the current block.
+  int64_t maxBlockOffsetMicroseconds = offsetMicroseconds;
   for (int64_t o : m_offsetsInBlock) {
-    if (o < minBlockOffsetMicroseconds) {
-      minBlockOffsetMicroseconds = o;
+    if (o > maxBlockOffsetMicroseconds) {
+      maxBlockOffsetMicroseconds = o;
     }
   }
 
   // If the current block is full, add it to the history and clear it.
   if (m_offsetsInBlock.size() >= 100) {
-    m_BlockOffsets.push_back({ localTime, minBlockOffsetMicroseconds });
+    m_BlockOffsets.push_back({ localTime, maxBlockOffsetMicroseconds });
     m_offsetsInBlock.clear();
   }
 
-  // Find the minimum of all the current blocks; if there are fewer than 10, we'll use this to set the offset.
-  int64_t minOffset = minBlockOffsetMicroseconds;
+  // Find the maximum of all the current blocks; if there are fewer than 10, we'll use this to set the offset.
+  int64_t maxOffset = maxBlockOffsetMicroseconds;
   for (auto const &block : m_BlockOffsets) {
-    if (block.minOffset < minOffset) {
-      minOffset = block.minOffset;
+    if (block.maxOffset > maxOffset) {
+      maxOffset = block.maxOffset;
     }
   }
 
@@ -79,18 +81,18 @@ bool ClockSynchronizer::AddDataPoint(Time serverTime, const std::chrono::steady_
   // indexed by time before now -- the intercept is the offset.
   if (m_BlockOffsets.size() >= 10) {
     // Make a vector of (X,Y) pairs, where X is the time in microseconds between the end of the block
-    // and the current time and Y is the difference between minOffset and the minimum offset in the block.
+    // and the current time and Y is the difference between maxOffset and the maximum offset in the block.
     // This gives us the best baseline for both of these values, keeping them near zero.
     std::vector<std::pair<double, double>> points;
     for (auto const &block : m_BlockOffsets) {
       int64_t time = std::chrono::duration_cast<std::chrono::microseconds>(localTime - block.lastPointTime).count();
-      points.push_back({static_cast<double>(time), static_cast<double>(minOffset - block.minOffset)});
+      points.push_back({static_cast<double>(time), static_cast<double>(maxOffset - block.maxOffset)});
     }
 
-    // Compute the least-squares line fit.  Add its intercept to the minimum offset.  This is the expected
+    // Compute the least-squares line fit.  Add its intercept to the maximum offset.  This is the expected
     // difference between the server and local times at time zero (which is now).
     std::pair<double, double> fit = leastSquaresFit(points);
-    minOffset += fit.second;
+    maxOffset += fit.second;
   }
 
   // If we have more than 100 blocks, drop the oldest one.
@@ -98,12 +100,16 @@ bool ClockSynchronizer::AddDataPoint(Time serverTime, const std::chrono::steady_
     m_BlockOffsets.pop_front();
   }
 
-  // Set the timer offset based on  what we determined it to be above.
+  // Set the timer offset based on what we determined it to be above.
   Status status = OKAY;
-  if (minOffset < 0) {
-    status = m_timer->SetCoreNegativeOffset(Time( (-minOffset) / 1000000, (-minOffset) % 1000000));
+  if (maxOffset < 0) {
+    status = m_timer->SetCoreNegativeOffset(Time( (-maxOffset) / 1000000, (-maxOffset) % 1000000));
+    if (status != OKAY) { return false; }
+    status = m_timer->SetCorePositiveOffset(Time(0, 0));
   } else {
-    status = m_timer->SetCorePositiveOffset(Time(minOffset / 1000000, minOffset % 1000000));
+    status = m_timer->SetCorePositiveOffset(Time(maxOffset / 1000000, maxOffset % 1000000));
+    if (status != OKAY) { return false; }
+    status = m_timer->SetCoreNegativeOffset(Time(0, 0));
   }
   return status == OKAY;
 }
@@ -168,13 +174,13 @@ std::string ClockSynchronizer::Test()
     if (status != OKAY) {
       return "Transmission delay GetCoreTime() failed";
     }
-    // We should have reduced the seconds by a net of -2 (+1 then -3 for transmission delay).
-    if (coreTime.seconds != nowSeconds - 2) {
+    // We should have increased the seconds by a net of 4 (+1 then +3 for transmission delay).
+    if (coreTime.seconds != nowSeconds + 4) {
       return "Transmission delay failed";
     }
   }
 
-  // Test adding ten points and ensure that we're using the most-negative offset.
+  // Test adding ten points and ensure that we're using the most-positive offset.
   {
     Timer* tPtr = new Timer;
     std::shared_ptr<Timer> timer(tPtr);
@@ -198,12 +204,12 @@ std::string ClockSynchronizer::Test()
       return "Ten points GetCoreTime() failed";
     }
     // We should have increased the seconds by 1.
-    if (coreTime.seconds != nowSeconds - 1) {
+    if (coreTime.seconds != nowSeconds + 1) {
       return "Ten points failed";
     }
   }
 
-  // Test adding 900 points (9 blocks) and ensure that we're using the most-negative offset.
+  // Test adding 900 points (9 blocks) and ensure that we're using the most-positive offset.
   {
     Timer* tPtr = new Timer;
     std::shared_ptr<Timer> timer(tPtr);
@@ -227,7 +233,7 @@ std::string ClockSynchronizer::Test()
       return "900 points GetCoreTime() failed";
     }
     // We should have increased the seconds by 1.
-    if (coreTime.seconds != nowSeconds - 1) {
+    if (coreTime.seconds != nowSeconds + 1) {
       return "900 points failed";
     }
   }
@@ -251,8 +257,8 @@ std::string ClockSynchronizer::Test()
       serverTime.seconds++;
       now += std::chrono::seconds(1);
     }
-    // Add a point that is not on the line.
-    serverTime.seconds += 25000;
+    // Add a point that is below the line.
+    serverTime.seconds -= 25000;
     if (!synchronizer.AddDataPoint(serverTime, now)) {
       return "50000 points AddDataPoint() failed";
     }
@@ -268,7 +274,7 @@ std::string ClockSynchronizer::Test()
     }
     // The time should match.
     if (coreTime.seconds != testSeconds) {
-      return "50000 points failed";
+      return "50000 points failed: got "+std::to_string(coreTime.seconds)+", expected "+std::to_string(testSeconds);
     }
 
     // Add 20000 points, which should overflow the 100 block limit and make sure we have 100 blocks.

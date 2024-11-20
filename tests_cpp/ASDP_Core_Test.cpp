@@ -13,8 +13,10 @@
 
 int main(int argc, char** argv)
 {
+  std::string ret;
+
   // Test the core API
-  std::string ret = asdp::Test();
+  ret = asdp::Test();
   if (ret.size() > 0) {
     std::cerr << "Core Error: " << ret << std::endl;
     return 1;

@@ -40,10 +40,10 @@ namespace asdp {
     /// @brief Add a new data point to the synchronizer.
     /// @details If this is the first data point since construction or ClearHistory(), the
     /// synchronizer will set its offset based on the single difference.
-    /// Up to a block of 100 data points, it will base its offset on the minimum delay in the block
+    /// Up to a block of 100 data points, it will base its offset on the maximum delay in the block
     /// or in up to 10 accumulated blocks.
     /// After 10 blocks of 100 data points, it will base its offset on a least-squares
-    /// line fit to the whole set of blocks, keeping the minimums for at most 100 blocks and
+    /// line fit to the whole set of blocks, keeping the maximums for at most 100 blocks and
     /// then dropping older values.
     /// @param serverTime The time in the CLOCK_SYNC message.
     /// @param localTime The time on the local clock when the client unpacked the CLOCK_SYNC message.
@@ -70,7 +70,7 @@ namespace asdp {
     std::list<int64_t> m_offsetsInBlock; ///< The history of offsets within the current block.
     struct BlockRecord {
       std::chrono::steady_clock::time_point lastPointTime; ///< The time of the last point in the block.
-      int64_t minOffset; ///< The minimum offset in the block.
+      int64_t maxOffset; ///< The maximum offset in the block.
     };
     std::list<BlockRecord> m_BlockOffsets; ///< The history of offsets across blocks.
   };
