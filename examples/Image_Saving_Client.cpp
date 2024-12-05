@@ -419,16 +419,27 @@ int main(int argc, char** argv)
     std::string fileName;
     std::shared_ptr<FileData> fileData;
     do {
-      // Get the next packet and verify that its sequence number matches what we expect so that
-      // we know that we didn't miss any data.
-      std::shared_ptr<asdp::StreamPacket> packet;
+      // Service the main receiver, gobbling up any packets.
+      std::shared_ptr<asdp::StreamPacket> mainPacket;
       size_t offset = 0;
-      status = receiverUDP.ReceiveStreamPacket(10.0, packet, offset);
+      status = receiver->ReceiveStreamPacket(0, mainPacket, offset);
+      if (status != asdp::OKAY && status != asdp::TIMEOUT) {
+        std::cerr << "Error receiving main StreamPacket: " << ErrorMessage(status) << std::endl;
+        return 100;
+      }
+
+      // Get the next UDP packet.
+      // Add to the sorted queue and then handle any messages that are ready to be processed.
+      std::shared_ptr<asdp::StreamPacket> packet;
+      offset = 0;
+      status = receiverUDP.ReceiveStreamPacket(0.0, packet, offset);
+      if (status == asdp::TIMEOUT) {
+        continue;
+      }
       if (status != asdp::OKAY) {
         std::cerr << "Error receiving StreamPacket: " << ErrorMessage(status) << std::endl;
         return 33;
       }
-      // Add to the sorted queue and then handle any messages that are ready to be processed.
       std::list< std::shared_ptr<StreamPacket> > readyPackets = sortedQueue.AddPacket(packet);
       if (readyPackets.size() > 1) {
         std::cerr << "Warning: More than one packet ready to process (re-ordered or missing packet)." << std::endl;

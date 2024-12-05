@@ -5059,6 +5059,7 @@ Status ReceiverUDP::ReceiveStreamPacket(double timeout_seconds, std::shared_ptr<
   size_t& offset, std::shared_ptr< std::vector<uint8_t> > bufptr)
 {
   // See if we have a packet available.
+
   bool available;
   Status status = IsPacketAvailable(timeout_seconds, available);
   if (status != OKAY) {
