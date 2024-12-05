@@ -7,6 +7,7 @@
 
 #include <string.h>
 #include <iostream>
+#include <cstdio>
 #include <chrono>
 #include <ASDP_Core_API.h>
 
@@ -206,18 +207,15 @@ int main(int argc, char** argv)
             // If we have an image name, write the image to the file.
             if (!imageFileName.empty()) {
               std::cout << "  Writing image to " << imageFileName << std::endl;
-              std::ofstream imageFile(imageFileName, std::ios::binary);
-              if (!imageFile) {
+              fixEndian(imageBuffer);
+              FILE *f = fopen(imageFileName.c_str(), "wb");
+              if (f == NULL) {
                 std::cerr << "Error opening image file " << imageFileName << std::endl;
                 return 12;
               }
-              imageFile << "P5\n" << imageWidth << " " << imageHeight << " " << 1 << "\n" << 65535 << "\n";
-              fixEndian(imageBuffer);
-              imageFile.write(reinterpret_cast<const char*>(imageBuffer.data()), imageBuffer.size() * sizeof(uint16_t));
-              if (!imageFile) {
-                std::cerr << "Error writing image file " << imageFileName << std::endl;
-                return 13;
-              }
+              fprintf(f, "P5\n%d %d\n%d\n", imageWidth, imageHeight, 65535);
+              fwrite(imageBuffer.data(), sizeof(uint16_t), imageBuffer.size(), f);
+              fclose(f);
               imageFileName.clear();
             }
           }

@@ -8,7 +8,7 @@
 
 #include <iostream>
 #include <chrono>
-#include <fstream>
+#include <cstdio>
 #include <thread>
 #include <list>
 #include <mutex>
@@ -178,16 +178,15 @@ void SaveFileThread()
       fileData = fileDataList.front();
       fileDataList.pop_front();
     }
-    std::ofstream f(fileData->fileName.c_str(), std::ios::out | std::ios::binary);
-    if (!f.is_open()) {
-      std::cerr << "Error opening file " << fileData->fileName << std::endl;
+    fixEndian(fileData->data, fileData->size);
+    FILE* f = fopen(fileData->fileName.c_str(), "wb");
+    if (f == NULL) {
+      std::cerr << "Error opening image file " << fileData->fileName << std::endl;
       return;
     }
-    f << "P5\n" << "1280 1024\n" << "65535\n" << std::endl;
-    fixEndian(fileData->data, fileData->size);
-    f.write((const char *)fileData->data, fileData->size);
-    delete [] fileData->data;
-    f.close();
+    fprintf(f, "P5\n%d %d\n%d\n", 1280, 1024, 65535);
+    fwrite(fileData->data, sizeof(uint8_t), fileData->size, f);
+    fclose(f);
     std::cout << "Wrote " << fileData->fileName << std::endl;
   }
   std::cout << "SaveFileThread done" << std::endl;
