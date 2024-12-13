@@ -95,7 +95,7 @@ def main():
             else:
                 cam["orientationDegrees"] = [90.0, 90.0 + desiredHor, -90.0 + desiredVer]
 
-            # mpute the position of the camera, which is a radial distance from the origin.
+            # Compute the position of the camera, which is a radial distance from the origin.
             # Start by computing the normal distance, which is in the space that has X to the
             # right, Y into the screen, and Z up (helicopter space).  This is in spherical
             # coordinates.
