@@ -11,7 +11,9 @@
 import json
 import argparse
 import math
+import random
 import numpy as np
+from scipy.spatial.transform import Rotation as R
 
 def rotate_y_axis(hor, ver):
     # Convert degrees to radians
@@ -41,6 +43,23 @@ def rotate_y_axis(hor, ver):
 
     return y_axis_rotated
 
+def nested_rotations(X1, Y1, Z1, X2, Y2, Z2):
+
+    # Create first set of rotations
+    rot_1 = R.from_euler('XYZ', [X1, Y1, Z1], degrees=True)
+
+    # Apply the second set of rotations in the new coordinate system
+    rot_2 = R.from_euler('XYZ', [X2, Y2, Z2], degrees=True)
+    final_rotation = rot_1 * rot_2
+
+    # Get the quaternion
+    quaternion = final_rotation.as_quat()
+
+    # Convert the quaternion to Euler angles (XYZ order)
+    euler_angles = final_rotation.as_euler('XYZ', degrees=True)
+
+    return euler_angles
+
 def main():
     parser = argparse.ArgumentParser(description="Generate a camera configuration file for a specified number of cameras.")
     parser.add_argument('--output', type=str, default='camConfig.json', help='Output JSON file name (default: camConfig.json)')
@@ -62,6 +81,9 @@ def main():
     parser.add_argument('--crop_max_x', type=int, default=-1, help='Maximum crop X (default: -1 for whole image, -2 crops 1)')
     parser.add_argument('--crop_min_y', type=int, default=0, help='Minimum crop Y (default: 0 for whole image, 1 crops 1)')
     parser.add_argument('--crop_max_y', type=int, default=-1, help='Maximum crop Y (default: -1 for whole image, -2 crops 1)')
+    parser.add_argument('--tweak_rot', type=float, default=0.0, help='Rotation tweak amount deg (default: 0.0)')
+    parser.add_argument('--tweak_pos', type=float, default=0.0, help='Position tweak amount mm (default: 0.0)')
+    parser.add_argument('--tweak_distortion', type=float, default=0.0, help='Distortion tweak amount percent (default: 0.0)')
     
     args = parser.parse_args()
     
@@ -91,15 +113,29 @@ def main():
             vRatio = (args.fov_h - args.overlap_y) / args.fov_h
             desiredVer = vRatio * (y - (args.num_y - 1)/2.0) * args.fov_h
             if x % 2 == 0:
-                cam["orientationDegrees"] = [90.0, -90.0 + desiredHor, 90.0 - desiredVer]
+                rx = 90.0
+                ry = -90.0 + desiredHor
+                rz = 90.0 - desiredVer
             else:
-                cam["orientationDegrees"] = [90.0, 90.0 + desiredHor, -90.0 + desiredVer]
+                rx = 90.0
+                ry = 90.0 + desiredHor
+                rz = -90.0 + desiredVer
+            if args.tweak_rot != 0.0:
+                rMag = args.tweak_rot
+                rx, ry, rz = nested_rotations(rx, ry, rz,
+                                              random.uniform(-rMag, rMag),
+                                              random.uniform(-rMag, rMag),
+                                              random.uniform(-rMag, rMag))
+            cam["orientationDegrees"] = [rx, ry, rz]
 
             # Compute the position of the camera, which is a radial distance from the origin.
             # Start by computing the normal distance, which is in the space that has X to the
             # right, Y into the screen, and Z up (helicopter space).  This is in spherical
             # coordinates.
-            pos = args.radial * rotate_y_axis(desiredHor, desiredVer)   
+            pos = args.radial * rotate_y_axis(desiredHor, desiredVer)
+            if args.tweak_pos != 0.0:
+                pMag = args.tweak_pos * 1e-3
+                pos += np.array([random.uniform(-pMag, pMag), random.uniform(-pMag, pMag), random.uniform(-pMag, pMag)])
             cam["positionMeters"] = [pos[0], pos[1], pos[2]]
 
             # Generate the distortion data, which is unity when we're not simulating and will be filled in by
@@ -119,6 +155,10 @@ def main():
 
             cam["distortion"] = { "type": "radial" }
             COP = [0.0, 0.0]
+            if args.tweak_distortion != 0.0:
+                gain = random.uniform(1, 1 + args.tweak_distortion/100)
+                for i in range(len(dMap)):
+                    dMap[i][1] *= gain
             parameters = { "COP": COP, "map": dMap }
             cam["distortion"]["parameters"] = parameters
 
