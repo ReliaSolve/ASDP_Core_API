@@ -155,8 +155,8 @@ def main():
                     dMap = [ [0, 0], [0.1, 0.1], [0.2, 0.21], [0.4, 0.45], [1.0, 1.3], [1.5, 2.2] ]
                     cam["oversizedResolutionPixels"] = [args.pixels_x * 2, args.pixels_y * 2]
                     cam["oversizedFieldOfViewDegrees"] = [args.fov_h + 10, args.fov_v + 10]
-                    cam["color"]["offset"] += random.uniform(-0.3, -0.1)
-                    cam["color"]["gain"] *= random.uniform(0.5, 1.1)
+                    cam["color"]["offset"] += int(random.uniform(-0.3*65535, -0.1*65535))
+                    cam["color"]["gain"] *= random.uniform(1.45, 1.6)
 
             cam["distortion"] = { "type": "radial" }
             COP = [0.0, 0.0]
@@ -234,8 +234,8 @@ def main():
                                  [10.0, 20.0] ]
                         cam["oversizedResolutionPixels"] = [args.pixels_x * 2, args.pixels_y * 2]
                         cam["oversizedFieldOfViewDegrees"] = [hFOR + 20, vFOR + 35]
-                        cam["color"]["offset"] += random.uniform(-0.3, -0.1)
-                        cam["color"]["gain"] *= random.uniform(0.5, 1.1)
+                        cam["color"]["offset"] += int(random.uniform(-0.3*65535, -0.1*65535))
+                        cam["color"]["gain"] *= random.uniform(1.45, 1.6)
 
                 cam["distortion"] = { "type": "radial" }
                 COP = [0.0, 0.0]
