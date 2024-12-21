@@ -84,6 +84,8 @@ def main():
     parser.add_argument('--tweak_rot', type=float, default=0.0, help='Rotation tweak amount deg (default: 0.0)')
     parser.add_argument('--tweak_pos', type=float, default=0.0, help='Position tweak amount mm (default: 0.0)')
     parser.add_argument('--tweak_distortion', type=float, default=0.0, help='Distortion tweak amount percent (default: 0.0)')
+    parser.add_argument('--color_offset', type=float, default=0.0, help='Offset to add to color (default: 0.0)')
+    parser.add_argument('--color_gain', type=float, default=1.0, help='Gain for color (default: 1.0)')
     
     args = parser.parse_args()
     
@@ -100,6 +102,7 @@ def main():
             cam["resolutionPixels"] = [args.pixels_x, args.pixels_y]
             cam["cropPixels"] = { "minX": args.crop_min_x, "maxX": args.pixels_x + args.crop_max_x,
                                   "minY": args.crop_min_y, "maxY": args.pixels_y + args.crop_max_y }
+            cam["color"] = { "offset": args.color_offset, "gain": args.color_gain }
 
             # Odd-numbered columns are rotated with X facing up, even with it facing down.
             # The transformations are complicated by the fact that our Euler order of operations
@@ -152,6 +155,8 @@ def main():
                     dMap = [ [0, 0], [0.1, 0.1], [0.2, 0.21], [0.4, 0.45], [1.0, 1.3], [1.5, 2.2] ]
                     cam["oversizedResolutionPixels"] = [args.pixels_x * 2, args.pixels_y * 2]
                     cam["oversizedFieldOfViewDegrees"] = [args.fov_h + 10, args.fov_v + 10]
+                    cam["color"]["offset"] += random.uniform(-0.3, -0.1)
+                    cam["color"]["gain"] *= random.uniform(0.5, 1.1)
 
             cam["distortion"] = { "type": "radial" }
             COP = [0.0, 0.0]
@@ -209,6 +214,7 @@ def main():
                 cam["resolutionPixels"] = [args.pixels_x, args.pixels_y]
                 cam["cropPixels"] = { "minX": args.crop_min_x, "maxX": args.pixels_x + args.crop_max_x,
                                       "minY": args.crop_min_y, "maxY": args.pixels_y + args.crop_max_y }
+                cam["color"] = { "offset": args.color_offset, "gain": args.color_gain }
                 cam["orientationDegrees"] = [0, 0, angle]
                 cam["positionMeters"] = [forwardX + sign * leftX, forwardY + sign * leftY, Z]
 
@@ -228,6 +234,8 @@ def main():
                                  [10.0, 20.0] ]
                         cam["oversizedResolutionPixels"] = [args.pixels_x * 2, args.pixels_y * 2]
                         cam["oversizedFieldOfViewDegrees"] = [hFOR + 20, vFOR + 35]
+                        cam["color"]["offset"] += random.uniform(-0.3, -0.1)
+                        cam["color"]["gain"] *= random.uniform(0.5, 1.1)
 
                 cam["distortion"] = { "type": "radial" }
                 COP = [0.0, 0.0]
