@@ -61,6 +61,8 @@ def nested_rotations(X1, Y1, Z1, X2, Y2, Z2):
     return euler_angles
 
 def main():
+    print("Make_Camera_Config_File.py version 2.0.0");
+
     parser = argparse.ArgumentParser(description="Generate a camera configuration file for a specified number of cameras.")
     parser.add_argument('--output', type=str, default='camConfig.json', help='Output JSON file name (default: camConfig.json)')
     parser.add_argument('--serial', type=int, default=1, help='Camera serial number (default: 1)')
