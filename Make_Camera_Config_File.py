@@ -147,6 +147,13 @@ def main():
             # calibration data.
             dMap = [ [0, 0], [5, 5] ]
 
+            # Add default vignette data
+            cam["vignette"] = {}
+            cam["vignette"]["type"] = "evenPolynomial"
+            cam["vignette"]["parameters"] = {}
+            cam["vignette"]["parameters"]["COP"] = [0.0, 0.0]
+            cam["vignette"]["parameters"]["coefficients"] = [1.0]
+
             # Modify distortion data and add fields when simulating
             if args.simulation:
                 if args.identical:
@@ -159,6 +166,8 @@ def main():
                     cam["oversizedFieldOfViewDegrees"] = [args.fov_h + 10, args.fov_v + 10]
                     cam["color"]["offset"] += int(random.uniform(-0.3*65535, -0.1*65535))
                     cam["color"]["gain"] *= random.uniform(1.45, 1.6)
+                    cam["vignette"]["parameters"]["COP"] = [random.uniform(-0.3,0.3), random.uniform(-0.3,0.3)]
+                    cam["vignette"]["parameters"]["coefficients"] = [1.0, random.uniform(0.1,0.3)]
 
             cam["distortion"] = { "type": "radial" }
             COP = [0.0, 0.0]
@@ -223,6 +232,11 @@ def main():
                 # Generate the distortion data.  Make a very wide map to cover the field of view.
                 dMap = [ [0, 0], [10, 10] ]
 
+                # Add default vignette data
+                cam["vignette"]["type"] = "evenPolynomial"
+                cam["vignette"]["parameters"]["COP"] = [0.0, 0.0]
+                cam["vignette"]["parameters"]["ceofficients"] = [1.0]
+
                 # Modify distortion data and add fields when simulating
                 if args.simulation:
                     if args.identical:
@@ -238,6 +252,8 @@ def main():
                         cam["oversizedFieldOfViewDegrees"] = [hFOR + 20, vFOR + 35]
                         cam["color"]["offset"] += int(random.uniform(-0.3*65535, -0.1*65535))
                         cam["color"]["gain"] *= random.uniform(1.45, 1.6)
+                        cam["vignette"]["parameters"]["COP"] = [random.uniform(-0.3,0.3), random.uniform(-0.3,0.3)]
+                        cam["vignette"]["parameters"]["ceofficients"] = [1.0, random.uniform(0.1,0.3)]
 
                 cam["distortion"] = { "type": "radial" }
                 COP = [0.0, 0.0]
