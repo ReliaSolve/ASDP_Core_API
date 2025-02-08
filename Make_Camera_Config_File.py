@@ -88,6 +88,7 @@ def main():
     parser.add_argument('--tweak_distortion', type=float, default=0.0, help='Distortion tweak amount percent (default: 0.0)')
     parser.add_argument('--color_offset', type=float, default=0.0, help='Offset to add to color (default: 0.0)')
     parser.add_argument('--color_gain', type=float, default=1.0, help='Gain for color (default: 1.0)')
+    parser.add_argument('--stills_arrangement', action='store_true', help='Generate camera arrangement for IR stills')
     
     args = parser.parse_args()
     
@@ -106,7 +107,9 @@ def main():
                                   "minY": args.crop_min_y, "maxY": args.pixels_y + args.crop_max_y }
             cam["color"] = { "offset": args.color_offset, "gain": args.color_gain }
 
-            # Odd-numbered columns are rotated with X facing up, even with it facing down.
+            # Odd-numbered columns are rotated with X facing up, even with it facing down, unless we're
+            # in stills arrangement.  Also, in stills arrangement the cameras go from left to right
+            # rather than right to left.
             # The transformations are complicated by the fact that our Euler order of operations
             # is XYZ.  We need to rotate around X by 90 or -90 degrees to point straight up or down.
             # We then need to rotate around the the new Y axis by -90 plus the desired Y rotation
@@ -115,9 +118,11 @@ def main():
             # Remember that the cameras are rotated into portrait mode, so FOVs and their offsets are swapped.
             hRatio = (args.fov_v - args.overlap_x) / args.fov_v
             desiredHor = hRatio * (x - (args.num_x - 1)/2.0) * args.fov_v
+            if args.stills_arrangement:
+                desiredHor *= -1
             vRatio = (args.fov_h - args.overlap_y) / args.fov_h
             desiredVer = vRatio * (y - (args.num_y - 1)/2.0) * args.fov_h
-            if x % 2 == 0:
+            if x % 2 == 0 or args.stills_arrangement:
                 rx = 90.0
                 ry = -90.0 + desiredHor
                 rz = 90.0 - desiredVer
