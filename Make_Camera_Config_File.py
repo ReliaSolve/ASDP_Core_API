@@ -89,6 +89,9 @@ def main():
     parser.add_argument('--color_offset', type=float, default=0.0, help='Offset to add to color (default: 0.0)')
     parser.add_argument('--color_gain', type=float, default=1.0, help='Gain for color (default: 1.0)')
     parser.add_argument('--stills_arrangement', action='store_true', help='Generate camera arrangement for IR stills')
+    parser.add_argument('--add_rot_x', type=float, default=0.0, help='Additional rotation around X axis deg (default: 0.0)')
+    parser.add_argument('--add_rot_y', type=float, default=0.0, help='Additional rotation around Y axis deg (default: 0.0)')
+    parser.add_argument('--add_rot_z', type=float, default=0.0, help='Additional rotation around Z axis deg (default: 0.0)')
     
     args = parser.parse_args()
     
@@ -130,12 +133,11 @@ def main():
                 rx = 90.0
                 ry = 90.0 + desiredHor
                 rz = -90.0 + desiredVer
-            if args.tweak_rot != 0.0:
-                rMag = args.tweak_rot
-                rx, ry, rz = nested_rotations(rx, ry, rz,
-                                              random.uniform(-rMag, rMag),
-                                              random.uniform(-rMag, rMag),
-                                              random.uniform(-rMag, rMag))
+            rMag = args.tweak_rot
+            rx, ry, rz = nested_rotations(rx, ry, rz,
+                                          args.add_rot_x + random.uniform(-rMag, rMag),
+                                          args.add_rot_y + random.uniform(-rMag, rMag),
+                                          args.add_rot_z + random.uniform(-rMag, rMag))
             cam["orientationDegrees"] = [rx, ry, rz]
 
             # Compute the position of the camera, which is a radial distance from the origin.
