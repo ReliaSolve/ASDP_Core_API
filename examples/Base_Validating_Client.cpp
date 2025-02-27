@@ -100,6 +100,134 @@ std::shared_ptr<Message> WaitForMessageType(std::shared_ptr<Receiver> receiver, 
   return empty;
 }
 
+static int GetPixelCounts(std::string &ip_address, CoreClient &client,
+  CameraInfo &camera, uint32_t camID,
+  uint16_t top, uint16_t left, uint16_t bottom, uint16_t right,
+  std::vector<int> &outPixelCounts)
+{
+  // Construct a UDP receiver for a stream from the camera.
+  ReceiverUDP receiverUDP;
+  if (receiverUDP.GetConstructorStatus() != OKAY) {
+    std::cerr << "Error constructing ReceiverUDP: " << ErrorMessage(receiverUDP.GetConstructorStatus()) << std::endl;
+    return 30;
+  }
+  uint16_t port;
+  asdp::Status status = receiverUDP.GetPort(port);
+  if (status != asdp::OKAY) {
+    std::cerr << "Error getting port from ReceiverUDP: " << ErrorMessage(status) << std::endl;
+    return 31;
+  }
+
+  // Find the minimum period for the camera and which internal trigger ID it uses, then
+  // configure the trigger to run at that rate.
+  TriggerInfo ti;
+  ti.ID = camera.trigger;
+  ti.mode = 1;
+  ti.period = camera.minTriggerPeriod;
+  ti.offset = 0;
+  ti.trackingFactor = 0.5;
+  status = client.SendCommandPacket(CommandPacketConfigureTrigger(ti));
+  if (status != OKAY) {
+    std::cerr << "Failed to configure trigger: " << ErrorMessage(status) << std::endl;
+    return 32;
+  }
+
+  // Request the camera to stream images and make sure we get all pixels between the
+  // first BEGIN_FRAME and the first END_FRAME message.
+  StreamEndpoint endpoint(ip_address, port);
+  SubregionDescription region;
+  region.cameraID = camID;
+  region.skipFrames = 0;
+  region.startTimeSeconds = 0;
+  region.startTimeMicroseconds = 0;
+  region.left = left;
+  region.top = top;
+  region.right = right;
+  region.bottom = bottom;
+  status = client.SendCommandPacket(CommandPacketStreamSubregion(endpoint, region));
+  if (status != OKAY) {
+    std::cerr << "Failed to stream images: " << ErrorMessage(status) << std::endl;
+    return 32;
+  }
+  auto start = std::chrono::high_resolution_clock::now();
+  outPixelCounts = std::vector<int>(camera.width * camera.height, 0);
+  bool gotStart = false;
+  bool gotEnd = false;
+  do {
+    std::shared_ptr<asdp::StreamPacket> receiveStreamPacket;
+    size_t offset = 0;
+    status = receiverUDP.ReceiveStreamPacket(1.0, receiveStreamPacket, offset);
+    if (status != asdp::OKAY) {
+      std::cerr << "Error receiving StreamPacket: " << ErrorMessage(status) << std::endl;
+      return 33;
+    }
+    std::shared_ptr<asdp::Message> message;
+    status = receiveStreamPacket->GetNextMessage(message);
+    if (status != asdp::OKAY) {
+      std::cerr << "Error getting first message from packet: " << ErrorMessage(status) << std::endl;
+      return 34;
+    }
+    asdp::MessageID rID;
+    status = message->GetType(rID);
+    if (status != asdp::OKAY) {
+      std::cerr << "Error getting type from message: " << ErrorMessage(status) << std::endl;
+      return 35;
+    }
+    if (rID == asdp::FRAME_BEGIN) {
+      gotStart = true;
+    }
+    if (rID == asdp::FRAME_END) {
+      gotEnd = true;
+    }
+    if (gotStart && rID == asdp::FRAME_DATA) {
+      asdp::MessageFrameData frameData(*message);
+      if (frameData.GetConstructorStatus() != OKAY) {
+        std::cerr << "Failed to construct frame data message: " << ErrorMessage(frameData.GetConstructorStatus()) << std::endl;
+        return 36;
+      }
+      uint16_t left, right, top, bottom;
+      status = frameData.GetLeft(left);
+      if (status != OKAY) {
+        std::cerr << "Failed to get left: " << ErrorMessage(status) << std::endl;
+        return 37;
+      }
+      status = frameData.GetRight(right);
+      if (status != OKAY) {
+        std::cerr << "Failed to get right: " << ErrorMessage(status) << std::endl;
+        return 38;
+      }
+      status = frameData.GetTop(top);
+      if (status != OKAY) {
+        std::cerr << "Failed to get top: " << ErrorMessage(status) << std::endl;
+        return 39;
+      }
+      status = frameData.GetBottom(bottom);
+      if (status != OKAY) {
+        std::cerr << "Failed to get bottom: " << ErrorMessage(status) << std::endl;
+        return 40;
+      }
+      for (size_t y = top; y <= bottom; y++) {
+        for (size_t x = left; x <= right; x++) {
+          if ((x >= camera.width) || (y >= camera.height)) {
+            std::cerr << "Pixel out of bounds: " << x << ", " << y << std::endl;
+            return 41;
+          }
+          outPixelCounts[y * camera.width + x]++;
+        }
+      }
+    }
+  } while (!gotEnd && (std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - start).count() <= 2.0));
+
+  // Turn off streaming.
+  status = client.SendCommandPacket(CommandPacketCancelSubregion(camID, endpoint));
+  if (status != OKAY) {
+    std::cerr << "Failed to cancel stream images: " << ErrorMessage(status) << std::endl;
+    return 43;
+  }
+
+  return 0;
+}
+
 int main(int argc, char** argv)
 {
   std::string ip_address;
@@ -363,7 +491,7 @@ int main(int argc, char** argv)
     }
   }
 
-  // If we have at least one camera, try streaming data from it at its highest rate.
+  // Try streaming data from all cameras at the highest rate.
   for (uint32_t camID = 1; camID <= cameras.size(); camID++) {
 
     // Find the minimum period for the camera and which internal trigger ID it uses, then
@@ -379,7 +507,7 @@ int main(int argc, char** argv)
       std::cerr << "Failed to configure trigger: " << ErrorMessage(status) << std::endl;
       return 29;
     }
-      
+
     // Construct a UDP receiver for a stream from the camera.
     ReceiverUDP receiverUDP;
     if (receiverUDP.GetConstructorStatus() != OKAY) {
@@ -460,7 +588,64 @@ int main(int argc, char** argv)
       std::cerr << "Failed to cancel stream images: " << ErrorMessage(status) << std::endl;
       return 38;
     }
+  }
 
+  // If we have at least one camera, verify that it fills in all of the pixels.
+  if (cameras.size()) {
+    uint32_t camID = 1;
+
+    std::cout << "Checking full coverage from camera " << camID << std::endl;
+    std::vector<int> pixels;
+    int ret = GetPixelCounts(ip_address, client, cameras[camID - 1], camID,
+      0, 0, cameras[camID - 1].height - 1, cameras[camID - 1].width - 1,
+      pixels);
+    if (ret != 0) {
+      return ret;
+    }
+
+    // Make sure that we got all of the pixels.
+    for (int pixel : pixels) {
+      if (pixel != 1) {
+        std::cerr << "Pixel count mismatch for full image: " << pixel << std::endl;
+        return 42;
+      }
+    }
+  }
+
+  // If we have at least one camera, verify that it fills in a requested subset
+  // of pixels which covers 1/4 to 3/4 in both X and Y
+  if (cameras.size()) {
+    uint32_t camID = 1;
+
+    std::cout << "Checking subset coverage from camera " << camID << std::endl;
+    std::vector<int> pixels;
+    uint16_t left = cameras[camID - 1].width / 4;
+    uint16_t right = 3 * cameras[camID - 1].width / 4;
+    uint16_t top = cameras[camID - 1].height / 4;
+    uint16_t bottom = 3 * cameras[camID - 1].height / 4;
+    int ret = GetPixelCounts(ip_address, client, cameras[camID-1], camID,
+      top, left, bottom, right,
+      pixels);
+    if (ret != 0) {
+      return ret;
+    }
+
+    // Make sure that we the expected pixels.
+    for (int y = 0; y < cameras[camID - 1].height; y++) {
+      for (int x = 0; x < cameras[camID - 1].width; x++) {
+        if ((x >= left) && (x <= right) && (y >= top) && (y <= bottom)) {
+          if (pixels[y * cameras[camID - 1].width + x] != 1) {
+            std::cerr << "Pixel count mismatch for subset image: " << x << "," << y << " = " << pixels[y * cameras[camID - 1].width + x] << std::endl;
+            return 43;
+          }
+        } else {
+          if (pixels[y * cameras[camID - 1].width + x] != 0) {
+            std::cerr << "Pixel count mismatch for subset image: " << x << "," << y << " = " << pixels[y * cameras[camID - 1].width + x] << std::endl;
+            return 43;
+          }
+        }
+      }
+    }
   }
 
   std::cout << std::endl << "Success!" << std::endl;
