@@ -126,6 +126,7 @@ static int GetPixelCounts(std::string &ip_address, CoreClient &client,
   ti.period = camera.minTriggerPeriod;
   ti.offset = 0;
   ti.trackingFactor = 0.5;
+  ti.externalID = 0;
   status = client.SendCommandPacket(CommandPacketConfigureTrigger(ti));
   if (status != OKAY) {
     std::cerr << "Failed to configure trigger: " << ErrorMessage(status) << std::endl;
@@ -505,6 +506,7 @@ int main(int argc, char** argv)
     ti.period = cameras[camID - 1].minTriggerPeriod;
     ti.offset = 0;
     ti.trackingFactor = 0.5;
+    ti.externalID = 0;
     status = client.SendCommandPacket(CommandPacketConfigureTrigger(ti));
     if (status != OKAY) {
       std::cerr << "Failed to configure trigger: " << ErrorMessage(status) << std::endl;
@@ -633,7 +635,7 @@ int main(int argc, char** argv)
       return ret;
     }
 
-    // Make sure that we the expected pixels.
+    // Make sure that we got exactly the expected pixels.
     for (int y = 0; y < cameras[camID - 1].height; y++) {
       for (int x = 0; x < cameras[camID - 1].width; x++) {
         if ((x >= left) && (x <= right) && (y >= top) && (y <= bottom)) {
