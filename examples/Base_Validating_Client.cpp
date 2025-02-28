@@ -176,6 +176,9 @@ static int GetPixelCounts(std::string &ip_address, CoreClient &client,
     if (rID == asdp::FRAME_BEGIN) {
       gotStart = true;
     }
+    if (!gotStart) {
+      continue;
+    }
     if (rID == asdp::FRAME_END) {
       gotEnd = true;
     }
