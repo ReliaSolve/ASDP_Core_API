@@ -106,7 +106,7 @@ static int GetPixelCounts(std::string &ip_address, CoreClient &client,
   std::vector<int> &outPixelCounts)
 {
   // Construct a UDP receiver for a stream from the camera.
-  ReceiverUDP receiverUDP;
+  ReceiverUDP receiverUDP(ip_address);
   if (receiverUDP.GetConstructorStatus() != OKAY) {
     std::cerr << "Error constructing ReceiverUDP: " << ErrorMessage(receiverUDP.GetConstructorStatus()) << std::endl;
     return 30;
@@ -514,7 +514,7 @@ int main(int argc, char** argv)
     }
 
     // Construct a UDP receiver for a stream from the camera.
-    ReceiverUDP receiverUDP;
+    ReceiverUDP receiverUDP(ip_address);
     if (receiverUDP.GetConstructorStatus() != OKAY) {
       std::cerr << "Error constructing ReceiverUDP: " << ErrorMessage(receiverUDP.GetConstructorStatus()) << std::endl;
       return 30;
