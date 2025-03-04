@@ -5,6 +5,7 @@
 #include "ASDP_ClockSynchronizer.h"
 #include <utility>
 #include <vector>
+#include <iostream>
 
 using namespace asdp;
 
@@ -258,7 +259,11 @@ std::string ClockSynchronizer::Test()
       now += std::chrono::seconds(1);
     }
     // Add a point that is below the line.
-    serverTime.seconds -= 25000;
+    if (serverTime.seconds < 25000) {
+      serverTime.seconds = 0;
+    } else {
+      serverTime.seconds -= 25000;
+    }
     if (!synchronizer.AddDataPoint(serverTime, now)) {
       return "50000 points AddDataPoint() failed";
     }
