@@ -121,7 +121,7 @@ static std::string OpCodeName(OpCode opCode)
 // Definitions of static constants used below.
 
 static const unsigned char MAGIC_COOKIE[4] = { 'A', 'S', 'D', 'P' };
-static const unsigned char VERSION[4] = { 6, 2, 0, 0 };
+static const unsigned char VERSION[4] = { 6, 2, 1, 0 };
 
 static const uint32_t PACKET_HEADER_TOTAL_SIZE_OFFSET = 0;
 static const uint32_t PACKET_BASIC_HEADER_SIZE = sizeof(uint32_t);
