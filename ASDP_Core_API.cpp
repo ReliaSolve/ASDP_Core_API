@@ -8183,23 +8183,31 @@ std::string asdp::SpinFreeQueue_Test()
   // Multi-threaded tests of basic queue function along with waiting for
   // the queue to be empty enough for another enqueue to be done.
   {
+    int count = 10000;
     SpinFreeQueue<int> queue;
     std::atomic<bool> broken(false);
-    std::thread producer([&queue, &broken]() {
-      for (int i = 0; i < 1000; i++) {
-        if (queue.awaitEmpty(0, std::chrono::milliseconds(1000))) {
+    std::string ret;
+    std::thread producer([&queue, &broken, &ret, &count]() {
+      for (int i = 0; i < count; i++) {
+        if (queue.awaitEmpty(0, std::chrono::milliseconds(2000))) {
           queue.enqueue(i);
         } else {
+          ret = "Queue did not empty in time for iteration " + std::to_string(i);
           broken = true;
           return;
         }
       }
     });
-    std::thread consumer([&queue, &broken]() {
-      for (int i = 0; i < 1000; i++) {
+    std::thread consumer([&queue, &broken, &ret, &count]() {
+      for (int i = 0; i < count; i++) {
         int value;
-        queue.dequeue(value, std::chrono::milliseconds(1000));
+        if (!queue.dequeue(value, std::chrono::milliseconds(2000))) {
+          ret = "Could not dequeue iteration " + std::to_string(i);
+          broken = true;
+          return;
+        };
         if (value != i) {
+          ret = "Wrong value returned: expected " + std::to_string(i) + ", got " + std::to_string(value);
           broken = true;
           return;
         }
@@ -8208,7 +8216,7 @@ std::string asdp::SpinFreeQueue_Test()
     producer.join();
     consumer.join();
     if (broken) {
-      return "Multithreaded queue/dequeue failed";
+      return "Multithreaded queue/dequeue failed: " + ret;
     }
   }
 

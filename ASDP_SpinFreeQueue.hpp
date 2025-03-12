@@ -23,38 +23,78 @@ namespace asdp {
 template <typename T> class SpinFreeQueue {
 public:
   /// @brief Constructor.
-  SpinFreeQueue() : head(nullptr), tail(nullptr), nodes(0) { }
+  SpinFreeQueue() : numNodes(0) {
+    // This is a dummy node to avoid special cases for empty queue.
+    // The fact that the head's next pointer is null means the queue is empty.
+    Node* dummy = new Node;
+    head.store(dummy);
+    tail.store(dummy);
+  }
 
   /// @brief Destructor.
   ~SpinFreeQueue() {
-    std::lock_guard<std::mutex> lk(mut);
-    while (head) {
-      Node* old_head = head;
-      head = old_head->next;
-      delete old_head;
-      nodes--;
+    while (Node* node = head.load()) {
+      head.store(node->next.load());
+      delete node;
+      numNodes.fetch_sub(1, std::memory_order_relaxed);
     }
   }
 
   /// @brief Enqueues a data item in a thread-safe way.
+  /// @param data The data item to enqueue.
   void enqueue(T data) {
-    {
-      std::lock_guard<std::mutex> lk(mut);
-      Node* new_node = new Node;
-      new_node->data = data;
-      new_node->next = nullptr;
-
-      if (nodes == 0) {
-        head = new_node;
-        tail = new_node;
+    Node* new_node = new Node(data);
+    Node* old_tail = tail.load();
+    while (true) {
+      Node* next = old_tail->next.load();
+      if (next == nullptr) {
+        if (old_tail->next.compare_exchange_strong(next, new_node)) {
+          tail.compare_exchange_strong(old_tail, new_node);
+          numNodes.fetch_add(1, std::memory_order_relaxed);
+          std::lock_guard<std::mutex> cvlk(dmut);
+          dcv.notify_one();
+          return;
+        }
       } else {
-        tail->next = new_node;
-        tail = new_node;
+        tail.compare_exchange_strong(old_tail, next);
       }
-
-      nodes++;
+      old_tail = tail.load();
     }
-    dcv.notify_one();
+  }
+
+  /// @brief Dequeues a data item in a thread-safe way with a timeout.
+  /// @details This method dequeues a data item from the queue in a thread-safe way
+  /// without spin-waiting or blocking indefinitely.  It can thus be used in a thread
+  /// that needs to dequeue data items but also needs to perform other tasks or watch
+  /// for a done flag.
+  /// @param result The data item that was dequeued (if any).
+  /// @param timeout The maximum time to wait for a data item to be available.
+  /// @return True if a data item is dequeued, false if the timeout is reached.
+  bool dequeue(T& result, const std::chrono::milliseconds& timeout) {
+    // Wait for data to be available, timing out if necessary.
+    {
+      std::unique_lock<std::mutex> cvlk(dmut);
+      if (!dcv.wait_for(cvlk, timeout, [&] { return numNodes.load() > 0; })) {
+        return false;
+      }
+    }
+
+    Node* old_head = head.load();
+    while (true) {
+      Node* next = old_head->next.load();
+      if (next == nullptr) {
+        return false; // Queue is empty
+      }
+      if (head.compare_exchange_strong(old_head, next)) {
+        result = next->data;
+        delete old_head;
+        numNodes.fetch_sub(1, std::memory_order_relaxed);
+        std::lock_guard<std::mutex> cvlk(emut);
+        ecv.notify_all();
+        return true;
+      }
+      old_head = head.load();
+    }
   }
 
   /// @brief Waits for the queue to be reduced to a specified size with a timeout.
@@ -66,66 +106,39 @@ public:
   /// @param timeout The maximum time to wait.
   /// @return True if the queue is reduced to the specified size, false if the timeout is reached.
   bool awaitEmpty(size_t size, const std::chrono::milliseconds& timeout) {
-    std::unique_lock<std::mutex> cvlk(mut);
-    if (!ecv.wait_for(cvlk, timeout, [&] { return nodes <= size; })) {
+    std::unique_lock<std::mutex> cvlk(emut);
+    if (!ecv.wait_for(cvlk, timeout, [&] { return numNodes.load() <= size; })) {
       return false;
     }
     return true;
   }
 
-  /// @brief Dequeues a data item in a thread-safe way with a timeout.
-  /// @details This method dequeues a data item from the queue in a thread-safe way
-  /// without spin-waiting or blocking indefinitely.  It can thus be used in a thread
-  /// that needs to dequeue data items but also needs to perform other tasks or watch
-  /// for a done flag.
-  /// @param value The data item that was dequeued (if any).
-  /// @param timeout The maximum time to wait for a data item to be available.
-  /// @return True if a data item is dequeued, false if the timeout is reached.
-  bool dequeue(T& value, const std::chrono::milliseconds& timeout) {
-    {
-      std::unique_lock<std::mutex> cvlk(mut);
-      if (!dcv.wait_for(cvlk, timeout, [&] { return nodes != 0; })) {
-        return false;
-      }
-
-      value = head->data;
-      Node* old_head = head;
-      head = old_head->next;
-      delete old_head;
-      nodes--;
-      if (head == nullptr) {
-        tail = head;
-      }
-    }
-    ecv.notify_all();
-    return true;
-  }
-
   /// @brief Returns the number of nodes in the queue.
   size_t size() const {
-    return nodes;
+    return numNodes.load();
   }
 
 private:
   /// @brief A node in the queue with a pointer to the next node.
   struct Node {
-    T data = { };           ///< The data in the node.
-    Node* next = nullptr;   ///< The next node in the queue, nullptr for the end.
+    Node(T value) : data(value), next(nullptr) {};
+    Node() = default;
+
+    T data = {};                        ///< The data in the node.
+    std::atomic<Node*> next = nullptr;  ///< The next node in the queue, nullptr for the end.
   };
 
-  Node* head;               ///< The head of the queue, nullptr if empty.
-  Node* tail;               ///< The tail of the queue, nullptr if empty.
-  std::atomic<size_t> nodes;///< The number of nodes in the queue.
+  std::atomic<Node*> head;              ///< The head of the queue, dummy node if empty.
+  std::atomic<Node*> tail;              ///< The tail of the queue, dummy node if empty.
+  std::atomic<size_t> numNodes;         ///< The number of nodes in the queue.
 
-  /// Condition variable and its mutex for dequeue to avoid spin-wait for getting data
+  /// Condition variable for dequeue to avoid spin-wait for getting data and its mutex
   std::condition_variable dcv;
+  std::mutex dmut;
 
-  /// Condition variable and its mutex for enqueue to avoid spin-wait for queue depletion
+  /// Condition variable for enqueue to avoid spin-wait for queue depletion and its mutex
   std::condition_variable ecv;
-
-  /// Mutex for adjusting the queue and for the condition variables
-  std::mutex mut;
-
+  std::mutex emut;
 };
 
 /// @brief Test the SpinFreeQueue class (defined in ASDP_Core_API library).
