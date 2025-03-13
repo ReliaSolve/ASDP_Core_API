@@ -4634,17 +4634,31 @@ public:
     }
   }
 
+  bool JoinMulticastGroup(const std::string& multicastName) {
+    struct ip_mreq mreq;
+    mreq.imr_multiaddr.s_addr = inet_addr(multicastName.c_str());
+    mreq.imr_interface.s_addr = addr.sin_addr.s_addr;
+
+    if (setsockopt(socket, IPPROTO_IP, IP_ADD_MEMBERSHIP, (char*)&mreq, sizeof(mreq)) < 0) {
+      return false;
+    }
+    addr.sin_addr.s_addr = mreq.imr_multiaddr.s_addr;
+    return true;
+  }
+
   /// Address that is associated with the socket, used by SenderUDP to remember
   /// where to send to.
   struct sockaddr_in addr;
 };
 
-SenderUDP::SenderUDP(std::string host, uint16_t port, bool broadcast, std::string const& NICName)
-  : SenderUDP(StreamEndpoint(host, port), broadcast, NICName)
+SenderUDP::SenderUDP(std::string host, uint16_t port, bool broadcast, std::string const& NICName,
+  std::string multicastName)
+  : SenderUDP(StreamEndpoint(host, port), broadcast, NICName, multicastName)
 {
 }
 
-SenderUDP::SenderUDP(const StreamEndpoint& endpoint, bool broadcast, std::string const& NICName)
+SenderUDP::SenderUDP(const StreamEndpoint& endpoint, bool broadcast, std::string const& NICName,
+  std::string multicastName)
   : m_socket(std::make_shared<Socket>())
 {
   // Problem if the enpoint has been set to all zeros.
@@ -4719,6 +4733,15 @@ SenderUDP::SenderUDP(const StreamEndpoint& endpoint, bool broadcast, std::string
   m_socket->addr.sin_family = AF_INET;
   m_socket->addr.sin_addr.s_addr = addressToUse;
   m_socket->addr.sin_port = htons(endpoint.port);
+
+  // If we have a multicast name, join the multicast group and overwrite the sending address.
+  if (!multicastName.empty()) {
+    if (!m_socket->JoinMulticastGroup(multicastName)) {
+      m_constructorStatus = SOCKET_FAILURE;
+      m_socket.reset();
+      return;
+    }
+  }
 }
 
 Status SenderUDP::Send(const void* buffer, uint32_t length)
@@ -4884,12 +4907,12 @@ Status SenderFile::SendStreamPacket(const StreamPacket& packet)
   return Send(packet.MyData(), length);
 }
 
-ReceiverUDP::ReceiverUDP(std::string host, uint16_t port, uint32_t maxLen, bool broadcast)
-  : ReceiverUDP(StreamEndpoint(host, port), maxLen, broadcast)
+ReceiverUDP::ReceiverUDP(std::string host, uint16_t port, uint32_t maxLen, bool broadcast, std::string multicastName)
+  : ReceiverUDP(StreamEndpoint(host, port), maxLen, broadcast, multicastName)
 {
 }
 
-ReceiverUDP::ReceiverUDP(const StreamEndpoint& endpoint, uint32_t maxLen, bool broadcast)
+ReceiverUDP::ReceiverUDP(const StreamEndpoint& endpoint, uint32_t maxLen, bool broadcast, std::string multicastName)
   : Receiver(maxLen)
   , m_socket(std::make_shared<Socket>())
   , m_port(endpoint.port)
@@ -4922,15 +4945,23 @@ ReceiverUDP::ReceiverUDP(const StreamEndpoint& endpoint, uint32_t maxLen, bool b
   }
 
   // Bind the socket to the specified NIC and port.
-  struct sockaddr_in addr;
-  memset(&addr, 0, sizeof(addr));
-  addr.sin_family = AF_INET;
-  addr.sin_addr.s_addr = htonl(myEndpoint.IP);
-  addr.sin_port = htons(myEndpoint.port);
-  if (0 != bind(m_socket->socket, (struct sockaddr*)&addr, sizeof(addr))) {
+  memset(&m_socket->addr, 0, sizeof(m_socket->addr));
+  m_socket->addr.sin_family = AF_INET;
+  m_socket->addr.sin_addr.s_addr = htonl(myEndpoint.IP);
+  m_socket->addr.sin_port = htons(myEndpoint.port);
+  if (0 != bind(m_socket->socket, (struct sockaddr*)&m_socket->addr, sizeof(m_socket->addr))) {
     m_constructorStatus = SOCKET_FAILURE;
     m_socket.reset();
     return;
+  }
+
+  // If we have a multicast name, join the multicast group.
+  if (!multicastName.empty()) {
+    if (!m_socket->JoinMulticastGroup(multicastName)) {
+      m_constructorStatus = SOCKET_FAILURE;
+      m_socket.reset();
+      return;
+    }
   }
 
   // If we didn't specify a port, get the port we were assigned by the bind.

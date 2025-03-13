@@ -1719,13 +1719,17 @@ public:
   /// @param [in] port Port number to send to.
   /// @param [in] broadcast Whether to use the broadcast address from the specified address.
   /// @param [in] NICName Name of the network interface to use for sending, "" for system chooses.
-  SenderUDP(std::string host, uint16_t port, bool broadcast = false, std::string const& NICName = "");
+  /// @param [in] multicastName Name of the multicast group to join (default none).
+  SenderUDP(std::string host, uint16_t port, bool broadcast = false, std::string const& NICName = "",
+    std::string multicastName = "");
 
   /// @brief Construct a SenderUDP object that will send to a specific endpoint.
   /// @param [in] endpoint Endpoint to send to.
   /// @param [in] broadcast Whether to use the broadcast address from the specified address.
   /// @param [in] NICName Name of the network interface to use for sending, "" for system chooses.
-  SenderUDP(const StreamEndpoint& endpoint, bool broadcast = false, std::string const& NICName = "");
+  /// @param [in] multicastName Name of the multicast group to join (default none).
+  SenderUDP(const StreamEndpoint& endpoint, bool broadcast = false, std::string const& NICName = "",
+    std::string multicastName = "");
 
   /// @brief Send a buffer full of data.
   /// @param [in] buffer Pointer to the buffer containing the packet to send.
@@ -1855,14 +1859,17 @@ public:
   /// @param [in] port Port number to listen on (default of 0 means any available port).
   /// @param [in] maxLen Maximum length of a packet to receive (default of 1472 is the maximum for Ethernet).
   /// @param [in] broadcast Whether to use the broadcast address from the specified address.
+  /// @param [in] multicastName Name of the multicast group to join (default none).
   ReceiverUDP(std::string interfaceName = "localhost", uint16_t port = 0,
-    uint32_t maxLen = 9000 - 28, bool broadcast = false);
+    uint32_t maxLen = 9000 - 28, bool broadcast = false, std::string multicastName = "");
 
   /// @brief Construct a ReceiverUDP object given and endpoint.
   /// @param [in] endpoint Endpoint to listen on.
   /// @param [in] maxLen Maximum length of a packet to receive (default of 1472 is the maximum for Ethernet).
   /// @param [in] broadcast Whether to use the broadcast address from the specified address.
-  ReceiverUDP(const StreamEndpoint& endpoint, uint32_t maxLen = 9000 - 28, bool broadcast = false);
+  /// @param [in] multicastName Name of the multicast group to join (default none).
+  ReceiverUDP(const StreamEndpoint& endpoint, uint32_t maxLen = 9000 - 28, bool broadcast = false,
+    std::string multicastName = "");
 
   /// @brief Get the port associated with this receiver in host byte order.
   /// @return The port associated with this receiver, or 0 for failure.
