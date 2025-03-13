@@ -202,23 +202,26 @@ static const uint32_t MESSAGE_HEADER_MESSAGE_TYPE_OFFSET = 3 * sizeof(uint32_t);
 
 #ifndef ASDP_USE_WINSOCK_SOCKETS
 
-  // On Winsock, we have to use SOCKET, so we're going to have to use it
-  // everywhere.
+// On Winsock, we have to use SOCKET, so we're going to have to use it
+// everywhere.
 typedef int SOCKET;
+
 // On Winsock, INVALID_SOCKET is #defined as ~0 (sockets are unsigned ints)
 // We can't redefine it locally, so we have to switch to another name
 static const int BAD_SOCKET = -1;
 static const int SOCKET_ERROR = -1;
 #define closesocket close
-#else // winsock sockets
 
-  // Bring the SOCKET type into our namespace, basing it on the root namespace one.
+#else // not winsock sockets
+
+// Bring the SOCKET type into our namespace, basing it on the root namespace one.
 typedef SOCKET SOCKET;
 
 // Make a namespaced INVALID_SOCKET definition, which cannot be just
 // INVALID_SOCKET because Windows #defines it, so we pick another name.
 static const SOCKET BAD_SOCKET = INVALID_SOCKET;
-#endif
+
+#endif // winsock sockets
 
 //--------------------------------------------------------------
 // Ensures that someone calls WSAStartup on Windows before using
