@@ -4958,6 +4958,11 @@ ReceiverUDP::ReceiverUDP(const StreamEndpoint& endpoint, uint32_t maxLen, bool b
       return;
     }
   }
+  // On Windows, we cannot bind to the multicast address, so we need to bind to the local address.
+  // We override the overridden address to make this happen.
+#ifdef ASDP_USE_WINSOCK_SOCKETS
+  m_socket->addr.sin_addr.s_addr = htonl(myEndpoint.IP);
+#endif
   if (0 != bind(m_socket->socket, (struct sockaddr*)&m_socket->addr, sizeof(m_socket->addr))) {
     m_constructorStatus = SOCKET_FAILURE;
     m_socket.reset();
