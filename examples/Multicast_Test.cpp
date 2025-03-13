@@ -2,6 +2,7 @@
  * Copyright (C) 2024: Arizona Board of Regents on Behalf of the University of Arizona
  */
 
+#include <string.h>
 #include <iostream>
 #include <string>
 #include <thread>

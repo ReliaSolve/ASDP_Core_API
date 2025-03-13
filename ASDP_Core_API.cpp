@@ -4945,23 +4945,23 @@ ReceiverUDP::ReceiverUDP(const StreamEndpoint& endpoint, uint32_t maxLen, bool b
   }
 
   // Bind the socket to the specified NIC and port.
+  // If we have a multicast name, join the multicast group and bind to that address (overwritten
+  // by the call to JoinMulticastGroup).
   memset(&m_socket->addr, 0, sizeof(m_socket->addr));
   m_socket->addr.sin_family = AF_INET;
   m_socket->addr.sin_addr.s_addr = htonl(myEndpoint.IP);
   m_socket->addr.sin_port = htons(myEndpoint.port);
-  if (0 != bind(m_socket->socket, (struct sockaddr*)&m_socket->addr, sizeof(m_socket->addr))) {
-    m_constructorStatus = SOCKET_FAILURE;
-    m_socket.reset();
-    return;
-  }
-
-  // If we have a multicast name, join the multicast group.
   if (!multicastName.empty()) {
     if (!m_socket->JoinMulticastGroup(multicastName)) {
       m_constructorStatus = SOCKET_FAILURE;
       m_socket.reset();
       return;
     }
+  }
+  if (0 != bind(m_socket->socket, (struct sockaddr*)&m_socket->addr, sizeof(m_socket->addr))) {
+    m_constructorStatus = SOCKET_FAILURE;
+    m_socket.reset();
+    return;
   }
 
   // If we didn't specify a port, get the port we were assigned by the bind.
