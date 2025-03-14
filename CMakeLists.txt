@@ -142,6 +142,7 @@ if(BUILD_EXAMPLES)
     Core_Module_Stream_Test
     Measure_Camera_Frame_Rate
     Stream_File_To_Images
+    Multicast_Test
   )
   foreach (BASE ${EXAMPLES})
     # C++ example

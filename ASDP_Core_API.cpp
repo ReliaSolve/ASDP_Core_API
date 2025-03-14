@@ -121,7 +121,7 @@ static std::string OpCodeName(OpCode opCode)
 // Definitions of static constants used below.
 
 static const unsigned char MAGIC_COOKIE[4] = { 'A', 'S', 'D', 'P' };
-static const unsigned char VERSION[4] = { 6, 2, 1, 0 };
+static const unsigned char VERSION[4] = { 6, 3, 0, 0 };
 
 static const uint32_t PACKET_HEADER_TOTAL_SIZE_OFFSET = 0;
 static const uint32_t PACKET_BASIC_HEADER_SIZE = sizeof(uint32_t);
@@ -202,23 +202,26 @@ static const uint32_t MESSAGE_HEADER_MESSAGE_TYPE_OFFSET = 3 * sizeof(uint32_t);
 
 #ifndef ASDP_USE_WINSOCK_SOCKETS
 
-  // On Winsock, we have to use SOCKET, so we're going to have to use it
-  // everywhere.
+// On Winsock, we have to use SOCKET, so we're going to have to use it
+// everywhere.
 typedef int SOCKET;
+
 // On Winsock, INVALID_SOCKET is #defined as ~0 (sockets are unsigned ints)
 // We can't redefine it locally, so we have to switch to another name
 static const int BAD_SOCKET = -1;
 static const int SOCKET_ERROR = -1;
 #define closesocket close
-#else // winsock sockets
 
-  // Bring the SOCKET type into our namespace, basing it on the root namespace one.
+#else // not winsock sockets
+
+// Bring the SOCKET type into our namespace, basing it on the root namespace one.
 typedef SOCKET SOCKET;
 
 // Make a namespaced INVALID_SOCKET definition, which cannot be just
 // INVALID_SOCKET because Windows #defines it, so we pick another name.
 static const SOCKET BAD_SOCKET = INVALID_SOCKET;
-#endif
+
+#endif // winsock sockets
 
 //--------------------------------------------------------------
 // Ensures that someone calls WSAStartup on Windows before using
@@ -4631,17 +4634,31 @@ public:
     }
   }
 
+  bool JoinMulticastGroup(const std::string& multicastName) {
+    struct ip_mreq mreq;
+    mreq.imr_multiaddr.s_addr = inet_addr(multicastName.c_str());
+    mreq.imr_interface.s_addr = addr.sin_addr.s_addr;
+
+    if (setsockopt(socket, IPPROTO_IP, IP_ADD_MEMBERSHIP, (char*)&mreq, sizeof(mreq)) < 0) {
+      return false;
+    }
+    addr.sin_addr.s_addr = mreq.imr_multiaddr.s_addr;
+    return true;
+  }
+
   /// Address that is associated with the socket, used by SenderUDP to remember
   /// where to send to.
   struct sockaddr_in addr;
 };
 
-SenderUDP::SenderUDP(std::string host, uint16_t port, bool broadcast, std::string const& NICName)
-  : SenderUDP(StreamEndpoint(host, port), broadcast, NICName)
+SenderUDP::SenderUDP(std::string host, uint16_t port, bool broadcast, std::string const& NICName,
+  std::string multicastName)
+  : SenderUDP(StreamEndpoint(host, port), broadcast, NICName, multicastName)
 {
 }
 
-SenderUDP::SenderUDP(const StreamEndpoint& endpoint, bool broadcast, std::string const& NICName)
+SenderUDP::SenderUDP(const StreamEndpoint& endpoint, bool broadcast, std::string const& NICName,
+  std::string multicastName)
   : m_socket(std::make_shared<Socket>())
 {
   // Problem if the enpoint has been set to all zeros.
@@ -4716,6 +4733,15 @@ SenderUDP::SenderUDP(const StreamEndpoint& endpoint, bool broadcast, std::string
   m_socket->addr.sin_family = AF_INET;
   m_socket->addr.sin_addr.s_addr = addressToUse;
   m_socket->addr.sin_port = htons(endpoint.port);
+
+  // If we have a multicast name, join the multicast group and overwrite the sending address.
+  if (!multicastName.empty()) {
+    if (!m_socket->JoinMulticastGroup(multicastName)) {
+      m_constructorStatus = SOCKET_FAILURE;
+      m_socket.reset();
+      return;
+    }
+  }
 }
 
 Status SenderUDP::Send(const void* buffer, uint32_t length)
@@ -4881,12 +4907,12 @@ Status SenderFile::SendStreamPacket(const StreamPacket& packet)
   return Send(packet.MyData(), length);
 }
 
-ReceiverUDP::ReceiverUDP(std::string host, uint16_t port, uint32_t maxLen, bool broadcast)
-  : ReceiverUDP(StreamEndpoint(host, port), maxLen, broadcast)
+ReceiverUDP::ReceiverUDP(std::string host, uint16_t port, uint32_t maxLen, bool broadcast, std::string multicastName)
+  : ReceiverUDP(StreamEndpoint(host, port), maxLen, broadcast, multicastName)
 {
 }
 
-ReceiverUDP::ReceiverUDP(const StreamEndpoint& endpoint, uint32_t maxLen, bool broadcast)
+ReceiverUDP::ReceiverUDP(const StreamEndpoint& endpoint, uint32_t maxLen, bool broadcast, std::string multicastName)
   : Receiver(maxLen)
   , m_socket(std::make_shared<Socket>())
   , m_port(endpoint.port)
@@ -4919,12 +4945,25 @@ ReceiverUDP::ReceiverUDP(const StreamEndpoint& endpoint, uint32_t maxLen, bool b
   }
 
   // Bind the socket to the specified NIC and port.
-  struct sockaddr_in addr;
-  memset(&addr, 0, sizeof(addr));
-  addr.sin_family = AF_INET;
-  addr.sin_addr.s_addr = htonl(myEndpoint.IP);
-  addr.sin_port = htons(myEndpoint.port);
-  if (0 != bind(m_socket->socket, (struct sockaddr*)&addr, sizeof(addr))) {
+  // If we have a multicast name, join the multicast group and bind to that address (overwritten
+  // by the call to JoinMulticastGroup).
+  memset(&m_socket->addr, 0, sizeof(m_socket->addr));
+  m_socket->addr.sin_family = AF_INET;
+  m_socket->addr.sin_addr.s_addr = htonl(myEndpoint.IP);
+  m_socket->addr.sin_port = htons(myEndpoint.port);
+  if (!multicastName.empty()) {
+    if (!m_socket->JoinMulticastGroup(multicastName)) {
+      m_constructorStatus = SOCKET_FAILURE;
+      m_socket.reset();
+      return;
+    }
+  }
+  // On Windows, we cannot bind to the multicast address, so we need to bind to the local address.
+  // We override the overridden address to make this happen.
+#ifdef ASDP_USE_WINSOCK_SOCKETS
+  m_socket->addr.sin_addr.s_addr = htonl(myEndpoint.IP);
+#endif
+  if (0 != bind(m_socket->socket, (struct sockaddr*)&m_socket->addr, sizeof(m_socket->addr))) {
     m_constructorStatus = SOCKET_FAILURE;
     m_socket.reset();
     return;
