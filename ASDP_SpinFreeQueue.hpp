@@ -34,16 +34,16 @@ public:
       delete old_head;
       nodes--;
     }
+    head = tail = nullptr;
   }
 
   /// @brief Enqueues a data item in a thread-safe way.
   void enqueue(T data) {
-    {
+    Node* new_node = new Node;
+    new_node->data = data;
+    new_node->next = nullptr;
+    { // Hold the lock for as short a time as possible
       std::lock_guard<std::mutex> lk(mut);
-      Node* new_node = new Node;
-      new_node->data = data;
-      new_node->next = nullptr;
-
       if (nodes == 0) {
         head = new_node;
         tail = new_node;
@@ -51,7 +51,6 @@ public:
         tail->next = new_node;
         tail = new_node;
       }
-
       nodes++;
     }
     dcv.notify_one();
@@ -73,7 +72,7 @@ public:
     return true;
   }
 
-  /// @brief Dequeues a data item in a thread-safe way with a timeout.
+  /// @brief Dequeues a data item from the head of the queue in a thread-safe way with a timeout.
   /// @details This method dequeues a data item from the queue in a thread-safe way
   /// without spin-waiting or blocking indefinitely.  It can thus be used in a thread
   /// that needs to dequeue data items but also needs to perform other tasks or watch
@@ -82,22 +81,23 @@ public:
   /// @param timeout The maximum time to wait for a data item to be available.
   /// @return True if a data item is dequeued, false if the timeout is reached.
   bool dequeue(T& value, const std::chrono::milliseconds& timeout) {
-    {
+    Node* old_head;
+    { // Hold the lock for as short a time as possible, moving other operations outside.
       std::unique_lock<std::mutex> cvlk(mut);
       if (!dcv.wait_for(cvlk, timeout, [&] { return nodes != 0; })) {
         return false;
       }
 
       value = head->data;
-      Node* old_head = head;
+      old_head = head;
       head = old_head->next;
-      delete old_head;
-      nodes--;
       if (head == nullptr) {
         tail = head;
       }
+      nodes--;
     }
     ecv.notify_all();
+    delete old_head;
     return true;
   }
 
