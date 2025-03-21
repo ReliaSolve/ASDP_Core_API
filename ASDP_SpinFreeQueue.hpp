@@ -64,7 +64,7 @@ public:
   /// @param size The size to wait for.
   /// @param timeout The maximum time to wait.
   /// @return True if the queue is reduced to the specified size, false if the timeout is reached.
-  bool awaitEmpty(size_t size, const std::chrono::milliseconds& timeout) {
+  bool awaitEmpty(size_t size, const std::chrono::microseconds& timeout) {
     std::unique_lock<std::mutex> cvlk(mut);
     if (!ecv.wait_for(cvlk, timeout, [&] { return nodes <= size; })) {
       return false;
@@ -80,7 +80,7 @@ public:
   /// @param value The data item that was dequeued (if any).
   /// @param timeout The maximum time to wait for a data item to be available.
   /// @return True if a data item is dequeued, false if the timeout is reached.
-  bool dequeue(T& value, const std::chrono::milliseconds& timeout) {
+  bool dequeue(T& value, const std::chrono::microseconds& timeout) {
     Node* old_head;
     { // Hold the lock for as short a time as possible, moving other operations outside.
       std::unique_lock<std::mutex> cvlk(mut);
