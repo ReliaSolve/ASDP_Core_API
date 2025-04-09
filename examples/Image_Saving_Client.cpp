@@ -187,6 +187,7 @@ void SaveFileThread()
     fprintf(f, "P5\n%d %d\n%d\n", 1280, 1024, 65535);
     fwrite(fileData->data, sizeof(uint8_t), fileData->size, f);
     fclose(f);
+    delete[] fileData->data;
     std::cout << "Wrote " << fileData->fileName << std::endl;
   }
   std::cout << "SaveFileThread done" << std::endl;
@@ -354,6 +355,10 @@ int main(int argc, char** argv)
   }
 
   // If we have at least one camera, try streaming data from it at its highest rate.
+  if (cameras.empty()) {
+    std::cerr << "No cameras found." << std::endl;
+    return 36;
+  }
   uint32_t camID = 1;
   {
     // Find the minimum period for the camera and which internal trigger ID it uses, then
