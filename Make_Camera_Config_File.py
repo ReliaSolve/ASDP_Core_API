@@ -8,6 +8,7 @@
 # Options allow the generation of fields to drive simulation, including distortion correction.
 # They also allow the generation of an additional 4 wide-field cameras for a total of 25 cameras.
 
+import builtins
 import json
 import argparse
 import math
@@ -89,11 +90,14 @@ def main():
     parser.add_argument('--color_offset', type=float, default=0.0, help='Offset to add to color (default: 0.0)')
     parser.add_argument('--color_gain', type=float, default=1.0, help='Gain for color (default: 1.0)')
     parser.add_argument('--stills_arrangement', action='store_true', help='Generate camera arrangement for IR stills')
+    parser.add_argument('--orig_arrangement', action='store_true', help='Generate camera arrangement for the original simulation layout')
     parser.add_argument('--add_rot_x', type=float, default=0.0, help='Additional rotation around X axis deg (default: 0.0)')
     parser.add_argument('--add_rot_y', type=float, default=0.0, help='Additional rotation around Y axis deg (default: 0.0)')
     parser.add_argument('--add_rot_z', type=float, default=0.0, help='Additional rotation around Z axis deg (default: 0.0)')
     
     args = parser.parse_args()
+
+    builtArrangement = not args.orig_arrangement
     
     # Generate the configuration data, serial number and then cameras.
     data = {}
@@ -102,6 +106,13 @@ def main():
     camID = 1
     for y in range(args.num_y):
         for x in range(args.num_x):
+            # For the as-built arrangement, the camera IDs are assigned with numbers increasing
+            # along columns fastest and rows slowest for the first 21 cameras.  The rows go from
+            # right to left rather than left to right.  Compute the camID
+            # based on the x and y values and ignore the increment at the end of the loop.
+            if builtArrangement:
+                camID = 1 + ((args.num_x - 1 - x) * args.num_y) + y
+
             cam = {}
             cam["id"] = camID
             cam["fieldOfViewDegrees"] = [args.fov_h, args.fov_v]
@@ -121,11 +132,15 @@ def main():
             # Remember that the cameras are rotated into portrait mode, so FOVs and their offsets are swapped.
             hRatio = (args.fov_v - args.overlap_x) / args.fov_v
             desiredHor = hRatio * (x - (args.num_x - 1)/2.0) * args.fov_v
-            if args.stills_arrangement:
+            if builtArrangement:
                 desiredHor *= -1
             vRatio = (args.fov_h - args.overlap_y) / args.fov_h
             desiredVer = vRatio * (y - (args.num_y - 1)/2.0) * args.fov_h
-            if x % 2 == 0 or args.stills_arrangement:
+            parity = 0
+            if builtArrangement:
+                # The built arrangement had the cameras rotated 180 degrees
+                parity = 1
+            if x % 2 == parity or args.stills_arrangement:
                 rx = 90.0
                 ry = -90.0 + desiredHor
                 rz = 90.0 - desiredVer
