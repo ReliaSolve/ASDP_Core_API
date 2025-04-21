@@ -132,15 +132,12 @@ def main():
             # Remember that the cameras are rotated into portrait mode, so FOVs and their offsets are swapped.
             hRatio = (args.fov_v - args.overlap_x) / args.fov_v
             desiredHor = hRatio * (x - (args.num_x - 1)/2.0) * args.fov_v
-            if builtArrangement:
-                desiredHor *= -1
             vRatio = (args.fov_h - args.overlap_y) / args.fov_h
             desiredVer = vRatio * (y - (args.num_y - 1)/2.0) * args.fov_h
-            parity = 0
             if builtArrangement:
-                # The built arrangement had the cameras rotated 180 degrees
-                parity = 1
-            if x % 2 == parity or args.stills_arrangement:
+                # The built arrangement has the vertical axis flipped compared to initial simulations
+                desiredVer *= -1
+            if x % 2 == 0 or args.stills_arrangement:
                 rx = 90.0
                 ry = -90.0 + desiredHor
                 rz = 90.0 - desiredVer
