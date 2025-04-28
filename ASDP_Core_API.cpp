@@ -4907,6 +4907,9 @@ Status SenderFile::SendStreamPacket(const StreamPacket& packet)
   }
 
   // Send the data.
+  if (packet.m_offset + length > packet.m_buffer->size()) {
+    return READ_PAST_END;
+  }
   return Send(packet.MyData(), length);
 }
 

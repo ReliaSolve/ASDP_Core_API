@@ -576,6 +576,11 @@ int main(int argc, char** argv)
           std::cerr << "Error writing packet to file: " << ErrorMessage(status) << std::endl;
           return 102;
         }
+        status = streamWriter.Flush();
+        if (status != OKAY) {
+          std::cerr << "Error flushing file: " << ErrorMessage(status) << std::endl;
+          return 103;
+        }
         didUDPDump = true;
       }
       uint32_t packetSequenceNumber;
