@@ -236,12 +236,15 @@ int main(int argc, char** argv)
 {
   std::string ip_address;
   size_t realParams = 0;
+  bool dumpUDP = false;
 
   // Parse the command line arguments, with the first non-flag argument being the
-  // name of the IP address to listen on.  There is a --serial flag to specify
-  // the serial number of the server, which defaults to 1.
+  // name of the IP address to listen on.  There is a --dumpUDP flag to cause it
+  // to write the contents of its first UDP packet to UDP.dat.
   for (int i = 1; i < argc; ++i) {
-    if (argv[i][0] == '-' ) {
+    if (argv[i] == std::string("--dumpUDP")) {
+      dumpUDP = true;
+    } else if (argv[i][0] == '-') {
       std::cerr << "Unknown flag: " << argv[i] << std::endl;
       return 1;
     } else switch (realParams++) {
@@ -249,12 +252,12 @@ int main(int argc, char** argv)
         ip_address = argv[i];
         break;
       default:
-        std::cerr << "Usage: " << argv[0] << " <ip_address>" << std::endl;
+        std::cerr << "Usage: " << argv[0] << " [--dumpUDP] <ip_address>" << std::endl;
         return 2;
     }
   }
   if (realParams != 1) {
-    std::cerr << "Usage: " << argv[0] << " <ip_address>" << std::endl;
+    std::cerr << "Usage: " << argv[0] << " [--dumpUDP] <ip_address>" << std::endl;
     return 2;
   }
 
@@ -547,6 +550,7 @@ int main(int argc, char** argv)
     start = std::chrono::high_resolution_clock::now();
     size_t sequenceNumber = 0;
     size_t numStartFrames = 0;
+    bool didUDPDump = false;
     do {
       std::shared_ptr<asdp::StreamPacket> receiveStreamPacket;
       size_t offset = 0;
@@ -554,6 +558,25 @@ int main(int argc, char** argv)
       if (status != asdp::OKAY) {
         std::cerr << "Error receiving StreamPacket: " << ErrorMessage(status) << std::endl;
         return 33;
+      }
+      if (dumpUDP && !didUDPDump) {
+        std::cout << "Writing first UDP packet to UDP.dat" << std::endl;
+        std::shared_ptr<SenderFile> fileSender = std::make_shared<SenderFile>("UDP.dat");
+        if (fileSender->GetConstructorStatus() != OKAY) {
+          std::cerr << "Error constructing SenderFile: " << ErrorMessage(fileSender->GetConstructorStatus()) << std::endl;
+          return 100;
+        }
+        StreamWriter streamWriter(fileSender);
+        if (streamWriter.GetConstructorStatus() != OKAY) {
+          std::cerr << "Error constructing StreamWriter: " << ErrorMessage(streamWriter.GetConstructorStatus()) << std::endl;
+          return 101;
+        }
+        Status status = streamWriter.InsertPacket(*receiveStreamPacket);
+        if (status != OKAY) {
+          std::cerr << "Error writing packet to file: " << ErrorMessage(status) << std::endl;
+          return 102;
+        }
+        didUDPDump = true;
       }
       uint32_t packetSequenceNumber;
       status = receiveStreamPacket->GetSequenceNumber(packetSequenceNumber);
