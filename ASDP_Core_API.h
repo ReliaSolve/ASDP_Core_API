@@ -121,9 +121,10 @@ enum MessageID : uint32_t {
   DISCOVERY                     = 0,
   STATE                         = 1,
   EVENT                         = 10000,
-  FRAME_BEGIN                   = 20000,
-  FRAME_DATA                    = 20001,
-  FRAME_END                     = 20002,
+  //FRAME_BEGIN                   = 20000,
+  //FRAME_DATA                    = 20001,
+  //FRAME_END                     = 20002,
+  CONSOLIDATED_FRAME_DATA       = 20003,
   STORED_STREAMS                = 30000,
   TEMPERATURE                   = 40000,
   POSE                          = 50000
@@ -1139,9 +1140,7 @@ protected:
   friend class MessageDiscovery;
   friend class MessageState;
   friend class MessageEvent;
-  friend class MessageFrameBegin;
-  friend class MessageFrameData;
-  friend class MessageFrameEnd;
+  friend class MessageConsolidatedFrameData;
   friend class MessageStoredStreamList;
   friend class MessageTemperature;
   friend class MessagePose;
@@ -1406,9 +1405,9 @@ public:
 };
 
 /// @brief Frame begin message.
-class MessageFrameBegin : public Message {
+class MessageConsolidatedFrameData : public Message {
 public:
-  /// @brief Construct a MessageFrameBegin and store it into a buffer from a StreamPacket.
+  /// @brief Construct a MessageConsolidateFrameData and store it into a buffer from a StreamPacket.
   /// @param [in] packet Pointer to the StreamPacket containing the message.
   /// @param [in] timeCode Time code for the message.
   /// @param [in] cameraID Camera ID for the frame.
@@ -1419,13 +1418,22 @@ public:
   /// @param [in] sensorHeight the total number of pixels in a full frame.
   /// @param [in] exposure Exposure in seconds for the frame (0 for none reported).
   /// @param [in] gain Gain for the frame (0 for none reported).
-  MessageFrameBegin(StreamPacket& packet, Time timeCode,
+  MessageConsolidatedFrameData(StreamPacket& packet, Time timeCode,
+    Time frameStartTime,
     uint32_t cameraID, uint32_t cameraType, uint16_t sensorWidth, uint16_t sensorHeight,
+    uint16_t left, uint16_t top, uint16_t right, uint16_t bottom,
+    bool beginFrame, bool endFrame,
+    uint8_t *data, uint16_t stride,
     float exposure = 0, float gain = 0);
 
-  /// @brief Type-cast a base Message into a MessageFrameBegin packet, re-using its buffer.
+  /// @brief Type-cast a base Message into a MessageConsolidateFrameData packet, re-using its buffer.
   /// @param [in] baseMessage The base Message to convert from.
-  MessageFrameBegin(Message& baseMessage);
+  MessageConsolidatedFrameData(Message& baseMessage);
+
+  /// @brief Get the time code for the start of the camera frame.
+  /// @param [out] frameStartTime Time code for the start of the camera frame.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetFrameStartTime(Time& frameStartTime) const;
 
   /// @brief Get the camera ID for the frame.
   /// @param [out] cameraID Camera ID for the frame.
@@ -1447,51 +1455,6 @@ public:
   /// @return OKAY if successful, otherwise an error code.
   Status GetSensorHeight(uint16_t& sensorHeight) const;
 
-  /// @brief Get the exposure for the frame.
-  /// @param [out] exposure Exposure for the frame.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetExposure(float& exposure) const;
-
-  /// @brief Get the gain for the frame.
-  /// @param [out] gain Gain for the frame.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetGain(float& gain) const;
-
-  /// @brief Test function.
-  /// @return Empty string if successful, otherwise descriptive error message.
-  static std::string Test();
-};
-
-/// @brief Frame data message.
-class MessageFrameData : public Message {
-public:
-  /// @brief Construct a MessageFrameData and store it into a buffer from a StreamPacket.
-  /// @param [in] packet Pointer to the StreamPacket containing the message.
-  /// @param [in] timeCode Time code for the message.
-  /// @param [in] cameraID Camera ID for the frame.
-  /// @param [in] left Left side of the frame.
-  /// @param [in] top Top side of the frame.
-  /// @param [in] right Right side of the frame.
-  /// @param [in] bottom Bottom side of the frame.
-  /// @param [in] data Start of data for the frame. The number of bytes is two per pixel.
-  /// @param [in] stride Stride of the image that the data is being read from.  This is
-  /// required so that the message knows how many pixels to skip between rows in the image
-  /// it is reading from.  This is the number of pixels to skip in memory from one row to
-  /// the next, which must be >= the number of pixels in a row.  It can be larger because
-  /// the image may be padded to a larger size.
-  MessageFrameData(StreamPacket& packet, Time timeCode,
-    uint32_t cameraID, uint16_t left, uint16_t top, uint16_t right, uint16_t bottom,
-    uint8_t *data, uint16_t stride);
-
-  /// @brief Type-cast a base Message into a MessageFrameData packet, re-using its buffer.
-  /// @param [in] baseMessage The base Message to convert from.
-  MessageFrameData(Message& baseMessage);
-
-  /// @brief Get the camera ID for the frame.
-  /// @param [out] cameraID Camera ID for the frame.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetCameraID(uint32_t& cameraID) const;
-
   /// @brief Get the index of the leftmost column of pixels.
   /// @param [out] left Index of the leftmost column of pixels.
   /// @return OKAY if successful, otherwise an error code.
@@ -1512,34 +1475,31 @@ public:
   /// @return OKAY if successful, otherwise an error code.
   Status GetBottom(uint16_t& bottom) const;
 
+  /// @brief Get whether this is the beginning of a frame.
+  /// @param [out] beginFrame Whether this is the beginning of a frame.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetBeginFrameFlag(bool& beginFrame) const;
+
+  /// @brief Get whether this is the end of a frame.
+  /// @param [out] endFrame Whether this is the end of a frame.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetEndFrameFlag(bool& endFrame) const;
+
+  /// @brief Get the exposure for the frame.
+  /// @param [out] exposure Exposure for the frame.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetExposure(float& exposure) const;
+
+  /// @brief Get the gain for the frame.
+  /// @param [out] gain Gain for the frame.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetGain(float& gain) const;
+
   /// @brief Get a pointer to the data for the frame.
   /// @param [out] data Pointer to the data for the frame.
   /// This pointer is valid only as long as the MessageFrameData is valid.
   /// @return OKAY if successful, otherwise an error code.
   Status GetDataPointer(uint8_t*& data) const;
-
-  /// @brief Test function.
-  /// @return Empty string if successful, otherwise descriptive error message.
-  static std::string Test();
-};
-
-/// @brief Frame End message.
-class MessageFrameEnd : public Message {
-public:
-  /// @brief Construct a MessageFrameEnd and store it into a buffer from a StreamPacket.
-  /// @param [in] packet Pointer to the StreamPacket containing the message.
-  /// @param [in] timeCode Time code for the message.
-  /// @param [in] cameraID Camera ID for the frame.
-  MessageFrameEnd(StreamPacket& packet, Time timeCode, uint32_t cameraID);
-
-  /// @brief Type-cast a base Message into a MessageFrameEnd packet, re-using its buffer.
-  /// @param [in] baseMessage The base Message to convert from.
-  MessageFrameEnd(Message& baseMessage);
-
-  /// @brief Get the camera ID for the frame.
-  /// @param [out] cameraID Camera ID for the frame.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetCameraID(uint32_t& cameraID) const;
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.

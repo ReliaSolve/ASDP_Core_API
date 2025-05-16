@@ -124,7 +124,7 @@ static const unsigned char MAGIC_COOKIE[4] = { 'A', 'S', 'D', 'P' };
 // NOTE: The version number is in the form major.minor.patch, where the first and third are bytes and
 // the second is a 16-bit integer.  This is done to allow for a large number of minor versions.  The
 // 16-bit value is stored in little-endian format.
-static const unsigned char VERSION[4] = { 6, 4,0, 0 };
+static const unsigned char VERSION[4] = { 7, 0,0, 0 };
 
 static const uint32_t PACKET_HEADER_TOTAL_SIZE_OFFSET = 0;
 static const uint32_t PACKET_BASIC_HEADER_SIZE = sizeof(uint32_t);
@@ -256,14 +256,12 @@ static WSAStart startUp;
 // Helper functions.
 
 /// @brief Helper function to determine the size of the buffer needed to hold a message,
-/// which can include padding to align the message on a 4-byte boundary.
-static size_t PaddedSize(size_t size)
+/// which can include padding to align each line to a 4-byte boundary.
+static size_t PaddedSize(size_t nx, size_t ny)
 {
-  size_t padding = 4 - (size % 4);
-  if (padding == 4) {
-    padding = 0;
-  }
-  return size + padding;
+  size_t padding = 4 - (nx * sizeof(uint16_t)) % 4;
+  if (padding == 4) { padding = 0; }
+  return (nx * sizeof(uint16_t) + padding) * ny;
 }
 
 /// @brief Helper function to determine how much padding to add to a string after null terminating it.
@@ -2217,14 +2215,14 @@ std::string StreamPacket::Test()
       return "Error constructing stream packet: " + ErrorMessage(packet.GetConstructorStatus());
     }
 
-    // Add messages to the packet.
+    // Add messages (just picking random types here and not including parameters) to the packet.
     Time time = { 1, 2 };
-    Message message(packet, 0, time, FRAME_END);
+    Message message(packet, 0, time, STORED_STREAMS);
     if (message.GetConstructorStatus() != OKAY) {
       return "Error constructing message: " + ErrorMessage(message.GetConstructorStatus());
     }
     time = { 2, 3 };
-    Message message2(packet, 0, time, FRAME_BEGIN);
+    Message message2(packet, 0, time, TEMPERATURE);
     if (message2.GetConstructorStatus() != OKAY) {
       return "Error constructing message: " + ErrorMessage(message2.GetConstructorStatus());
     }
@@ -2417,13 +2415,13 @@ Message::~Message()
 
 std::string Message::Test()
 {
-  // Construct a message with no parameters and check its length, size, time and type.
+  // Construct a message (random type) with no parameters and check its length, size, time and type.
   StreamPacket packet;
   if (packet.GetConstructorStatus() != OKAY) {
     return "Error constructing stream packet for message test: " + ErrorMessage(packet.GetConstructorStatus());
   }
   Time timeCode = { 1234, 5678 };
-  Message message(packet, 0, timeCode, FRAME_END);
+  Message message(packet, 0, timeCode, STORED_STREAMS);
   if (message.GetConstructorStatus() != OKAY) {
     return "Error constructing message: " + ErrorMessage(message.GetConstructorStatus());
   }
@@ -2469,8 +2467,8 @@ std::string Message::Test()
   if (status != OKAY) {
     return "Error getting type from message for message test: " + ErrorMessage(status);
   }
-  if (type != FRAME_END) {
-    return "Error getting type from message for message test: type is not FRAME_END";
+  if (type != STORED_STREAMS) {
+    return "Error getting type from message for message test: type is not STORED_STREAMS";
   }
 
   // Construct a Message based on the existing one in the StreamPacket and make sure we
@@ -2491,8 +2489,8 @@ std::string Message::Test()
   if (status != OKAY) {
     return "Error getting type from second message for message test: " + ErrorMessage(status);
   }
-  if (type != FRAME_END) {
-    return "Error getting type from second message for message test: type is not FRAME_END";
+  if (type != STORED_STREAMS) {
+    return "Error getting type from second message for message test: type is not STORED_STREAMS";
   }
 
   // Find the messages in the packet and make sure we can read them.
@@ -2516,8 +2514,8 @@ std::string Message::Test()
   if (status != OKAY) {
     return "Error getting type from packet for message test: " + ErrorMessage(status);
   }
-  if (type != FRAME_END) {
-    return "Error getting type from packet for message test: type is not FRAME_END";
+  if (type != STORED_STREAMS) {
+    return "Error getting type from packet for message test: type is not STORED_STREAMS";
   }
   status = packet.GetNextMessage(message3);
   if (status != OKAY) {
@@ -2535,12 +2533,12 @@ std::string Message::Test()
     memcpy(buffer->data() + offset, &origSize, sizeof(origSize));
     StreamPacket streamPacket(buffer, offset);
     Time timeCode1 = { 1, 2 };
-    Message message1(streamPacket, 0, timeCode1, FRAME_END);
+    Message message1(streamPacket, 0, timeCode1, STORED_STREAMS);
     if (message.GetConstructorStatus() != OKAY) {
       return "Error constructing message: " + ErrorMessage(message.GetConstructorStatus());
     }
     Time timeCode2 = { 3, 4 };
-    Message message2(streamPacket, 0, timeCode2, FRAME_END);
+    Message message2(streamPacket, 0, timeCode2, STORED_STREAMS);
     if (message.GetConstructorStatus() != OKAY) {
       return "Error constructing message: " + ErrorMessage(message.GetConstructorStatus());
     }
@@ -2554,8 +2552,8 @@ std::string Message::Test()
     if (status != OKAY) {
       return "Error getting type from packet for offset message test: " + ErrorMessage(status);
     }
-    if (rID != FRAME_END) {
-      return "Error getting type from packet for offset message test: type is not FRAME_END but " +
+    if (rID != STORED_STREAMS) {
+      return "Error getting type from packet for offset message test: type is not STORED_STREAMS but " +
         std::to_string(rID);
     }
     Time rTime;
@@ -2590,7 +2588,7 @@ std::string Message::Test()
       return "Error constructing stream packet for copy message test: " + ErrorMessage(packet.GetConstructorStatus());
     }
     Time timeCode = { 1234, 5678 };
-    Message message(packet, 0, timeCode, FRAME_END);
+    Message message(packet, 0, timeCode, STORED_STREAMS);
     if (message.GetConstructorStatus() != OKAY) {
       return "Error constructing message: " + ErrorMessage(message.GetConstructorStatus());
     }
@@ -2619,8 +2617,8 @@ std::string Message::Test()
     if (status != OKAY) {
       return "Error getting type from packet for copy message test: " + ErrorMessage(status);
     }
-    if (rID != FRAME_END) {
-      return "Error getting type from packet for copy message test: type is not FRAME_END but " +
+    if (rID != STORED_STREAMS) {
+      return "Error getting type from packet for copy message test: type is not STORED_STREAMS but " +
         std::to_string(rID);
     }
 
@@ -3581,296 +3579,131 @@ std::string MessageEvent::Test()
   return "";
 }
 
-MessageFrameBegin::MessageFrameBegin(StreamPacket& packet, Time timeCode,
+MessageConsolidatedFrameData::MessageConsolidatedFrameData(StreamPacket& packet, Time timeCode,
+  Time frameStartTime,
   uint32_t cameraID, uint32_t cameraType, uint16_t sensorWidth, uint16_t sensorHeight,
+  uint16_t left, uint16_t top, uint16_t right, uint16_t bottom,
+  bool beginFrame, bool endFrame,
+  uint8_t* data, uint16_t stride,
   float exposure, float gain)
   : Message(packet,
-            2 * sizeof(uint32_t) + 2 * sizeof(uint16_t) + 2 * sizeof(float) + 128,
-            timeCode, FRAME_BEGIN)
+    sizeof(frameStartTime) + sizeof(cameraID) + sizeof(cameraType) + sizeof(sensorWidth) + sizeof(sensorHeight) +
+    sizeof(left) + sizeof(top) + sizeof(right) + sizeof(bottom) +
+    sizeof(uint32_t /*flags*/) +
+    sizeof(exposure) + sizeof(gain) +
+    130 +
+    PaddedSize(right - left + 1, bottom - top + 1) +
+    2,
+    timeCode, CONSOLIDATED_FRAME_DATA)
 {
   // See if our subobject failed. If so, we're done.
   if (m_constructorStatus != OKAY) {
     return;
   }
 
+  // Construct the flags.
+  uint32_t flags = beginFrame || (endFrame << 1);
+
   // Pack our parameters.
   unsigned char* bufPtr = m_buffer->data() + m_offset + MESSAGE_BASE_SIZE;
+  memcpy(bufPtr, &frameStartTime.seconds, sizeof(frameStartTime.seconds)); bufPtr += sizeof(frameStartTime.seconds);
+  memcpy(bufPtr, &frameStartTime.microseconds, sizeof(frameStartTime.microseconds)); bufPtr += sizeof(frameStartTime.microseconds);
   memcpy(bufPtr, &cameraID, sizeof(cameraID)); bufPtr += sizeof(cameraID);
   memcpy(bufPtr, &cameraType, sizeof(cameraType)); bufPtr += sizeof(cameraType);
   memcpy(bufPtr, &sensorWidth, sizeof(sensorWidth)); bufPtr += sizeof(sensorWidth);
   memcpy(bufPtr, &sensorHeight, sizeof(sensorHeight)); bufPtr += sizeof(sensorHeight);
-  memcpy(bufPtr, &exposure, sizeof(exposure)); bufPtr += sizeof(exposure);
-  memcpy(bufPtr, &gain, sizeof(gain)); bufPtr += sizeof(gain);
-}
-
-MessageFrameBegin::MessageFrameBegin(Message& baseMessage)
-  : Message(baseMessage)
-{
-  MessageID type;
-  baseMessage.GetType(type);
-  if (type != FRAME_BEGIN) {
-    m_constructorStatus = BAD_PARAMETER;
-  }
-}
-
-Status MessageFrameBegin::GetCameraID(uint32_t& cameraID) const
-{
-  if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE + sizeof(uint32_t)) {
-    return READ_PAST_END;
-  }
-  memcpy(&cameraID, m_buffer->data() + m_offset + MESSAGE_BASE_SIZE, sizeof(cameraID));
-  return OKAY;
-}
-
-Status MessageFrameBegin::GetCameraType(uint32_t& cameraType) const
-{
-  if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE + 2 * sizeof(uint32_t)) {
-    return READ_PAST_END;
-  }
-  memcpy(&cameraType, m_buffer->data() + m_offset + MESSAGE_BASE_SIZE + sizeof(uint32_t), sizeof(cameraType));
-  return OKAY;
-}
-
-Status MessageFrameBegin::GetSensorWidth(uint16_t& sensorWidth) const
-{
-  if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE + 2 * sizeof(uint32_t) + sizeof(uint16_t)) {
-    return READ_PAST_END;
-  }
-  memcpy(&sensorWidth, m_buffer->data() + m_offset + MESSAGE_BASE_SIZE + 2 * sizeof(uint32_t), sizeof(sensorWidth));
-  return OKAY;
-}
-
-Status MessageFrameBegin::GetSensorHeight(uint16_t& sensorHeight) const
-{
-  if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE + 2 * sizeof(uint32_t) + 2 * sizeof(uint16_t)) {
-    return READ_PAST_END;
-  }
-  memcpy(&sensorHeight, m_buffer->data() + m_offset + MESSAGE_BASE_SIZE + 2 * sizeof(uint32_t) + sizeof(uint16_t),
-    sizeof(sensorHeight));
-  return OKAY;
-}
-
-Status MessageFrameBegin::GetExposure(float& exposure) const
-{
-  if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE + 2 * sizeof(uint32_t) + 2 * sizeof(uint16_t) + sizeof(float)) {
-    return READ_PAST_END;
-  }
-  memcpy(&exposure, m_buffer->data() + m_offset + MESSAGE_BASE_SIZE + 2 * sizeof(uint32_t) + 2 * sizeof(uint16_t),
-    sizeof(exposure));
-  return OKAY;
-}
-
-Status MessageFrameBegin::GetGain(float& gain) const
-{
-  if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE + 2 * sizeof(uint32_t) + 2 * sizeof(uint16_t) + 2 * sizeof(float)) {
-    return READ_PAST_END;
-  }
-  memcpy(&gain, m_buffer->data() + m_offset + MESSAGE_BASE_SIZE + 2 * sizeof(uint32_t) + 2 * sizeof(uint16_t) + sizeof(float),
-    sizeof(gain));
-  return OKAY;
-}
-
-std::string MessageFrameBegin::Test()
-{
-  {
-    // Construct a message and check its length, time and type.
-    StreamPacket packet;
-    if (packet.GetConstructorStatus() != OKAY) {
-      return "Error constructing stream packet for MessageFrameBegin test: " + ErrorMessage(packet.GetConstructorStatus());
-    }
-
-    // Add a message.
-    Time timeCode = { 1234, 5678 };
-    uint32_t cameraID = 0, cameraType = 1;
-    uint16_t sensorWidth = 100, sensorHeight = 100;
-    float exposure = 1.0f, gain = 2.0f;
-    MessageFrameBegin message(packet, timeCode, cameraID, cameraType, sensorWidth, sensorHeight, exposure, gain);
-    if (message.GetConstructorStatus() != OKAY) {
-      return "Error constructing MessageFrameBegin: " + ErrorMessage(message.GetConstructorStatus());
-    }
-
-    // Check the length of the packet including the message to make sure it matches expectation.
-    uint32_t totalLength;
-    Status status = packet.GetTotalLength(totalLength);
-    if (status != OKAY) {
-      return "Error checking message size for MessageFrameBegin test: " + ErrorMessage(status);
-    }
-    uint32_t expectedLength = STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE + 2 * sizeof(uint32_t) + 2 * sizeof(uint16_t) + 2 * sizeof(float) + 128;
-    if (totalLength != expectedLength) {
-      return "Error constructing message from buffer for MessageFrameBegin test: packet length is not " +
-        std::to_string(expectedLength) + " but " + std::to_string(totalLength);
-    }
-
-    // Check the time and type of the message.
-    Time rTimeCode;
-    status = message.GetTime(rTimeCode);
-    if (status != OKAY) {
-      return "Error getting time code from message for MessageFrameBegin test: " + ErrorMessage(status);
-    }
-    if (rTimeCode != timeCode) {
-      return "Error getting time code from message for MessageFrameBegin test: time code is not " +
-        std::to_string(timeCode.seconds) + "." + std::to_string(timeCode.microseconds);
-    }
-    MessageID type;
-    status = message.GetType(type);
-    if (status != OKAY) {
-      return "Error getting type from message for MessageFrameBegin test: " + ErrorMessage(status);
-    }
-    if (type != FRAME_BEGIN) {
-      return "Error getting type from message for MessageFrameBegin test: type is not FRAME_BEGIN";
-    }
-
-    // Check the parameters of the message.
-    uint32_t rCameraID;
-    status = message.GetCameraID(rCameraID);
-    if (status != OKAY) {
-      return "Error getting camera ID from message for MessageFrameBegin test: " + ErrorMessage(status);
-    }
-    if (rCameraID != cameraID) {
-      return "Error getting camera ID from message for MessageFrameBegin test: camera ID is not " +
-        std::to_string(cameraID);
-    }
-    uint32_t rCameraType;
-    status = message.GetCameraType(rCameraType);
-    if (status != OKAY) {
-      return "Error getting camera type from message for MessageFrameBegin test: " + ErrorMessage(status);
-    }
-    if (rCameraType != cameraType) {
-      return "Error getting camera type from message for MessageFrameBegin test: camera type is not " +
-        std::to_string(cameraType);
-    }
-    uint16_t rSensorWidth;
-    status = message.GetSensorWidth(rSensorWidth);
-    if (status != OKAY) {
-      return "Error getting sensor width from message for MessageFrameBegin test: " + ErrorMessage(status);
-    }
-    if (rSensorWidth != sensorWidth) {
-      return "Error getting sensor width from message for MessageFrameBegin test: sensor width is not " +
-        std::to_string(sensorWidth);
-    }
-    uint16_t rSensorHeight;
-    status = message.GetSensorHeight(rSensorHeight);
-    if (status != OKAY) {
-      return "Error getting sensor height from message for MessageFrameBegin test: " + ErrorMessage(status);
-    }
-    if (rSensorHeight != sensorHeight) {
-      return "Error getting sensor height from message for MessageFrameBegin test: sensor height is not " +
-        std::to_string(sensorHeight);
-    }
-    float rExposure;
-    status = message.GetExposure(rExposure);
-    if (status != OKAY) {
-      return "Error getting exposure from message for MessageFrameBegin test: " + ErrorMessage(status);
-    }
-    if (rExposure != exposure) {
-      return "Error getting exposure from message for MessageFrameBegin test: exposure is not " +
-        std::to_string(exposure);
-    }
-    float rGain;
-    status = message.GetGain(rGain);
-    if (status != OKAY) {
-      return "Error getting gain from message for MessageFrameBegin test: " + ErrorMessage(status);
-    }
-    if (rGain != gain) {
-      return "Error getting gain from message for MessageFrameBegin test: gain is not " +
-        std::to_string(gain);
-    }
-
-    // Construct a Message based on the existing one in the StreamPacket and make sure we
-    // Can read its parameters (just doing a spot check on the final parameter).
-    MessageFrameBegin message2(message);
-    if (message2.GetConstructorStatus() != OKAY) {
-      return "Error constructing second MessageFrameBegin: " + ErrorMessage(message2.GetConstructorStatus());
-    }
-    status = message2.GetTime(rTimeCode);
-    if (status != OKAY) {
-      return "Error getting time code from second message for MessageFrameBegin test: " + ErrorMessage(status);
-    }
-    if (rTimeCode != timeCode) {
-      return "Error getting time code from second message for MessageFrameBegin test: time code is not " +
-        std::to_string(timeCode.seconds) + "." + std::to_string(timeCode.microseconds);
-    }
-    status = message2.GetType(type);
-    if (status != OKAY) {
-      return "Error getting type from second message for MessageFrameBegin test: " + ErrorMessage(status);
-    }
-    if (type != FRAME_BEGIN) {
-      return "Error getting type from second message for MessageFrameBegin test: type is not FRAME_BEGIN";
-    }
-    status = message2.GetGain(rGain);
-    if (status != OKAY) {
-      return "Error getting gain from second message for MessageFrameBegin test: " + ErrorMessage(status);
-    }
-    if (rGain != gain) {
-      return "Error getting gain from second message for MessageFrameBegin test: gain is not " +
-        std::to_string(gain);
-    }
-  }
-
-  return "";
-}
-
-MessageFrameData::MessageFrameData(StreamPacket& packet, Time timeCode,
-  uint32_t cameraID, uint16_t left, uint16_t top, uint16_t right, uint16_t bottom,
-  uint8_t* data, uint16_t stride)
-  : Message(packet,
-    // The size of the message is the size of the parameters plus the size of the data.
-    // We pad the size of the data to a multiple of 4 bytes.
-    sizeof(cameraID) + sizeof(left) + sizeof(top) + sizeof(right) + sizeof(bottom) +
-    PaddedSize(2 * (right - left + 1) * (bottom - top + 1)),
-    timeCode, FRAME_DATA)
-{
-  // See if our subobject failed. If so, we're done.
-  if (m_constructorStatus != OKAY) {
-    return;
-  }
-
-  // Check our parameters.
-  if ((data == nullptr) || (right < left) || (bottom < top) || (stride < (right-left+1))) {
-    m_constructorStatus = BAD_PARAMETER;
-    return;
-  }
-
-  // Pack our parameters.
-  unsigned char* bufPtr = m_buffer->data() + m_offset + MESSAGE_BASE_SIZE;
-  memcpy(bufPtr, &cameraID, sizeof(cameraID)); bufPtr += sizeof(cameraID);
   memcpy(bufPtr, &left, sizeof(left)); bufPtr += sizeof(left);
   memcpy(bufPtr, &top, sizeof(top)); bufPtr += sizeof(top);
   memcpy(bufPtr, &right, sizeof(right)); bufPtr += sizeof(right);
   memcpy(bufPtr, &bottom, sizeof(bottom)); bufPtr += sizeof(bottom);
+  memcpy(bufPtr, &flags, sizeof(flags)); bufPtr += sizeof(flags);
+  memcpy(bufPtr, &exposure, sizeof(exposure)); bufPtr += sizeof(exposure);
+  memcpy(bufPtr, &gain, sizeof(gain)); bufPtr += sizeof(gain);
 
-  // Copy the data a row at a time.
+  // Pack our padding, which will be all zeroes.
+  static std::vector<uint8_t> padding(130, 0);
+  memcpy(bufPtr, padding.data(), padding.size()); bufPtr += padding.size();
+
+  // Copy the data a row at a time, adding padding if needed to make an even number of pixels.
   size_t rowStride = stride * sizeof(uint16_t);
   size_t rowSize = sizeof(uint16_t) * (right - left + 1);
   for (uint16_t row = top; row <= bottom; row++) {
     memcpy(bufPtr, data + row * rowStride + left * sizeof(uint16_t), rowSize);
-    bufPtr += rowSize;
+    // Add padding if needed to make an even number of pixels.
+    bufPtr += rowSize + (rowSize % 4);
   }
+
+  // Add the final 2-byte zero padding.
+  *bufPtr++ = 0;
+  *bufPtr++ = 0;
 }
 
-MessageFrameData::MessageFrameData(Message& baseMessage)
+MessageConsolidatedFrameData::MessageConsolidatedFrameData(Message& baseMessage)
   : Message(baseMessage)
 {
   MessageID type;
   baseMessage.GetType(type);
-  if (type != FRAME_DATA) {
+  if (type != CONSOLIDATED_FRAME_DATA) {
     m_constructorStatus = BAD_PARAMETER;
   }
 }
 
-Status MessageFrameData::GetCameraID(uint32_t& cameraID) const
+Status MessageConsolidatedFrameData::GetFrameStartTime(Time& frameStartTime) const
 {
   uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE;
-  if (m_buffer->size() < myOffset + sizeof(cameraID)) {
+  if (m_buffer->size() < myOffset + 2 * sizeof(uint32_t)) {
+    return READ_PAST_END;
+  }
+  memcpy(&frameStartTime.seconds, m_buffer->data() + myOffset, sizeof(frameStartTime.seconds));
+  memcpy(&frameStartTime.microseconds, m_buffer->data() + myOffset + sizeof(frameStartTime.seconds),
+    sizeof(frameStartTime.microseconds));
+  return OKAY;
+}
+
+Status MessageConsolidatedFrameData::GetCameraID(uint32_t& cameraID) const
+{
+  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 2 * sizeof(uint32_t);
+  if (m_buffer->size() < m_offset + sizeof(cameraID)) {
     return READ_PAST_END;
   }
   memcpy(&cameraID, m_buffer->data() + myOffset, sizeof(cameraID));
   return OKAY;
 }
 
-Status MessageFrameData::GetLeft(uint16_t& left) const
+Status MessageConsolidatedFrameData::GetCameraType(uint32_t& cameraType) const
 {
-  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + sizeof(uint32_t);
+  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 3 * sizeof(uint32_t);
+  if (m_buffer->size() < myOffset + sizeof(cameraType)) {
+    return READ_PAST_END;
+  }
+  memcpy(&cameraType, m_buffer->data() + myOffset, sizeof(cameraType));
+  return OKAY;
+}
+
+Status MessageConsolidatedFrameData::GetSensorWidth(uint16_t& sensorWidth) const
+{
+  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 4 * sizeof(uint32_t);
+
+  if (m_buffer->size() < myOffset + sizeof(sensorWidth)) {
+    return READ_PAST_END;
+  }
+  memcpy(&sensorWidth, m_buffer->data() + myOffset, sizeof(sensorWidth));
+  return OKAY;
+}
+
+Status MessageConsolidatedFrameData::GetSensorHeight(uint16_t& sensorHeight) const
+{
+  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 4 * sizeof(uint32_t) + sizeof(uint16_t);
+  if (m_buffer->size() < myOffset + sizeof(sensorHeight)) {
+    return READ_PAST_END;
+  }
+  memcpy(&sensorHeight, m_buffer->data() + myOffset, sizeof(sensorHeight));
+  return OKAY;
+}
+
+Status MessageConsolidatedFrameData::GetLeft(uint16_t& left) const
+{
+  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 4 * sizeof(uint32_t) + 2 * sizeof(uint16_t);
   if (m_buffer->size() < myOffset + sizeof(left)) {
     return READ_PAST_END;
   }
@@ -3878,9 +3711,9 @@ Status MessageFrameData::GetLeft(uint16_t& left) const
   return OKAY;
 }
 
-Status MessageFrameData::GetTop(uint16_t& top) const
+Status MessageConsolidatedFrameData::GetTop(uint16_t& top) const
 {
-  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + sizeof(uint32_t) + sizeof(uint16_t);
+  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 4 * sizeof(uint32_t) + 3 * sizeof(uint16_t);
   if (m_buffer->size() < myOffset + sizeof(top)) {
     return READ_PAST_END;
   }
@@ -3888,9 +3721,9 @@ Status MessageFrameData::GetTop(uint16_t& top) const
   return OKAY;
 }
 
-Status MessageFrameData::GetRight(uint16_t& right) const
+Status MessageConsolidatedFrameData::GetRight(uint16_t& right) const
 {
-  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + sizeof(uint32_t) + 2 * sizeof(uint16_t);
+  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 4 * sizeof(uint32_t) + 4 * sizeof(uint16_t);
   if (m_buffer->size() < myOffset + sizeof(right)) {
     return READ_PAST_END;
   }
@@ -3898,9 +3731,9 @@ Status MessageFrameData::GetRight(uint16_t& right) const
   return OKAY;
 }
 
-Status MessageFrameData::GetBottom(uint16_t& bottom) const
+Status MessageConsolidatedFrameData::GetBottom(uint16_t& bottom) const
 {
-  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + sizeof(uint32_t) + 3 * sizeof(uint16_t);
+  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 4 * sizeof(uint32_t) + 5 * sizeof(uint16_t);
   if (m_buffer->size() < myOffset + sizeof(bottom)) {
     return READ_PAST_END;
   }
@@ -3908,9 +3741,53 @@ Status MessageFrameData::GetBottom(uint16_t& bottom) const
   return OKAY;
 }
 
-Status MessageFrameData::GetDataPointer(uint8_t*& data) const
+Status MessageConsolidatedFrameData::GetBeginFrameFlag(bool& beginFrame) const
 {
-  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + sizeof(uint32_t) + 4 * sizeof(uint16_t);
+  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 4 * sizeof(uint32_t) + 6 * sizeof(uint16_t);
+  uint32_t flags;
+  if (m_buffer->size() < myOffset + sizeof(flags)) {
+    return READ_PAST_END;
+  }
+  memcpy(&flags, m_buffer->data() + myOffset, sizeof(flags));
+  beginFrame = flags & 0x1;
+  return OKAY;
+}
+
+Status MessageConsolidatedFrameData::GetEndFrameFlag(bool& endFrame) const
+{
+  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 4 * sizeof(uint32_t) + 6 * sizeof(uint16_t);
+  uint32_t flags;
+  if (m_buffer->size() < myOffset + sizeof(flags)) {
+    return READ_PAST_END;
+  }
+  memcpy(&flags, m_buffer->data() + myOffset, sizeof(flags));
+  endFrame = (flags >> 1) & 0x1;
+  return OKAY;
+}
+
+Status MessageConsolidatedFrameData::GetExposure(float& exposure) const
+{
+  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 4 * sizeof(uint32_t) + 6 * sizeof(uint16_t) + sizeof(float);
+  if (m_buffer->size() < myOffset + sizeof(exposure)) {
+    return READ_PAST_END;
+  }
+  memcpy(&exposure, m_buffer->data() + myOffset, sizeof(exposure));
+  return OKAY;
+}
+
+Status MessageConsolidatedFrameData::GetGain(float& gain) const
+{
+  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 4 * sizeof(uint32_t) + 6 * sizeof(uint16_t) + 2 * sizeof(float);
+  if (m_buffer->size() < myOffset + sizeof(gain)) {
+    return READ_PAST_END;
+  }
+  memcpy(&gain, m_buffer->data() + myOffset, sizeof(gain));
+  return OKAY;
+}
+
+Status MessageConsolidatedFrameData::GetDataPointer(uint8_t*& data) const
+{
+  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 4 * sizeof(uint32_t) + 6 * sizeof(uint16_t) + 2 * sizeof(float) + 130;
   if (m_buffer->size() < myOffset) {
     return READ_PAST_END;
   }
@@ -3918,42 +3795,46 @@ Status MessageFrameData::GetDataPointer(uint8_t*& data) const
   return OKAY;
 }
 
-std::string MessageFrameData::Test()
+std::string MessageConsolidatedFrameData::Test()
 {
   {
-    // Construct a message and check its length, time and type.
+    // Construct a message and check its length, time and type.  Make it an odd number of pixels wide to check padding.
     StreamPacket packet;
     if (packet.GetConstructorStatus() != OKAY) {
-      return "Error constructing stream packet for MessageFrameData test: " + ErrorMessage(packet.GetConstructorStatus());
+      return "Error constructing stream packet for MessageConsolidatedFrameData test: " + ErrorMessage(packet.GetConstructorStatus());
     }
 
-    // Try to add a message that is too long for the packet. It should fail.
+    // Add a message.
     Time timeCode = { 1234, 5678 };
-    uint32_t cameraID = 0;
-    uint16_t left = 0, top = 0, right = 99, bottom = 99;
-    std::vector<uint8_t> data(sizeof(uint16_t) * (right - left + 1) * (bottom - top + 1), 0);
-    MessageFrameData badMessage(packet, timeCode, cameraID, left, top, right, bottom, data.data(), 100);
-    if (badMessage.GetConstructorStatus() != WRITE_PAST_END) {
-      return "Unexpected success constructing too-large MessageFrameData";
-    }
-
-    // Now add a reasonable-sized message
-    bottom = 0;
-    MessageFrameData message(packet, timeCode, cameraID, left, top, right, bottom, data.data(), 100);
+    Time frameStartTime = { 2222, 3333 };
+    uint32_t cameraID = 0, cameraType = 1;
+    uint16_t sensorWidth = 100, sensorHeight = 200;
+    uint16_t left = 10, top = 20, right = 30, bottom = 39;
+    float exposure = 1.0f, gain = 2.0f;
+    std::vector<uint8_t> data(11 * 20 * sizeof(uint16_t), 0);
+    MessageConsolidatedFrameData message(packet, timeCode,
+      frameStartTime,
+      cameraID, cameraType, sensorWidth, sensorHeight,
+      left, top, right, bottom,
+      true, false,
+      data.data(), 11,
+      exposure, gain);
     if (message.GetConstructorStatus() != OKAY) {
-      return "Error constructing MessageFrameData: " + ErrorMessage(message.GetConstructorStatus());
+      return "Error constructing MessageConsolidatedFrameData: " + ErrorMessage(message.GetConstructorStatus());
     }
 
     // Check the length of the packet including the message to make sure it matches expectation.
     uint32_t totalLength;
     Status status = packet.GetTotalLength(totalLength);
     if (status != OKAY) {
-      return "Error checking message size for MessageFrameData test: " + ErrorMessage(status);
+      return "Error checking message size for MessageConsolidatedFrameData test: " + ErrorMessage(status);
     }
-    uint32_t expectedLength = STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE + sizeof(uint32_t)
-      + 4 * sizeof(uint16_t) + PaddedSize(sizeof(uint16_t) * (right - left + 1) * (bottom - top + 1));
+    uint32_t expectedLength = STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE +
+      4 * sizeof(uint32_t) + 6 * sizeof(uint16_t) + sizeof(uint32_t) + 2 * sizeof(float) + 130 +
+      sizeof(uint16_t) * 22 * 20 +
+      2;
     if (totalLength != expectedLength) {
-      return "Error constructing message from buffer for MessageFrameData test: packet length is not " +
+      return "Error constructing message from buffer for MessageConsolidatedFrameData test: packet length is not " +
         std::to_string(expectedLength) + " but " + std::to_string(totalLength);
     }
 
@@ -3961,226 +3842,177 @@ std::string MessageFrameData::Test()
     Time rTimeCode;
     status = message.GetTime(rTimeCode);
     if (status != OKAY) {
-      return "Error getting time code from message for MessageFrameData test: " + ErrorMessage(status);
+      return "Error getting time code from message for MessageConsolidatedFrameData test: " + ErrorMessage(status);
     }
     if (rTimeCode != timeCode) {
-      return "Error getting time code from message for MessageFrameData test: time code is not " +
+      return "Error getting time code from message for MessageConsolidatedFrameData test: time code is not " +
         std::to_string(timeCode.seconds) + "." + std::to_string(timeCode.microseconds);
     }
     MessageID type;
     status = message.GetType(type);
     if (status != OKAY) {
-      return "Error getting type from message for MessageFrameData test: " + ErrorMessage(status);
+      return "Error getting type from message for MessageConsolidatedFrameData test: " + ErrorMessage(status);
     }
-    if (type != FRAME_DATA) {
-      return "Error getting type from message for MessageFrameData test: type is not FRAME_DATA";
+    if (type != CONSOLIDATED_FRAME_DATA) {
+      return "Error getting type from message for MessageConsolidatedFrameData test: type is not FRAME_BEGIN";
     }
 
-    // Check the other messaege parameters.
+    // Check the parameters of the message.
+    Time rFrameStartTime;
+    status = message.GetFrameStartTime(rFrameStartTime);
+    if (status != OKAY) {
+      return "Error getting frame start time from message for MessageConsolidatedFrameData test: " + ErrorMessage(status);
+    }
+    if (rFrameStartTime != frameStartTime) {
+      return "Error getting frame start time from message for MessageConsolidatedFrameData test: frame start time is not " +
+        std::to_string(frameStartTime.seconds) + "." + std::to_string(frameStartTime.microseconds);
+    }
     uint32_t rCameraID;
-    uint16_t rLeft, rTop, rRight, rBottom;
     status = message.GetCameraID(rCameraID);
     if (status != OKAY) {
-      return "Error getting camera ID from message for MessageFrameData test: " + ErrorMessage(status);
+      return "Error getting camera ID from message for MessageConsolidatedFrameData test: " + ErrorMessage(status);
     }
     if (rCameraID != cameraID) {
-      return "Error getting camera ID from message for MessageFrameData test: Camera ID is not " +
+      return "Error getting camera ID from message for MessageConsolidatedFrameData test: camera ID is not " +
         std::to_string(cameraID);
     }
+    uint32_t rCameraType;
+    status = message.GetCameraType(rCameraType);
+    if (status != OKAY) {
+      return "Error getting camera type from message for MessageConsolidatedFrameData test: " + ErrorMessage(status);
+    }
+    if (rCameraType != cameraType) {
+      return "Error getting camera type from message for MessageConsolidatedFrameData test: camera type is not " +
+        std::to_string(cameraType);
+    }
+    uint16_t rSensorWidth;
+    status = message.GetSensorWidth(rSensorWidth);
+    if (status != OKAY) {
+      return "Error getting sensor width from message for MessageConsolidatedFrameData test: " + ErrorMessage(status);
+    }
+    if (rSensorWidth != sensorWidth) {
+      return "Error getting sensor width from message for MessageConsolidatedFrameData test: sensor width is not " +
+        std::to_string(sensorWidth);
+    }
+    uint16_t rSensorHeight;
+    status = message.GetSensorHeight(rSensorHeight);
+    if (status != OKAY) {
+      return "Error getting sensor height from message for MessageConsolidatedFrameData test: " + ErrorMessage(status);
+    }
+    if (rSensorHeight != sensorHeight) {
+      return "Error getting sensor height from message for MessageConsolidatedFrameData test: sensor height is not " +
+        std::to_string(sensorHeight);
+    }
+    uint16_t rLeft;
     status = message.GetLeft(rLeft);
     if (status != OKAY) {
-      return "Error getting left from message for MessageFrameData test: " + ErrorMessage(status);
+      return "Error getting left from message for MessageConsolidatedFrameData test: " + ErrorMessage(status);
     }
     if (rLeft != left) {
-      return "Error getting left from message for MessageFrameData test: left is not " +
+      return "Error getting left from message for MessageConsolidatedFrameData test: left is not " +
         std::to_string(left);
     }
+    uint16_t rTop;
     status = message.GetTop(rTop);
     if (status != OKAY) {
-      return "Error getting top from message for MessageFrameData test: " + ErrorMessage(status);
+      return "Error getting top from message for MessageConsolidatedFrameData test: " + ErrorMessage(status);
     }
     if (rTop != top) {
-      return "Error getting top from message for MessageFrameData test: top is not " +
+      return "Error getting top from message for MessageConsolidatedFrameData test: top is not " +
         std::to_string(top);
     }
+    uint16_t rRight;
     status = message.GetRight(rRight);
     if (status != OKAY) {
-      return "Error getting right from message for MessageFrameData test: " + ErrorMessage(status);
+      return "Error getting right from message for MessageConsolidatedFrameData test: " + ErrorMessage(status);
     }
     if (rRight != right) {
-      return "Error getting right from message for MessageFrameData test: right is not " +
+      return "Error getting right from message for MessageConsolidatedFrameData test: right is not " +
         std::to_string(right);
     }
+    uint16_t rBottom;
     status = message.GetBottom(rBottom);
     if (status != OKAY) {
-      return "Error getting bottom from message for MessageFrameData test: " + ErrorMessage(status);
+      return "Error getting bottom from message for MessageConsolidatedFrameData test: " + ErrorMessage(status);
     }
     if (rBottom != bottom) {
-      return "Error getting bottom from message for MessageFrameData test: bottom is not " +
+      return "Error getting bottom from message for MessageConsolidatedFrameData test: bottom is not " +
         std::to_string(bottom);
+    }
+    bool rBeginFrame;
+    status = message.GetBeginFrameFlag(rBeginFrame);
+    if (status != OKAY) {
+      return "Error getting begin frame flag from message for MessageConsolidatedFrameData test: " + ErrorMessage(status);
+    }
+    if (rBeginFrame != true) {
+      return "Error getting begin frame flag from message for MessageConsolidatedFrameData test: begin frame flag is not true";
+    }
+    bool rEndFrame;
+    status = message.GetEndFrameFlag(rEndFrame);
+    if (status != OKAY) {
+      return "Error getting end frame flag from message for MessageConsolidatedFrameData test: " + ErrorMessage(status);
+    }
+    if (rEndFrame != false) {
+      return "Error getting end frame flag from message for MessageConsolidatedFrameData test: end frame flag is not false";
+    }
+    float rExposure;
+    status = message.GetExposure(rExposure);
+    if (status != OKAY) {
+      return "Error getting exposure from message for MessageConsolidatedFrameData test: " + ErrorMessage(status);
+    }
+    if (rExposure != exposure) {
+      return "Error getting exposure from message for MessageConsolidatedFrameData test: exposure is not " +
+        std::to_string(exposure);
+    }
+    float rGain;
+    status = message.GetGain(rGain);
+    if (status != OKAY) {
+      return "Error getting gain from message for MessageConsolidatedFrameData test: " + ErrorMessage(status);
+    }
+    if (rGain != gain) {
+      return "Error getting gain from message for MessageConsolidatedFrameData test: gain is not " +
+        std::to_string(gain);
     }
     uint8_t* rData;
     status = message.GetDataPointer(rData);
     if (status != OKAY) {
-      return "Error getting data pointer from message for MessageFrameData test: " + ErrorMessage(status);
+      return "Error getting data pointer from message for MessageConsolidatedFrameData test: " + ErrorMessage(status);
     }
-    uint32_t expectedOffset = STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE + sizeof(uint32_t) +
-      4 * sizeof(uint16_t);
-    if (rData != packet.m_buffer->data() + expectedOffset) {
-      return "Error getting data pointer from message for MessageFrameData test: unexpected data pointer.";
+    uint32_t expectedOffset = STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE +
+      4 * sizeof(uint32_t) + 6 * sizeof(uint16_t) + 2 * sizeof(float) + 130;
+    if (rData != message.m_buffer->data() + expectedOffset) {
+      return "Error getting data pointer from message for MessageConsolidatedFrameData test: data pointer is not " +
+        std::to_string(expectedOffset) + " but " + std::to_string((uint32_t)(rData - message.m_buffer->data()));
     }
 
-    // Construct a Message based on the existing one and make sure we
-    // can read data from it as well.
-    MessageFrameData message2(message);
+    // Construct a Message based on the existing one in the StreamPacket and make sure we
+    // Can read its parameters (just doing a spot check on the final parameter).
+    MessageConsolidatedFrameData message2(message);
     if (message2.GetConstructorStatus() != OKAY) {
-      return "Error constructing second MessageFrameData: " + ErrorMessage(message2.GetConstructorStatus());
+      return "Error constructing second MessageConsolidatedFrameData: " + ErrorMessage(message2.GetConstructorStatus());
     }
     status = message2.GetTime(rTimeCode);
     if (status != OKAY) {
-      return "Error getting time code from second message for MessageFrameData test: " + ErrorMessage(status);
+      return "Error getting time code from second message for MessageConsolidatedFrameData test: " + ErrorMessage(status);
     }
     if (rTimeCode != timeCode) {
-      return "Error getting time code from second message for MessageFrameData test: time code is not " +
+      return "Error getting time code from second message for MessageConsolidatedFrameData test: time code is not " +
         std::to_string(timeCode.seconds) + "." + std::to_string(timeCode.microseconds);
     }
     status = message2.GetType(type);
     if (status != OKAY) {
-      return "Error getting type from second message for MessageFrameData test: " + ErrorMessage(status);
+      return "Error getting type from second message for MessageConsolidatedFrameData test: " + ErrorMessage(status);
     }
-    if (type != FRAME_DATA) {
-      return "Error getting type from second message for MessageFrameData test: type is not FRAME_DATA";
+    if (type != CONSOLIDATED_FRAME_DATA) {
+      return "Error getting type from second message for MessageConsolidatedFrameData test: type is not FRAME_BEGIN";
     }
-
-    // Check the bottom and data pointer for the second message to make sure they are the same.
-    status = message2.GetBottom(rBottom);
+    status = message2.GetGain(rGain);
     if (status != OKAY) {
-      return "Error getting bottom from second message for MessageFrameData test: " + ErrorMessage(status);
+      return "Error getting gain from second message for MessageConsolidatedFrameData test: " + ErrorMessage(status);
     }
-    if (rBottom != bottom) {
-      return "Error getting bottom from second message for MessageFrameData test: bottom is not " +
-        std::to_string(bottom);
-    }
-    status = message2.GetDataPointer(rData);
-    if (status != OKAY) {
-      return "Error getting data pointer from second message for MessageFrameData test: " + ErrorMessage(status);
-    }
-    if (rData != packet.m_buffer->data() + expectedOffset) {
-      return "Error getting data pointer from second message for MessageFrameData test: unexpected data pointer.";
-    }
-  }
-
-  return "";
-}
-
-MessageFrameEnd::MessageFrameEnd(StreamPacket& packet, Time timeCode, uint32_t cameraID)
-  : Message(packet, sizeof(cameraID), timeCode, FRAME_END)
-{
-  // See if our subobject failed. If so, we're done.
-  if (m_constructorStatus != OKAY) {
-    return;
-  }
-
-  // Pack our parameters.
-  unsigned char* bufPtr = m_buffer->data() + m_offset + MESSAGE_BASE_SIZE;
-  memcpy(bufPtr, &cameraID, sizeof(cameraID)); bufPtr += sizeof(cameraID);
-}
-
-MessageFrameEnd::MessageFrameEnd(Message& baseMessage)
-  : Message(baseMessage)
-{
-  MessageID type;
-  baseMessage.GetType(type);
-  if (type != FRAME_END) {
-    m_constructorStatus = BAD_PARAMETER;
-  }
-}
-
-Status MessageFrameEnd::GetCameraID(uint32_t& cameraID) const
-{
-  if (m_buffer->size() < m_offset + MESSAGE_BASE_SIZE + sizeof(uint32_t)) {
-    return READ_PAST_END;
-  }
-  memcpy(&cameraID, m_buffer->data() + m_offset + MESSAGE_BASE_SIZE, sizeof(cameraID));
-  return OKAY;
-}
-
-std::string MessageFrameEnd::Test()
-{
-  {
-    // Construct a message with no parameters and check its length, time and type.
-    StreamPacket packet;
-    if (packet.GetConstructorStatus() != OKAY) {
-      return "Error constructing stream packet for MessageFrameEnd test: " + ErrorMessage(packet.GetConstructorStatus());
-    }
-    uint32_t cameraID = 100;
-    Time timeCode = { 1234, 5678 };
-    MessageFrameEnd message(packet, timeCode, cameraID);
-    if (message.GetConstructorStatus() != OKAY) {
-      return "Error constructing MessageFrameEnd: " + ErrorMessage(message.GetConstructorStatus());
-    }
-
-    // Check the length of the packet including the message to make sure it matches expectation.
-    uint32_t totalLength;
-    Status status = packet.GetTotalLength(totalLength);
-    if (status != OKAY) {
-      return "Error checking message size for MessageFrameEnd test: " + ErrorMessage(status);
-    }
-    if (totalLength != STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE + sizeof(uint32_t)) {
-      return "Error constructing message from buffer for MessageFrameEnd test: packet length is not " +
-        std::to_string(STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE) + " but " + std::to_string(totalLength);
-    }
-
-    // Check the time and type of the message.
-    Time rTimeCode;
-    status = message.GetTime(rTimeCode);
-    if (status != OKAY) {
-      return "Error getting time code from message for MessageFrameEnd test: " + ErrorMessage(status);
-    }
-    if (rTimeCode != timeCode) {
-      return "Error getting time code from message for MessageFrameEnd test: time code is not " +
-        std::to_string(timeCode.seconds) + "." + std::to_string(timeCode.microseconds);
-    }
-    MessageID type;
-    status = message.GetType(type);
-    if (status != OKAY) {
-      return "Error getting type from message for MessageFrameEnd test: " + ErrorMessage(status);
-    }
-    if (type != FRAME_END) {
-      return "Error getting type from message for MessageFrameEnd test: type is not FRAME_END";
-    }
-
-    // Check the other messaege parameters.
-    uint32_t rCameraID;
-    status = message.GetCameraID(rCameraID);
-    if (status != OKAY) {
-      return "Error getting camera ID from message for MessageFrameEnd test: " + ErrorMessage(status);
-    }
-    if (rCameraID != cameraID) {
-      return "Error getting camera ID from message for MessageFrameEnd test: Camera ID is not " +
-        std::to_string(cameraID);
-    }
-
-    // Construct a Message based on the existing one and make sure we
-    // can read data from it as well.
-    MessageFrameEnd message2(message);
-    if (message2.GetConstructorStatus() != OKAY) {
-      return "Error constructing second MessageFrameEnd: " + ErrorMessage(message2.GetConstructorStatus());
-    }
-    status = message2.GetTime(rTimeCode);
-    if (status != OKAY) {
-      return "Error getting time code from second message for MessageFrameEnd test: " + ErrorMessage(status);
-    }
-    if (rTimeCode != timeCode) {
-      return "Error getting time code from second message for MessageFrameEnd test: time code is not " +
-        std::to_string(timeCode.seconds) + "." + std::to_string(timeCode.microseconds);
-    }
-    status = message2.GetType(type);
-    if (status != OKAY) {
-      return "Error getting type from second message for MessageFrameEnd test: " + ErrorMessage(status);
-    }
-    if (type != FRAME_END) {
-      return "Error getting type from second message for MessageFrameEnd test: type is not FRAME_END";
+    if (rGain != gain) {
+      return "Error getting gain from second message for MessageConsolidatedFrameData test: gain is not " +
+        std::to_string(gain);
     }
   }
 
@@ -6509,13 +6341,10 @@ std::string StreamWriter::Test()
     }
     Time timeCode;
     timer->GetCoreTime(timeCode);
-    uint32_t cameraID = 1;
-    uint32_t cameraType = 2;
-    uint32_t sensorWidth = 1920;
-    uint32_t sensorHeight = 1080;
-    float exposure = 0.001f;
-    float gain = 1.0f;
-    MessageFrameBegin message(*packet, timeCode, cameraID, cameraType, sensorWidth, sensorHeight, exposure, gain);
+    uint16_t cameraID = 1;
+    uint16_t sensorID = 2;
+    float temperature = 32.7;
+    MessageTemperature message(*packet, timeCode, cameraID, sensorID, temperature);
     if (message.GetConstructorStatus() != OKAY) {
       return "Error constructing MessageFrameBegin: " + ErrorMessage(message.GetConstructorStatus());
     }
@@ -6558,7 +6387,7 @@ std::string StreamWriter::Test()
 
   // Insert a packet and make sure it is received with the correct sequence number.
   StreamPacket packet(1000, 100);
-  MessageFrameBegin message(packet, Time(), 1, 2, 1920, 1080, 0.001f, 1.0f);
+  MessageTemperature message(packet, Time(), 1, 2, 32.7);
   status = streamWriter->InsertPacket(packet);
   if (status != OKAY) {
     return "Error inserting packet: " + ErrorMessage(status);
@@ -8141,17 +7970,9 @@ std::string asdp::Test()
   if (ret.size() > 0) {
     return "Error testing MessageEvent: " + ret;
   }
-  ret = MessageFrameBegin::Test();
+  ret = MessageConsolidatedFrameData::Test();
   if (ret.size() > 0) {
-    return "Error testing MessageFrameBegin: " + ret;
-  }
-  ret = MessageFrameData::Test();
-  if (ret.size() > 0) {
-    return "Error testing MessageFrameData: " + ret;
-  }
-  ret = MessageFrameEnd::Test();
-  if (ret.size() > 0) {
-    return "Error testing MessageFrameEnd: " + ret;
+    return "Error testing MessageConsolidatedFrameData: " + ret;
   }
   ret = MessageStoredStreamList::Test();
   if (ret.size() > 0) {
