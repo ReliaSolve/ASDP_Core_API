@@ -3767,7 +3767,7 @@ Status MessageConsolidatedFrameData::GetEndFrameFlag(bool& endFrame) const
 
 Status MessageConsolidatedFrameData::GetExposure(float& exposure) const
 {
-  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 4 * sizeof(uint32_t) + 6 * sizeof(uint16_t) + sizeof(float);
+  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 4 * sizeof(uint32_t) + 6 * sizeof(uint16_t) + sizeof(uint32_t);
   if (m_buffer->size() < myOffset + sizeof(exposure)) {
     return READ_PAST_END;
   }
@@ -3777,7 +3777,7 @@ Status MessageConsolidatedFrameData::GetExposure(float& exposure) const
 
 Status MessageConsolidatedFrameData::GetGain(float& gain) const
 {
-  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 4 * sizeof(uint32_t) + 6 * sizeof(uint16_t) + 2 * sizeof(float);
+  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 4 * sizeof(uint32_t) + 6 * sizeof(uint16_t) + sizeof(uint32_t) + sizeof(float);
   if (m_buffer->size() < myOffset + sizeof(gain)) {
     return READ_PAST_END;
   }
@@ -3785,9 +3785,21 @@ Status MessageConsolidatedFrameData::GetGain(float& gain) const
   return OKAY;
 }
 
-Status MessageConsolidatedFrameData::GetDataPointer(uint8_t*& data) const
+Status MessageConsolidatedFrameData::GetDataPointer(uint8_t*& data, uint16_t row) const
 {
-  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 4 * sizeof(uint32_t) + 6 * sizeof(uint16_t) + 2 * sizeof(float) + 130;
+  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 4 * sizeof(uint32_t) + 6 * sizeof(uint16_t) + sizeof(uint32_t) + 2 * sizeof(float) + 130;
+  uint16_t left, right;
+  Status status = GetLeft(left);
+  if (status != OKAY) {
+    return status;
+  }
+  status = GetRight(right);
+  if (status != OKAY) {
+    return status;
+  }
+  int width = right - left + 1;
+  if (width % 2) { width++; }
+  myOffset += row * sizeof(uint16_t) * width;
   if (m_buffer->size() < myOffset) {
     return READ_PAST_END;
   }
@@ -3811,13 +3823,19 @@ std::string MessageConsolidatedFrameData::Test()
     uint16_t sensorWidth = 100, sensorHeight = 200;
     uint16_t left = 10, top = 20, right = 30, bottom = 39;
     float exposure = 1.0f, gain = 2.0f;
-    std::vector<uint8_t> data(11 * 20 * sizeof(uint16_t), 0);
+    std::vector<uint16_t> data16(sensorWidth * sensorHeight);
+    for (int y = 0; y < sensorHeight; y++) {
+      for (int x = 0; x < sensorWidth; x++) {
+        data16[y * sensorWidth + x] = (x + y) % 65536;
+      }
+    }
+    uint8_t* data = reinterpret_cast<uint8_t*>(data16.data());
     MessageConsolidatedFrameData message(packet, timeCode,
       frameStartTime,
       cameraID, cameraType, sensorWidth, sensorHeight,
       left, top, right, bottom,
       true, false,
-      data.data(), 11,
+      data, sensorWidth,
       exposure, gain);
     if (message.GetConstructorStatus() != OKAY) {
       return "Error constructing MessageConsolidatedFrameData: " + ErrorMessage(message.GetConstructorStatus());
@@ -3979,10 +3997,36 @@ std::string MessageConsolidatedFrameData::Test()
       return "Error getting data pointer from message for MessageConsolidatedFrameData test: " + ErrorMessage(status);
     }
     uint32_t expectedOffset = STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE +
-      4 * sizeof(uint32_t) + 6 * sizeof(uint16_t) + 2 * sizeof(float) + 130;
+      4 * sizeof(uint32_t) + 6 * sizeof(uint16_t) + sizeof(uint32_t) + 2 * sizeof(float) + 130;
     if (rData != message.m_buffer->data() + expectedOffset) {
       return "Error getting data pointer from message for MessageConsolidatedFrameData test: data pointer is not " +
         std::to_string(expectedOffset) + " but " + std::to_string((uint32_t)(rData - message.m_buffer->data()));
+    }
+    uint8_t* secondRowData;
+    status = message.GetDataPointer(secondRowData, 1);
+    if (status != OKAY) {
+      return "Error getting second row data pointer from message for MessageConsolidatedFrameData test: " + ErrorMessage(status);
+    }
+    if (secondRowData != rData + sizeof(uint16_t) * (right - left + 1 + 1)) {
+      return "Error getting second row data pointer from message for MessageConsolidatedFrameData test: second row data pointer is not " +
+        std::to_string((uint32_t)(rData - message.m_buffer->data()) + sizeof(uint16_t) * (right - left + 1)) +
+        " but " + std::to_string((uint32_t)(secondRowData - message.m_buffer->data()));
+    }
+    for (int j = 0; j <= bottom - top; j++) {
+      int y = j + top;
+      Status status = message.GetDataPointer(rData, j);
+      if (status != OKAY) {
+        return "Error getting data pointer from message for MessageConsolidatedFrameData test: " + ErrorMessage(status);
+      }
+      uint16_t* rData16 = reinterpret_cast<uint16_t*>(rData);
+      for (int i = 0; i <= right - left; i++) {
+        int x = i + left;
+        if (rData16[i] != (x + y) % 65536) {
+          return "Error getting data from message for MessageConsolidatedFrameData test: data is "
+            + std::to_string(rData16[i]) + " not " +
+            std::to_string((x + y) % 65536) + " at pixel " + std::to_string(x) + "," + std::to_string(y);
+        }
+      }
     }
 
     // Construct a Message based on the existing one in the StreamPacket and make sure we

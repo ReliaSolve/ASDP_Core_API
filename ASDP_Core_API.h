@@ -1410,12 +1410,26 @@ public:
   /// @brief Construct a MessageConsolidateFrameData and store it into a buffer from a StreamPacket.
   /// @param [in] packet Pointer to the StreamPacket containing the message.
   /// @param [in] timeCode Time code for the message.
+  /// @param [in] frameStartTime Time for the first pixel in the frame, even if it is not in our region.
   /// @param [in] cameraID Camera ID for the frame.
   /// @param [in] cameraType Camera type that can be used to determine the lens and sensor by
   /// looking up the information in a table.  This also indicates whether the camera is an IR
   /// camera or a visible-light camera.
   /// @param [in] sensorWidth the total number of pixels in a full frame.
   /// @param [in] sensorHeight the total number of pixels in a full frame.
+  /// @param [in] left Index of the leftmost column of pixels.
+  /// @param [in] top Index of the topmost column of pixels.
+  /// @param [in] right Index of the rightmost column of pixels.
+  /// @param [in] bottom Index of the bottommost column of pixels.
+  /// @param [in] beginFrame Whether this is the beginning of a frame.
+  /// @param [in] endFrame Whether this is the end of a frame.
+  /// @param [in] data Pointer to the data for the frame.  This points to the first pixel in the frame
+  /// whether or not it is in our region.
+  /// @param [in] stride Stride of the image that the data is being read from.  This is
+  /// required so that the message knows how many pixels to skip between rows in the image
+  /// it is reading from.  This is the number of pixels to skip in memory from one row to
+  /// the next, which must be >= the number of pixels in a row.  It can be larger because
+  /// the image may be padded to a larger size.
   /// @param [in] exposure Exposure in seconds for the frame (0 for none reported).
   /// @param [in] gain Gain for the frame (0 for none reported).
   MessageConsolidatedFrameData(StreamPacket& packet, Time timeCode,
@@ -1498,8 +1512,10 @@ public:
   /// @brief Get a pointer to the data for the frame.
   /// @param [out] data Pointer to the data for the frame.
   /// This pointer is valid only as long as the MessageFrameData is valid.
+  /// @param [in] row Row of the data to get (0 for the first row in the message, which
+  /// is at the top).
   /// @return OKAY if successful, otherwise an error code.
-  Status GetDataPointer(uint8_t*& data) const;
+  Status GetDataPointer(uint8_t*& data, uint16_t row = 0) const;
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
