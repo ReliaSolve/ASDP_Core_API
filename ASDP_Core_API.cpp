@@ -3601,7 +3601,7 @@ MessageConsolidatedFrameData::MessageConsolidatedFrameData(StreamPacket& packet,
   }
 
   // Construct the flags.
-  uint32_t flags = beginFrame || (endFrame << 1);
+  uint32_t flags = beginFrame | (endFrame << 1);
 
   // Pack our parameters.
   unsigned char* bufPtr = m_buffer->data() + m_offset + MESSAGE_BASE_SIZE;
