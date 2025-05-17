@@ -3591,9 +3591,8 @@ MessageConsolidatedFrameData::MessageConsolidatedFrameData(StreamPacket& packet,
     sizeof(left) + sizeof(top) + sizeof(right) + sizeof(bottom) +
     sizeof(uint32_t /*flags*/) +
     sizeof(exposure) + sizeof(gain) +
-    130 +
-    PaddedSize(right - left + 1, bottom - top + 1) +
-    2,
+    128 +
+    PaddedSize(right - left + 1, bottom - top + 1),
     timeCode, CONSOLIDATED_FRAME_DATA)
 {
   // See if our subobject failed. If so, we're done.
@@ -3621,7 +3620,7 @@ MessageConsolidatedFrameData::MessageConsolidatedFrameData(StreamPacket& packet,
   memcpy(bufPtr, &gain, sizeof(gain)); bufPtr += sizeof(gain);
 
   // Pack our padding, which will be all zeroes.
-  static std::vector<uint8_t> padding(130, 0);
+  static std::vector<uint8_t> padding(128, 0);
   memcpy(bufPtr, padding.data(), padding.size()); bufPtr += padding.size();
 
   // Copy the data a row at a time, adding padding if needed to make an even number of pixels.
@@ -3632,10 +3631,6 @@ MessageConsolidatedFrameData::MessageConsolidatedFrameData(StreamPacket& packet,
     // Add padding if needed to make an even number of pixels.
     bufPtr += rowSize + (rowSize % 4);
   }
-
-  // Add the final 2-byte zero padding.
-  *bufPtr++ = 0;
-  *bufPtr++ = 0;
 }
 
 MessageConsolidatedFrameData::MessageConsolidatedFrameData(Message& baseMessage)
@@ -3787,7 +3782,7 @@ Status MessageConsolidatedFrameData::GetGain(float& gain) const
 
 Status MessageConsolidatedFrameData::GetDataPointer(uint8_t*& data, uint16_t row) const
 {
-  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 4 * sizeof(uint32_t) + 6 * sizeof(uint16_t) + sizeof(uint32_t) + 2 * sizeof(float) + 130;
+  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 4 * sizeof(uint32_t) + 6 * sizeof(uint16_t) + sizeof(uint32_t) + 2 * sizeof(float) + 128;
   uint16_t left, right;
   Status status = GetLeft(left);
   if (status != OKAY) {
@@ -3848,9 +3843,8 @@ std::string MessageConsolidatedFrameData::Test()
       return "Error checking message size for MessageConsolidatedFrameData test: " + ErrorMessage(status);
     }
     uint32_t expectedLength = STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE +
-      4 * sizeof(uint32_t) + 6 * sizeof(uint16_t) + sizeof(uint32_t) + 2 * sizeof(float) + 130 +
-      sizeof(uint16_t) * 22 * 20 +
-      2;
+      4 * sizeof(uint32_t) + 6 * sizeof(uint16_t) + sizeof(uint32_t) + 2 * sizeof(float) + 128 +
+      sizeof(uint16_t) * 22 * 20;
     if (totalLength != expectedLength) {
       return "Error constructing message from buffer for MessageConsolidatedFrameData test: packet length is not " +
         std::to_string(expectedLength) + " but " + std::to_string(totalLength);
@@ -3997,7 +3991,7 @@ std::string MessageConsolidatedFrameData::Test()
       return "Error getting data pointer from message for MessageConsolidatedFrameData test: " + ErrorMessage(status);
     }
     uint32_t expectedOffset = STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE +
-      4 * sizeof(uint32_t) + 6 * sizeof(uint16_t) + sizeof(uint32_t) + 2 * sizeof(float) + 130;
+      4 * sizeof(uint32_t) + 6 * sizeof(uint16_t) + sizeof(uint32_t) + 2 * sizeof(float) + 128;
     if (rData != message.m_buffer->data() + expectedOffset) {
       return "Error getting data pointer from message for MessageConsolidatedFrameData test: data pointer is not " +
         std::to_string(expectedOffset) + " but " + std::to_string((uint32_t)(rData - message.m_buffer->data()));
