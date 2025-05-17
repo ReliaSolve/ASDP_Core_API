@@ -176,8 +176,21 @@ int CountPacketsPerSecond(CoreClient& client, std::string ip_address,
           std::cerr << "Error getting message type: " << ErrorMessage(status) << std::endl;
           return -1;
         }
-        if (messageType == FRAME_BEGIN) {
-          numFrames++;
+        if (messageType == CONSOLIDATED_FRAME_DATA) {
+          MessageConsolidatedFrameData frameData(*message);
+          if (frameData.GetConstructorStatus() != OKAY) {
+            std::cerr << "Error constructing frame data message: " << ErrorMessage(frameData.GetConstructorStatus()) << std::endl;
+            return -1;
+          }
+          bool isBeginFrame;
+          status = frameData.GetBeginFrameFlag(isBeginFrame);
+          if (status != OKAY) {
+            std::cerr << "Error getting begin-frame flag: " << ErrorMessage(status) << std::endl;
+            return -1;
+          }
+          if (isBeginFrame) {
+            numFrames++;
+          }
         }
         status = receiveStreamPacket->GetNextMessage(message);
         if (status != OKAY) {

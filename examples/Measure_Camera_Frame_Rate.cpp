@@ -175,12 +175,36 @@ void StreamReceiverThread(std::shared_ptr<ReceiverUDP> receiverUDP, std::atomic_
         done = true;
         return;
       }
-      if (messageType == asdp::FRAME_BEGIN) {
-        beginFrameTimes.push_back(std::chrono::steady_clock::now());
-        frames++;
-      }
-      if (messageType == asdp::FRAME_END) {
-        endFrameTimes.push_back(std::chrono::steady_clock::now());
+      if (messageType == asdp::CONSOLIDATED_FRAME_DATA) {
+        MessageConsolidatedFrameData frameData(*message);
+        if (frameData.GetConstructorStatus() != OKAY) {
+          std::cerr << "Error constructing frame data message: " << ErrorMessage(frameData.GetConstructorStatus()) << std::endl;
+          done = true;
+          return;
+        }
+
+        bool isBeginFrame;
+        status = frameData.GetBeginFrameFlag(isBeginFrame);
+        if (status != OKAY) {
+          std::cerr << "Error getting begin-frame flag: " << ErrorMessage(status) << std::endl;
+          done = true;
+          return;
+        }
+        if (isBeginFrame) {
+          beginFrameTimes.push_back(std::chrono::steady_clock::now());
+          frames++;
+        }
+
+        bool isEndFrame;
+        status = frameData.GetEndFrameFlag(isEndFrame);
+        if (status != OKAY) {
+          std::cerr << "Error getting end-frame flag: " << ErrorMessage(status) << std::endl;
+          done = true;
+          return;
+        }
+        if (isEndFrame) {
+          endFrameTimes.push_back(std::chrono::steady_clock::now());
+        }
       }
       status = receiveStreamPacket->GetNextMessage(message);
       if (status != asdp::OKAY) {

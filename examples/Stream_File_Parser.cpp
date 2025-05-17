@@ -21,9 +21,7 @@ static std::string MessageName(MessageID type)
   case DISCOVERY: return "DISCOVERY";
   case STATE: return "STATE";
   case EVENT: return "EVENT";
-  case FRAME_BEGIN: return "FRAME_BEGIN";
-  case FRAME_DATA: return "FRAME_DATA";
-  case FRAME_END: return "FRAME_END";
+  case CONSOLIDATED_FRAME_DATA: return "CONSOLIDATED_FRAME_DATA";
   case STORED_STREAMS: return "STORED_STREAMS";
   case TEMPERATURE: return "TEMPERATURE";
   case POSE: return "POSE";

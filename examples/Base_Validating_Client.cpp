@@ -174,47 +174,61 @@ static int GetPixelCounts(std::string &ip_address, CoreClient &client,
       std::cerr << "Error getting type from message: " << ErrorMessage(status) << std::endl;
       return 35;
     }
-    if (rID == asdp::FRAME_BEGIN) {
-      gotStart = true;
-    }
-    if (!gotStart) {
-      continue;
-    }
-    if (rID == asdp::FRAME_END) {
-      gotEnd = true;
-    }
-    if (gotStart && rID == asdp::FRAME_DATA) {
-      asdp::MessageFrameData frameData(*message);
+    if (rID == asdp::CONSOLIDATED_FRAME_DATA) {
+      asdp::MessageConsolidatedFrameData frameData(*message);
       if (frameData.GetConstructorStatus() != OKAY) {
         std::cerr << "Failed to construct frame data message: " << ErrorMessage(frameData.GetConstructorStatus()) << std::endl;
         return 36;
+      }
+      bool isBeginFrame;
+      status = frameData.GetBeginFrameFlag(isBeginFrame);
+      if (status != OKAY) {
+        std::cerr << "Failed to get begin-frame flag: " << ErrorMessage(status) << std::endl;
+        return 37;
+      }
+      if (isBeginFrame) {
+        // We have a start frame, so we can start counting pixels.
+        gotStart = true;
+      }
+      if (!gotStart) {
+        continue;
+      }
+      bool isFrameEnd;
+      status = frameData.GetEndFrameFlag(isFrameEnd);
+      if (status != OKAY) {
+        std::cerr << "Failed to get end-frame flag: " << ErrorMessage(status) << std::endl;
+        return 38;
+      }
+      if (isFrameEnd) {
+        // We have an end frame, so we can stop counting pixels.
+        gotEnd = true;
       }
       uint16_t left, right, top, bottom;
       status = frameData.GetLeft(left);
       if (status != OKAY) {
         std::cerr << "Failed to get left: " << ErrorMessage(status) << std::endl;
-        return 37;
+        return 39;
       }
       status = frameData.GetRight(right);
       if (status != OKAY) {
         std::cerr << "Failed to get right: " << ErrorMessage(status) << std::endl;
-        return 38;
+        return 40;
       }
       status = frameData.GetTop(top);
       if (status != OKAY) {
         std::cerr << "Failed to get top: " << ErrorMessage(status) << std::endl;
-        return 39;
+        return 41;
       }
       status = frameData.GetBottom(bottom);
       if (status != OKAY) {
         std::cerr << "Failed to get bottom: " << ErrorMessage(status) << std::endl;
-        return 40;
+        return 42;
       }
       for (size_t y = top; y <= bottom; y++) {
         for (size_t x = left; x <= right; x++) {
           if ((x >= camera.width) || (y >= camera.height)) {
             std::cerr << "Pixel out of bounds: " << x << ", " << y << std::endl;
-            return 41;
+            return 43;
           }
           outPixelCounts[y * camera.width + x]++;
         }
@@ -605,13 +619,26 @@ int main(int argc, char** argv)
         std::cerr << "Error getting type from message: " << ErrorMessage(status) << std::endl;
         return 36;
       }
-      if (rID == asdp::FRAME_BEGIN) {
-        numStartFrames++;
+      if (rID == asdp::CONSOLIDATED_FRAME_DATA) {
+        asdp::MessageConsolidatedFrameData frameData(*message);
+        if (frameData.GetConstructorStatus() != OKAY) {
+          std::cerr << "Failed to construct frame data message: " << ErrorMessage(frameData.GetConstructorStatus()) << std::endl;
+          return 37;
+        }
+        bool isBeginFrame;
+        status = frameData.GetBeginFrameFlag(isBeginFrame);
+        if (status != OKAY) {
+          std::cerr << "Failed to get begin-frame flag: " << ErrorMessage(status) << std::endl;
+          return 38;
+        }
+        if (isBeginFrame) {
+          numStartFrames++;
+        }
       }
     } while (std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - start).count() <= 0.5);
     if (count < 1) {
       std::cerr << "Did not get enough image messages: " << count << std::endl;
-      return 37;
+      return 39;
     }
     std::cout << "  Got " << numStartFrames << " begin-frame messages." << std::endl;
 
@@ -619,7 +646,7 @@ int main(int argc, char** argv)
     status = client.SendCommandPacket(CommandPacketCancelSubregion(camID, endpoint));
     if (status != OKAY) {
       std::cerr << "Failed to cancel stream images: " << ErrorMessage(status) << std::endl;
-      return 38;
+      return 40;
     }
   }
 

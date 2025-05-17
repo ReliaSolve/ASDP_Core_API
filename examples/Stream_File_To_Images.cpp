@@ -72,7 +72,6 @@ int main(int argc, char** argv)
   uint32_t lastSequenceNumber = 0;
   std::string imageFileName;
   std::vector<uint16_t> imageBuffer;
-  uint16_t imageWidth, imageHeight;
   while (available) {
     // Get the next packet.
     std::shared_ptr<StreamPacket> packet;
@@ -131,87 +130,95 @@ int main(int argc, char** argv)
         return 8;
       }
       switch (type) {
-        case FRAME_BEGIN:
+        case CONSOLIDATED_FRAME_DATA:
           {
+            uint16_t imageWidth, imageHeight;
+
             // Read the time and resolution of the image.
-            MessageFrameBegin frameBegin(*msg);
+            MessageConsolidatedFrameData frameData(*msg);
             Time time;
-            status = frameBegin.GetTime(time);
+            status = frameData.GetTime(time);
             if (status != OKAY) {
-              std::cerr << "Error reading frame begin time: " << ErrorMessage(status) << std::endl;
+              std::cerr << "Error reading frame time: " << ErrorMessage(status) << std::endl;
               return 9;
             }
-            status = frameBegin.GetSensorWidth(imageWidth);
+            status = frameData.GetSensorWidth(imageWidth);
             if (status != OKAY) {
-              std::cerr << "Error reading frame begin width: " << ErrorMessage(status) << std::endl;
+              std::cerr << "Error reading frame width: " << ErrorMessage(status) << std::endl;
               return 10;
             }
-            status = frameBegin.GetSensorHeight(imageHeight);
+            status = frameData.GetSensorHeight(imageHeight);
             if (status != OKAY) {
-              std::cerr << "Error reading frame begin height: " << ErrorMessage(status) << std::endl;
+              std::cerr << "Error reading frame height: " << ErrorMessage(status) << std::endl;
               return 11;
             }
 
-            // Generate the image file name and construct the storage for the image.
-            imageFileName = imageBaseFileName + "_" + std::to_string(time.seconds) + "_" + std::to_string(time.microseconds) + ".pgm";
-            imageBuffer.resize(int(imageWidth) * imageHeight);
-            std::cout << "Reading image " << imageFileName << " (" << imageWidth << "x" << imageHeight << ")" << std::endl;
-          }
-          break;
+            // If this is the beginning of the frame, we open the file and prepare to write the image.
+            bool isBeginFrame;
+            status = frameData.GetBeginFrameFlag(isBeginFrame);
+            if (status != OKAY) {
+              std::cerr << "Error reading begin frame: " << ErrorMessage(status) << std::endl;
+              return 12;
+            }
 
-        case FRAME_DATA:
-          {
+            // Generate the image file name and construct the storage for the image.
+            if (isBeginFrame) {
+              imageFileName = imageBaseFileName + "_" + std::to_string(time.seconds) + "_" + std::to_string(time.microseconds) + ".pgm";
+              imageBuffer.resize(int(imageWidth)* imageHeight);
+              std::cout << "Reading image " << imageFileName << " (" << imageWidth << "x" << imageHeight << ")" << std::endl;
+            }
+
             // Only do this if we have an image name.
             if (!imageFileName.empty()) {
               // Find the region and data for the image and copy it to the appropriate location in the image buffer.
-              MessageFrameData frameData(*msg);
               uint16_t left, right, top, bottom;
-              uint8_t* dataPtr;
               status = frameData.GetLeft(left);
               if (status != OKAY) {
                 std::cerr << "Error reading frame data left: " << ErrorMessage(status) << std::endl;
-                return 12;
+                return 13;
               }
               status = frameData.GetRight(right);
               if (status != OKAY) {
                 std::cerr << "Error reading frame data right: " << ErrorMessage(status) << std::endl;
-                return 13;
+                return 14;
               }
               status = frameData.GetTop(top);
               if (status != OKAY) {
                 std::cerr << "Error reading frame data top: " << ErrorMessage(status) << std::endl;
-                return 14;
+                return 15;
               }
               status = frameData.GetBottom(bottom);
               if (status != OKAY) {
                 std::cerr << "Error reading frame data bottom: " << ErrorMessage(status) << std::endl;
-                return 15;
-              }
-              status = frameData.GetDataPointer(dataPtr);
-              if (status != OKAY) {
-                std::cerr << "Error reading frame data pointer: " << ErrorMessage(status) << std::endl;
                 return 16;
               }
               uint16_t width = right - left + 1;
               for (uint16_t row = top; row <= bottom; ++row) {
-                memcpy(imageBuffer.data() + (row * width + left),
-                  dataPtr + (row - top) * width * sizeof(uint16_t),
-                  width * sizeof(uint16_t));
+                uint8_t* dataPtr;
+                status = frameData.GetDataPointer(dataPtr, row - top);
+                if (status != OKAY) {
+                  std::cerr << "Error reading frame data pointer: " << ErrorMessage(status) << std::endl;
+                  return 17;
+                }
+                memcpy(imageBuffer.data() + (row * width + left), dataPtr, width * sizeof(uint16_t));
               }
             }
-          }
-          break;
 
-        case FRAME_END:
-          {
-            // If we have an image name, write the image to the file.
-            if (!imageFileName.empty()) {
+            bool isEndFrame;
+            status = frameData.GetEndFrameFlag(isEndFrame);
+            if (status != OKAY) {
+              std::cerr << "Error reading end frame: " << ErrorMessage(status) << std::endl;
+              return 18;
+            }
+
+            // If we have an image name and this is the end of the frame, write the image to the file.
+            if (isEndFrame && !imageFileName.empty()) {
               std::cout << "  Writing image to " << imageFileName << std::endl;
               fixEndian(imageBuffer);
               FILE *f = fopen(imageFileName.c_str(), "wb");
               if (f == NULL) {
                 std::cerr << "Error opening image file " << imageFileName << std::endl;
-                return 12;
+                return 19;
               }
               fprintf(f, "P5\n%d %d\n%d\n", imageWidth, imageHeight, 65535);
               fwrite(imageBuffer.data(), sizeof(uint16_t), imageBuffer.size(), f);
