@@ -468,26 +468,32 @@ int main(int argc, char** argv)
             return 37;
           }
           switch (rID) {
-          case asdp::FRAME_BEGIN:
+          case asdp::CONSOLIDATED_FRAME_DATA:
           {
-            fileName = "saved_image_" + std::to_string(numFrames) + ".pgm";
-            fileData.reset(new FileData);
-            fileData->fileName = fileName;
-            size_t size = (cameras[camID - 1].width * cameras[camID - 1].height) * sizeof(uint16_t);
-            fileData->data = new uint8_t[size];
-            fileData->size = size;
-          }
-          break;
-          case asdp::FRAME_DATA:
-          {
-            // Don't do anything if we haven't created fileData yet.
-            if (fileData == nullptr) { break; }
-            // Find out how many pixels are in the frame and sum their values.
-            asdp::MessageFrameData frameData(*message);
+            MessageConsolidatedFrameData frameData(*message);
             if (frameData.GetConstructorStatus() != asdp::OKAY) {
               std::cerr << "Error constructing FrameData message: " << ErrorMessage(frameData.GetConstructorStatus()) << std::endl;
+              return 38;
+            }
+            bool isBeginFrame;
+            status = frameData.GetBeginFrameFlag(isBeginFrame);
+            if (status != asdp::OKAY) {
+              std::cerr << "Error getting begin frame flag from FrameData message: " << ErrorMessage(status) << std::endl;
               return 39;
             }
+            if (isBeginFrame) {
+              fileName = "saved_image_" + std::to_string(numFrames) + ".pgm";
+              fileData.reset(new FileData);
+              fileData->fileName = fileName;
+              size_t size = (cameras[camID - 1].width * cameras[camID - 1].height) * sizeof(uint16_t);
+              fileData->data = new uint8_t[size];
+              fileData->size = size;
+            }
+
+            // Don't do anything if we haven't created fileData yet.
+            if (fileData == nullptr) { break; }
+
+            // Find out how many pixels are in the frame and sum their values.
             uint16_t stride = cameras[camID - 1].width;
             uint16_t left, right, top, bottom;
             status = frameData.GetLeft(left);
@@ -521,16 +527,21 @@ int main(int argc, char** argv)
             // adjust for the full-image stride when doing offsets.
             size_t size = (right - left + 1) * (bottom - top + 1) * sizeof(uint16_t);
             memcpy(fileData->data + (top * stride + left) * sizeof(uint16_t), rawData, size);
-          }
-          break;
-          case asdp::FRAME_END:
-          {
-            // Don't do anything if we haven't created fileData yet.
-            if (fileData == nullptr) { break; }
-            numFrames++;
-            std::cout << "Writing " << fileName << std::endl;
-            std::lock_guard<std::mutex> lock(fileDataMutex);
-            fileDataList.push_back(fileData);
+
+            bool isEndFrame;
+            status = frameData.GetEndFrameFlag(isEndFrame);
+            if (status != asdp::OKAY) {
+              std::cerr << "Error getting end frame flag from FrameData message: " << ErrorMessage(status) << std::endl;
+              return 45;
+            }
+            if (isEndFrame) {
+              // Don't do anything if we haven't created fileData yet.
+              if (fileData == nullptr) { break; }
+              numFrames++;
+              std::cout << "Writing " << fileName << std::endl;
+              std::lock_guard<std::mutex> lock(fileDataMutex);
+              fileDataList.push_back(fileData);
+            }
           }
           break;
           default:
