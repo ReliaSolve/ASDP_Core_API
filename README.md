@@ -8,8 +8,28 @@ using the approach described in the [ASDP API Implementation](TR-009v06_Core_API
 
 ## Getting Started
 
+**Requirements:** The library makes use of the DPDK library for high-speed packet processing.  This is availble
+on Linux using `apt install libdpdk-dev`. On Windows, it can be built from source as follows:
+
+    Download the LLVM Clang compiler from https://releases.llvm.org/download.html (tested using LLVM 18.1.8)
+        https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/clang+llvm-18.1.8-x86_64-pc-windows-msvc.tar.xz
+    Unzip the LLVM Clang compiler to the desired location (e.g., C:\Program Files\LLVM)
+    Add the path to the LLVM Clang compiler to your path (e.g., C:\Program Files\LLVM\bin)
+    Launch a new command prompt so that it will have the new path and verify that you can run clang
+    Download a meson/ninja build system MSI file from https://github.com/mesonbuild/meson/releases (tested using 1.8.0-64)
+        https://github.com/mesonbuild/meson/releases/download/1.8.0/meson-1.8.0-64.msi
+    Install the MSI file
+    Download the DPDK source code from https://fast.dpdk.org/rel/dpdk-24.11.2.tar.xz
+    Extract the DPDK source code
+    In a command prompt within the extracted DPDK source code, run the following commands:
+        set CC=clang
+        meson setup -Denable_stdatomic=true build
+        meson compile -C build
+    @todo Configure virt2phys using registry entries as described in the README in the source directory
+        https://git.dpdk.org/ has a directory called dpdk-kmods with the source -- refresh if get bad gateway error
+
 **Build and Install:** ASDP_Core_API uses CMake to configure the builds (though other build
-systems could be used).  On Ubuntu Linux, this can be done as follows
+systems could be used).  On Ubuntu Linux, this can be done as follows:
 
     sudo apt install cmake
     cd; mkdir src; cd src; git clone https://github.com/arizonaCameraLab/ASDP_Core_API
