@@ -143,6 +143,7 @@ if(BUILD_EXAMPLES)
     Measure_Camera_Frame_Rate
     Stream_File_To_Images
     Multicast_Test
+    Raw_Packet_Receiver
   )
   foreach (BASE ${EXAMPLES})
     # C++ example
