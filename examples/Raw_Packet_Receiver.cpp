@@ -75,8 +75,9 @@ static void receiveDataThread(ReceiverUDP& receiveSocket, size_t maxBytesPerPack
 
     // Get a new buffer to use to receive the data into and write to file.
     buffer = bufferPool.GetBuffer();
+    buffer->reserve(maxBytesPerPacket);
 
-    // Copy into the correct part of the buffer, round-robin filling it up.
+    // Copy into the buffer.
     size_t size = maxBytesPerPacket;
     Status status = receiveSocket.ReceiveBuffer(buffer->data(), size);
     if (size == 0) {
@@ -89,6 +90,7 @@ static void receiveDataThread(ReceiverUDP& receiveSocket, size_t maxBytesPerPack
       std::cerr << "Error receiving data: " << ErrorMessage(status) << std::endl;
       break;
     }
+    buffer->resize(size);
 
     if (sender) {
       // Copy the data to file.
