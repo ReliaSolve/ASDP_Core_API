@@ -128,6 +128,82 @@ int main(int argc, char** argv)
       }
       std::cout << " " << MessageName(type) << " @" << time.seconds << ":" << time.microseconds;
 
+      // provide more information for frame-data messages.
+      if (type == CONSOLIDATED_FRAME_DATA) {
+        MessageConsolidatedFrameData cfd(*msg);
+        if (cfd.GetConstructorStatus() != OKAY) {
+          std::cerr << "Error parsing CONSOLIDATED_FRAME_DATA message" << std::endl;
+          return 9;
+        }
+
+        uint32_t cameraID;
+        status = cfd.GetCameraID(cameraID);
+        if (status != OKAY) {
+          std::cerr << "Error reading camera ID: " << ErrorMessage(status) << std::endl;
+          return 10;
+        }
+
+        uint16_t sensorWidth, sensorHeight;
+        status = cfd.GetSensorWidth(sensorWidth);
+        if (status != OKAY) {
+          std::cerr << "Error reading sensor width: " << ErrorMessage(status) << std::endl;
+          return 11;
+        }
+        status = cfd.GetSensorHeight(sensorHeight);
+        if (status != OKAY) {
+          std::cerr << "Error reading sensor height: " << ErrorMessage(status) << std::endl;
+          return 12;
+        }
+
+        uint16_t left, right, top, bottom;
+        status = cfd.GetLeft(left);
+        if (status != OKAY) {
+          std::cerr << "Error reading left: " << ErrorMessage(status) << std::endl;
+          return 13;
+        }
+        status = cfd.GetRight(right);
+        if (status != OKAY) {
+          std::cerr << "Error reading right: " << ErrorMessage(status) << std::endl;
+          return 14;
+        }
+        status = cfd.GetTop(top);
+        if (status != OKAY) {
+          std::cerr << "Error reading top: " << ErrorMessage(status) << std::endl;
+          return 15;
+        }
+        status = cfd.GetBottom(bottom);
+        if (status != OKAY) {
+          std::cerr << "Error reading bottom: " << ErrorMessage(status) << std::endl;
+          return 16;
+        }
+
+        bool beginFrame, endFrame;
+        status = cfd.GetBeginFrameFlag(beginFrame);
+        if (status != OKAY) {
+          std::cerr << "Error reading begin frame flag: " << ErrorMessage(status) << std::endl;
+          return 17;
+        }
+        status = cfd.GetEndFrameFlag(endFrame);
+        if (status != OKAY) {
+          std::cerr << "Error reading end frame flag: " << ErrorMessage(status) << std::endl;
+          return 18;
+        }
+
+        Time frameStartTime;
+        status = cfd.GetFrameStartTime(frameStartTime);
+        if (status != OKAY) {
+          std::cerr << "Error reading frame start time: " << ErrorMessage(status) << std::endl;
+          return 19;
+        }
+
+        std::cout << " (camera " << cameraID << ", size " << sensorWidth << "x" << sensorHeight
+                  << ", region [" << left << "," << right << "," << top << "," << bottom
+                  << "], begin frame: " << beginFrame
+                  << ", end frame: " << endFrame
+                  << ", frame start time: " << frameStartTime.seconds << ":" << frameStartTime.microseconds
+                  << ")";
+      }
+
       status = packet->GetNextMessage(msg);
       if (status != OKAY) {
         std::cerr << "Error reading message: " << ErrorMessage(status) << std::endl;
