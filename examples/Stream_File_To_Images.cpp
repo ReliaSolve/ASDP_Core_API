@@ -9,6 +9,7 @@
 #include <iostream>
 #include <cstdio>
 #include <chrono>
+#include <cstring>
 #include <ASDP_Core_API.h>
 
 using namespace asdp;
@@ -30,15 +31,26 @@ static void fixEndian(std::vector<uint16_t>& data) {
   }
 }
 
+void usage(const std::string& programName)
+{
+  std::cerr << "Usage: " << programName << "[--sequential] <filename> <imageBaseFileName>" << std::endl;
+  std::cerr << "  <filename> - The name of the file to parse." << std::endl;
+  std::cerr << "  <imageBaseFileName> - The base name for the images to be saved." << std::endl;
+}
+
 int main(int argc, char** argv)
 {
   std::string fileName, imageBaseFileName;
+  bool sequential = false;
+  int frameNum = 0;
   size_t realParams = 0;
 
   // Parse the command line arguments, with the first non-flag argument being the
   // name of the file to parse.
   for (int i = 1; i < argc; ++i) {
-    if (argv[i][0] == '-' ) {
+    if (strcmp(argv[i], "--sequential") == 0) {
+      sequential = true;
+    } else if (argv[i][0] == '-' ) {
       std::cerr << "Unknown flag: " << argv[i] << std::endl;
       return 1;
     } else switch (realParams++) {
@@ -49,12 +61,12 @@ int main(int argc, char** argv)
         imageBaseFileName = argv[i];
         break;
       default:
-        std::cerr << "Usage: " << argv[0] << " <filename> <imageBaseFileName>" << std::endl;
+        usage(argv[0]);
         return 1;
     }
   }
   if (realParams != 2) {
-    std::cerr << "Usage: " << argv[0] << " <filename> <imageBaseFileName>" << std::endl;
+    usage(argv[0]);
     return 2;
   }
 
@@ -163,8 +175,13 @@ int main(int argc, char** argv)
 
             // Generate the image file name and construct the storage for the image.
             if (isBeginFrame) {
-              imageFileName = imageBaseFileName + "_" + std::to_string(time.seconds) + "_" + std::to_string(time.microseconds) + ".pgm";
+              if (sequential) {
+                imageFileName = imageBaseFileName + "_" + std::to_string(frameNum++) + ".pgm";
+              } else {
+                imageFileName = imageBaseFileName + "_" + std::to_string(time.seconds) + "_" + std::to_string(time.microseconds) + ".pgm";
+              }
               imageBuffer.resize(int(imageWidth)* imageHeight);
+              std::memset(imageBuffer.data(), 0, imageBuffer.size() * sizeof(uint16_t));
               std::cout << "Reading image " << imageFileName << " (" << imageWidth << "x" << imageHeight << ")" << std::endl;
             }
 
