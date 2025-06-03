@@ -123,8 +123,8 @@ static std::string OpCodeName(OpCode opCode)
 static const unsigned char MAGIC_COOKIE[4] = { 'A', 'S', 'D', 'P' };
 // NOTE: The version number is in the form major.minor.patch, where the first and third are bytes and
 // the second is a 16-bit integer.  This is done to allow for a large number of minor versions.  The
-// 16-bit value is stored in little-endian format.
-static const unsigned char VERSION[4] = { 7, 0,0, 0 };
+// 16-bit minor version value is stored in little-endian format.
+static const unsigned char VERSION[4] = { 8, 0,0, 0 };
 
 static const uint32_t PACKET_HEADER_TOTAL_SIZE_OFFSET = 0;
 static const uint32_t PACKET_BASIC_HEADER_SIZE = sizeof(uint32_t);
@@ -3580,14 +3580,13 @@ std::string MessageEvent::Test()
 }
 
 MessageConsolidatedFrameData::MessageConsolidatedFrameData(StreamPacket& packet, Time timeCode,
-  Time frameStartTime,
   uint32_t cameraID, uint32_t cameraType, uint16_t sensorWidth, uint16_t sensorHeight,
   uint16_t left, uint16_t top, uint16_t right, uint16_t bottom,
   bool beginFrame, bool endFrame,
   uint8_t* data, uint16_t stride,
   float exposure, float gain)
   : Message(packet,
-    sizeof(frameStartTime) + sizeof(cameraID) + sizeof(cameraType) + sizeof(sensorWidth) + sizeof(sensorHeight) +
+    sizeof(cameraID) + sizeof(cameraType) + sizeof(sensorWidth) + sizeof(sensorHeight) +
     sizeof(left) + sizeof(top) + sizeof(right) + sizeof(bottom) +
     sizeof(uint32_t /*flags*/) +
     sizeof(exposure) + sizeof(gain) +
@@ -3605,8 +3604,6 @@ MessageConsolidatedFrameData::MessageConsolidatedFrameData(StreamPacket& packet,
 
   // Pack our parameters.
   unsigned char* bufPtr = m_buffer->data() + m_offset + MESSAGE_BASE_SIZE;
-  memcpy(bufPtr, &frameStartTime.seconds, sizeof(frameStartTime.seconds)); bufPtr += sizeof(frameStartTime.seconds);
-  memcpy(bufPtr, &frameStartTime.microseconds, sizeof(frameStartTime.microseconds)); bufPtr += sizeof(frameStartTime.microseconds);
   memcpy(bufPtr, &cameraID, sizeof(cameraID)); bufPtr += sizeof(cameraID);
   memcpy(bufPtr, &cameraType, sizeof(cameraType)); bufPtr += sizeof(cameraType);
   memcpy(bufPtr, &sensorWidth, sizeof(sensorWidth)); bufPtr += sizeof(sensorWidth);
@@ -3643,21 +3640,9 @@ MessageConsolidatedFrameData::MessageConsolidatedFrameData(Message& baseMessage)
   }
 }
 
-Status MessageConsolidatedFrameData::GetFrameStartTime(Time& frameStartTime) const
-{
-  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE;
-  if (m_buffer->size() < myOffset + 2 * sizeof(uint32_t)) {
-    return READ_PAST_END;
-  }
-  memcpy(&frameStartTime.seconds, m_buffer->data() + myOffset, sizeof(frameStartTime.seconds));
-  memcpy(&frameStartTime.microseconds, m_buffer->data() + myOffset + sizeof(frameStartTime.seconds),
-    sizeof(frameStartTime.microseconds));
-  return OKAY;
-}
-
 Status MessageConsolidatedFrameData::GetCameraID(uint32_t& cameraID) const
 {
-  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 2 * sizeof(uint32_t);
+  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE;
   if (m_buffer->size() < m_offset + sizeof(cameraID)) {
     return READ_PAST_END;
   }
@@ -3667,7 +3652,7 @@ Status MessageConsolidatedFrameData::GetCameraID(uint32_t& cameraID) const
 
 Status MessageConsolidatedFrameData::GetCameraType(uint32_t& cameraType) const
 {
-  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 3 * sizeof(uint32_t);
+  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 1 * sizeof(uint32_t);
   if (m_buffer->size() < myOffset + sizeof(cameraType)) {
     return READ_PAST_END;
   }
@@ -3677,7 +3662,7 @@ Status MessageConsolidatedFrameData::GetCameraType(uint32_t& cameraType) const
 
 Status MessageConsolidatedFrameData::GetSensorWidth(uint16_t& sensorWidth) const
 {
-  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 4 * sizeof(uint32_t);
+  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 2 * sizeof(uint32_t);
 
   if (m_buffer->size() < myOffset + sizeof(sensorWidth)) {
     return READ_PAST_END;
@@ -3688,7 +3673,7 @@ Status MessageConsolidatedFrameData::GetSensorWidth(uint16_t& sensorWidth) const
 
 Status MessageConsolidatedFrameData::GetSensorHeight(uint16_t& sensorHeight) const
 {
-  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 4 * sizeof(uint32_t) + sizeof(uint16_t);
+  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 2 * sizeof(uint32_t) + sizeof(uint16_t);
   if (m_buffer->size() < myOffset + sizeof(sensorHeight)) {
     return READ_PAST_END;
   }
@@ -3698,7 +3683,7 @@ Status MessageConsolidatedFrameData::GetSensorHeight(uint16_t& sensorHeight) con
 
 Status MessageConsolidatedFrameData::GetLeft(uint16_t& left) const
 {
-  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 4 * sizeof(uint32_t) + 2 * sizeof(uint16_t);
+  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 2 * sizeof(uint32_t) + 2 * sizeof(uint16_t);
   if (m_buffer->size() < myOffset + sizeof(left)) {
     return READ_PAST_END;
   }
@@ -3708,7 +3693,7 @@ Status MessageConsolidatedFrameData::GetLeft(uint16_t& left) const
 
 Status MessageConsolidatedFrameData::GetTop(uint16_t& top) const
 {
-  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 4 * sizeof(uint32_t) + 3 * sizeof(uint16_t);
+  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 2 * sizeof(uint32_t) + 3 * sizeof(uint16_t);
   if (m_buffer->size() < myOffset + sizeof(top)) {
     return READ_PAST_END;
   }
@@ -3718,7 +3703,7 @@ Status MessageConsolidatedFrameData::GetTop(uint16_t& top) const
 
 Status MessageConsolidatedFrameData::GetRight(uint16_t& right) const
 {
-  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 4 * sizeof(uint32_t) + 4 * sizeof(uint16_t);
+  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 2 * sizeof(uint32_t) + 4 * sizeof(uint16_t);
   if (m_buffer->size() < myOffset + sizeof(right)) {
     return READ_PAST_END;
   }
@@ -3728,7 +3713,7 @@ Status MessageConsolidatedFrameData::GetRight(uint16_t& right) const
 
 Status MessageConsolidatedFrameData::GetBottom(uint16_t& bottom) const
 {
-  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 4 * sizeof(uint32_t) + 5 * sizeof(uint16_t);
+  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 2 * sizeof(uint32_t) + 5 * sizeof(uint16_t);
   if (m_buffer->size() < myOffset + sizeof(bottom)) {
     return READ_PAST_END;
   }
@@ -3738,7 +3723,7 @@ Status MessageConsolidatedFrameData::GetBottom(uint16_t& bottom) const
 
 Status MessageConsolidatedFrameData::GetBeginFrameFlag(bool& beginFrame) const
 {
-  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 4 * sizeof(uint32_t) + 6 * sizeof(uint16_t);
+  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 2 * sizeof(uint32_t) + 6 * sizeof(uint16_t);
   uint32_t flags;
   if (m_buffer->size() < myOffset + sizeof(flags)) {
     return READ_PAST_END;
@@ -3750,7 +3735,7 @@ Status MessageConsolidatedFrameData::GetBeginFrameFlag(bool& beginFrame) const
 
 Status MessageConsolidatedFrameData::GetEndFrameFlag(bool& endFrame) const
 {
-  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 4 * sizeof(uint32_t) + 6 * sizeof(uint16_t);
+  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 2 * sizeof(uint32_t) + 6 * sizeof(uint16_t);
   uint32_t flags;
   if (m_buffer->size() < myOffset + sizeof(flags)) {
     return READ_PAST_END;
@@ -3762,7 +3747,7 @@ Status MessageConsolidatedFrameData::GetEndFrameFlag(bool& endFrame) const
 
 Status MessageConsolidatedFrameData::GetExposure(float& exposure) const
 {
-  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 4 * sizeof(uint32_t) + 6 * sizeof(uint16_t) + sizeof(uint32_t);
+  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 2 * sizeof(uint32_t) + 6 * sizeof(uint16_t) + sizeof(uint32_t);
   if (m_buffer->size() < myOffset + sizeof(exposure)) {
     return READ_PAST_END;
   }
@@ -3772,7 +3757,7 @@ Status MessageConsolidatedFrameData::GetExposure(float& exposure) const
 
 Status MessageConsolidatedFrameData::GetGain(float& gain) const
 {
-  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 4 * sizeof(uint32_t) + 6 * sizeof(uint16_t) + sizeof(uint32_t) + sizeof(float);
+  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 2 * sizeof(uint32_t) + 6 * sizeof(uint16_t) + sizeof(uint32_t) + sizeof(float);
   if (m_buffer->size() < myOffset + sizeof(gain)) {
     return READ_PAST_END;
   }
@@ -3782,7 +3767,7 @@ Status MessageConsolidatedFrameData::GetGain(float& gain) const
 
 Status MessageConsolidatedFrameData::GetDataPointer(uint8_t*& data, uint16_t row) const
 {
-  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 4 * sizeof(uint32_t) + 6 * sizeof(uint16_t) + sizeof(uint32_t) + 2 * sizeof(float) + 128;
+  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 2 * sizeof(uint32_t) + 6 * sizeof(uint16_t) + sizeof(uint32_t) + 2 * sizeof(float) + 128;
   uint16_t left, right;
   Status status = GetLeft(left);
   if (status != OKAY) {
@@ -3813,7 +3798,6 @@ std::string MessageConsolidatedFrameData::Test()
 
     // Add a message.
     Time timeCode = { 1234, 5678 };
-    Time frameStartTime = { 2222, 3333 };
     uint32_t cameraID = 0, cameraType = 1;
     uint16_t sensorWidth = 100, sensorHeight = 200;
     uint16_t left = 10, top = 20, right = 30, bottom = 39;
@@ -3826,7 +3810,6 @@ std::string MessageConsolidatedFrameData::Test()
     }
     uint8_t* data = reinterpret_cast<uint8_t*>(data16.data());
     MessageConsolidatedFrameData message(packet, timeCode,
-      frameStartTime,
       cameraID, cameraType, sensorWidth, sensorHeight,
       left, top, right, bottom,
       true, false,
@@ -3843,7 +3826,7 @@ std::string MessageConsolidatedFrameData::Test()
       return "Error checking message size for MessageConsolidatedFrameData test: " + ErrorMessage(status);
     }
     uint32_t expectedLength = STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE +
-      4 * sizeof(uint32_t) + 6 * sizeof(uint16_t) + sizeof(uint32_t) + 2 * sizeof(float) + 128 +
+      2 * sizeof(uint32_t) + 6 * sizeof(uint16_t) + sizeof(uint32_t) + 2 * sizeof(float) + 128 +
       sizeof(uint16_t) * 22 * 20;
     if (totalLength != expectedLength) {
       return "Error constructing message from buffer for MessageConsolidatedFrameData test: packet length is not " +
@@ -3870,15 +3853,6 @@ std::string MessageConsolidatedFrameData::Test()
     }
 
     // Check the parameters of the message.
-    Time rFrameStartTime;
-    status = message.GetFrameStartTime(rFrameStartTime);
-    if (status != OKAY) {
-      return "Error getting frame start time from message for MessageConsolidatedFrameData test: " + ErrorMessage(status);
-    }
-    if (rFrameStartTime != frameStartTime) {
-      return "Error getting frame start time from message for MessageConsolidatedFrameData test: frame start time is not " +
-        std::to_string(frameStartTime.seconds) + "." + std::to_string(frameStartTime.microseconds);
-    }
     uint32_t rCameraID;
     status = message.GetCameraID(rCameraID);
     if (status != OKAY) {
@@ -3991,7 +3965,7 @@ std::string MessageConsolidatedFrameData::Test()
       return "Error getting data pointer from message for MessageConsolidatedFrameData test: " + ErrorMessage(status);
     }
     uint32_t expectedOffset = STREAM_PACKET_BASE_SIZE + MESSAGE_BASE_SIZE +
-      4 * sizeof(uint32_t) + 6 * sizeof(uint16_t) + sizeof(uint32_t) + 2 * sizeof(float) + 128;
+      2 * sizeof(uint32_t) + 6 * sizeof(uint16_t) + sizeof(uint32_t) + 2 * sizeof(float) + 128;
     if (rData != message.m_buffer->data() + expectedOffset) {
       return "Error getting data pointer from message for MessageConsolidatedFrameData test: data pointer is not " +
         std::to_string(expectedOffset) + " but " + std::to_string((uint32_t)(rData - message.m_buffer->data()));

@@ -189,18 +189,10 @@ int main(int argc, char** argv)
           return 18;
         }
 
-        Time frameStartTime;
-        status = cfd.GetFrameStartTime(frameStartTime);
-        if (status != OKAY) {
-          std::cerr << "Error reading frame start time: " << ErrorMessage(status) << std::endl;
-          return 19;
-        }
-
         std::cout << " (camera " << cameraID << ", size " << sensorWidth << "x" << sensorHeight
                   << ", region [" << left << "," << right << "," << top << "," << bottom
                   << "], begin frame: " << beginFrame
                   << ", end frame: " << endFrame
-                  << ", frame start time: " << frameStartTime.seconds << ":" << frameStartTime.microseconds
                   << ")";
       }
 
