@@ -94,6 +94,7 @@ def main():
     parser.add_argument('--add_rot_x', type=float, default=0.0, help='Additional rotation around X axis deg (default: 0.0)')
     parser.add_argument('--add_rot_y', type=float, default=0.0, help='Additional rotation around Y axis deg (default: 0.0)')
     parser.add_argument('--add_rot_z', type=float, default=0.0, help='Additional rotation around Z axis deg (default: 0.0)')
+    parser.add_argument('--upside_down', action='store_true', help='Flip the camera upside down')
     
     args = parser.parse_args()
 
@@ -150,6 +151,9 @@ def main():
                                           args.add_rot_x + random.uniform(-rMag, rMag),
                                           args.add_rot_y + random.uniform(-rMag, rMag),
                                           args.add_rot_z + random.uniform(-rMag, rMag))
+            # If we're upside down, flip the camera upside down
+            if args.upside_down:
+                rx, ry, rz = nested_rotations(0.0, 180.0, 0.0, rx, ry, rz)
             cam["orientationDegrees"] = [rx, ry, rz]
 
             # Compute the position of the camera, which is a radial distance from the origin.
