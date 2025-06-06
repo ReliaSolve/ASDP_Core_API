@@ -124,7 +124,7 @@ static const unsigned char MAGIC_COOKIE[4] = { 'A', 'S', 'D', 'P' };
 // NOTE: The version number is in the form major.minor.patch, where the first and third are bytes and
 // the second is a 16-bit integer.  This is done to allow for a large number of minor versions.  The
 // 16-bit value is stored in little-endian format.
-static const unsigned char VERSION[4] = { 7, 0,0, 0 };
+static const unsigned char VERSION[4] = { 7, 1,0, 0 };
 
 static const uint32_t PACKET_HEADER_TOTAL_SIZE_OFFSET = 0;
 static const uint32_t PACKET_BASIC_HEADER_SIZE = sizeof(uint32_t);
@@ -6887,6 +6887,10 @@ Status CoreClient::GetMyIP(uint32_t& IP) const
     return m_constructorStatus;
   }
 
+  if (m_stream == nullptr) {
+    return NOT_CONNECTED;
+  }
+
   IP = m_IP;
   return OKAY;
 }
@@ -7033,6 +7037,22 @@ Status CoreClient::ConnectToServer(std::string serverURL, uint16_t& major, uint1
   if (!found) {
     return BAD_PARAMETER;
   }
+
+  return OKAY;
+}
+
+Status CoreClient::DisconnectFromServer()
+{
+  if (m_constructorStatus != OKAY) {
+    return m_constructorStatus;
+  }
+
+  std::lock_guard<std::mutex> lock(m_mutex);
+
+  // Disconnect any stream we have.
+  m_stream.reset();
+  m_IP = 0;
+  m_serial = 0;
 
   return OKAY;
 }
@@ -7241,6 +7261,16 @@ std::string CoreClient::Test()
   }
   if (id != EVENT) {
     return "Unexpected message type: " + std::to_string(id);
+  }
+
+  // Disconnect from the server
+  status = coreClient.DisconnectFromServer();
+  if (status != OKAY) {
+    return "Error disconnecting from server: " + ErrorMessage(status);
+  }
+  status = coreClient.GetMyIP(IP2);
+  if (status != NOT_CONNECTED) {
+    return "Error getting IP after disconnect: " + ErrorMessage(status);
   }
 
   return "";

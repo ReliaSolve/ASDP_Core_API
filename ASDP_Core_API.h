@@ -2315,6 +2315,10 @@ public:
   /// @return OKAY if successful, otherwise an error code.
   Status ConnectToServer(std::string serverURL, uint16_t &major, uint16_t &minor, uint16_t &patch);
 
+  /// @brief Disconnect from any connected server.  It is not an error to call this if not connected.
+  /// @return OKAY if successful, otherwise an error code.
+  Status DisconnectFromServer();
+
   /// @brief Get the IP address of the NIC we're using to talk with the server.
   /// @param [out] IP IP address of the NIC we're using to talk with the server.
   /// @return OKAY if successful, otherwise an error code.
