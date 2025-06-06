@@ -2291,7 +2291,7 @@ protected:
 
 class CoreClient : public Core {
 public:
-  /// @brief Construct a CoreServer object.
+  /// @brief Construct a CoreClient object.
   /// @param [in] NICName Name of the network interface to use.
   /// @param [in] listenPort Port number to listen for Discovery packets on.
   /// @param [in] maxPayloadSize Maximum size of a packet payload to send.
