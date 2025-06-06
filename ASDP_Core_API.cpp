@@ -2823,7 +2823,7 @@ std::string MessageDiscovery::Test()
 
     // Construct a MessageDiscovery based on the existing one in the StreamPacket and make sure we
     // can read data from it as well.
-    MessageDiscovery message2(message);
+    MessageDiscovery message2(static_cast<Message>(message));
     if (message2.GetConstructorStatus() != OKAY) {
       return "Error constructing second MessageDiscovery: " + ErrorMessage(message2.GetConstructorStatus());
     }
@@ -3636,10 +3636,49 @@ MessageConsolidatedFrameData::MessageConsolidatedFrameData(StreamPacket& packet,
 MessageConsolidatedFrameData::MessageConsolidatedFrameData(Message& baseMessage)
   : Message(baseMessage)
 {
+  // Check our type
   MessageID type;
   baseMessage.GetType(type);
   if (type != CONSOLIDATED_FRAME_DATA) {
     m_constructorStatus = BAD_PARAMETER;
+  }
+
+  // Verify that we are large enough to hold all of our parameters, including the frame data and any
+  // per-line padding.
+  uint16_t left, top, right, bottom;
+  Status status = GetLeft(left);
+  if (status != OKAY) {
+    m_constructorStatus = status;
+    return;
+  }
+  status = GetTop(top);
+  if (status != OKAY) {
+    m_constructorStatus = status;
+    return;
+  }
+  status = GetRight(right);
+  if (status != OKAY) {
+    m_constructorStatus = status;
+    return;
+  }
+  status = GetBottom(bottom);
+  if (status != OKAY) {
+    m_constructorStatus = status;
+    return;
+  }
+  int width = right - left + 1;
+  if (width % 2) { width++; } // Add padding if needed to make an even number of pixels.
+  int height = bottom - top + 1;
+  int pixelCount = width * height;
+  uint8_t* dataPtr;
+  status = GetDataPointer(dataPtr);
+  if (status != OKAY) {
+    m_constructorStatus = status;
+    return;
+  }
+  if (m_buffer->size() < (dataPtr - m_buffer->data()) + pixelCount * sizeof(uint16_t)) {
+    m_constructorStatus = READ_PAST_END;
+    return;
   }
 }
 
@@ -4025,7 +4064,7 @@ std::string MessageConsolidatedFrameData::Test()
 
     // Construct a Message based on the existing one in the StreamPacket and make sure we
     // Can read its parameters (just doing a spot check on the final parameter).
-    MessageConsolidatedFrameData message2(message);
+    MessageConsolidatedFrameData message2(static_cast<Message>(message));
     if (message2.GetConstructorStatus() != OKAY) {
       return "Error constructing second MessageConsolidatedFrameData: " + ErrorMessage(message2.GetConstructorStatus());
     }
@@ -4051,6 +4090,18 @@ std::string MessageConsolidatedFrameData::Test()
     if (rGain != gain) {
       return "Error getting gain from second message for MessageConsolidatedFrameData test: gain is not " +
         std::to_string(gain);
+    }
+    uint8_t* rData2;
+    status = message2.GetDataPointer(rData2);
+    if (status != OKAY) {
+      return "Error getting data pointer from second message for MessageConsolidatedFrameData test: " + ErrorMessage(status);
+    }
+
+    // Resize the buffer to be smaller than the message and ensure that we get an error.
+    message.m_buffer->resize(rData2 - message.m_buffer->data());
+    MessageConsolidatedFrameData message3(static_cast<Message>(message));
+    if (message3.GetConstructorStatus() != READ_PAST_END) {
+      return "Error constructing third MessageConsolidatedFrameData: Allowed read past end.";
     }
   }
 
