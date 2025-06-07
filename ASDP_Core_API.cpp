@@ -2823,7 +2823,7 @@ std::string MessageDiscovery::Test()
 
     // Construct a MessageDiscovery based on the existing one in the StreamPacket and make sure we
     // can read data from it as well.
-    MessageDiscovery message2(static_cast<Message>(message));
+    MessageDiscovery message2(static_cast<Message&>(message));
     if (message2.GetConstructorStatus() != OKAY) {
       return "Error constructing second MessageDiscovery: " + ErrorMessage(message2.GetConstructorStatus());
     }
@@ -4064,7 +4064,7 @@ std::string MessageConsolidatedFrameData::Test()
 
     // Construct a Message based on the existing one in the StreamPacket and make sure we
     // Can read its parameters (just doing a spot check on the final parameter).
-    MessageConsolidatedFrameData message2(static_cast<Message>(message));
+    MessageConsolidatedFrameData message2(static_cast<Message&>(message));
     if (message2.GetConstructorStatus() != OKAY) {
       return "Error constructing second MessageConsolidatedFrameData: " + ErrorMessage(message2.GetConstructorStatus());
     }
@@ -4099,7 +4099,7 @@ std::string MessageConsolidatedFrameData::Test()
 
     // Resize the buffer to be smaller than the message and ensure that we get an error.
     message.m_buffer->resize(rData2 - message.m_buffer->data());
-    MessageConsolidatedFrameData message3(static_cast<Message>(message));
+    MessageConsolidatedFrameData message3(static_cast<Message&>(message));
     if (message3.GetConstructorStatus() != READ_PAST_END) {
       return "Error constructing third MessageConsolidatedFrameData: Allowed read past end.";
     }
