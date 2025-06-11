@@ -1409,8 +1409,12 @@ class MessageConsolidatedFrameData : public Message {
 public:
   /// @brief Construct a MessageConsolidateFrameData and store it into a buffer from a StreamPacket.
   /// @param [in] packet Pointer to the StreamPacket containing the message.
-  /// @param [in] timeCode Time code for the message.
-  /// @param [in] frameStartTime Time for the first pixel in the frame, even if it is not in our region.
+  /// @param [in] timeCode Time code for the message. If neither beginFrame nor endFrame is set, this
+  /// is the time of the last pixel in this packet.  If only beginFrame is set, this is the time of the
+  /// first pixel in the entire frame, whether not it is in the subregion being sent.  If only endFrame is set,
+  /// this is the time of the last pixel in the entire frame, whether or not it is in the subregion being sent.
+  /// If both bits are set, this is the average of the first and last pixel times in the entire frame, whether or
+  /// not they are in the subregion being sent.
   /// @param [in] cameraID Camera ID for the frame.
   /// @param [in] cameraType Camera type that can be used to determine the lens and sensor by
   /// looking up the information in a table.  This also indicates whether the camera is an IR
@@ -1421,10 +1425,10 @@ public:
   /// @param [in] top Index of the topmost column of pixels.
   /// @param [in] right Index of the rightmost column of pixels.
   /// @param [in] bottom Index of the bottommost column of pixels.
-  /// @param [in] beginFrame Whether this is the beginning of a frame.
-  /// @param [in] endFrame Whether this is the end of a frame.
-  /// @param [in] data Pointer to the data for the frame.  This points to the first pixel in the frame
-  /// whether or not it is in our region.
+  /// @param [in] beginFrame Whether this is the beginning of a subregion frame.
+  /// @param [in] endFrame Whether this is the end of a subregion frame.
+  /// @param [in] data Pointer to the data for the frame.  This points to the first pixel in the entire frame
+  /// whether or not it is in the subregion being sent or in this packet.
   /// @param [in] stride Stride of the image that the data is being read from.  This is
   /// required so that the message knows how many pixels to skip between rows in the image
   /// it is reading from.  This is the number of pixels to skip in memory from one row to
@@ -1433,7 +1437,6 @@ public:
   /// @param [in] exposure Exposure in seconds for the frame (0 for none reported).
   /// @param [in] gain Gain for the frame (0 for none reported).
   MessageConsolidatedFrameData(StreamPacket& packet, Time timeCode,
-    Time frameStartTime,
     uint32_t cameraID, uint32_t cameraType, uint16_t sensorWidth, uint16_t sensorHeight,
     uint16_t left, uint16_t top, uint16_t right, uint16_t bottom,
     bool beginFrame, bool endFrame,
@@ -1443,11 +1446,6 @@ public:
   /// @brief Type-cast a base Message into a MessageConsolidateFrameData packet, re-using its buffer.
   /// @param [in] baseMessage The base Message to convert from.
   MessageConsolidatedFrameData(Message& baseMessage);
-
-  /// @brief Get the time code for the start of the camera frame.
-  /// @param [out] frameStartTime Time code for the start of the camera frame.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetFrameStartTime(Time& frameStartTime) const;
 
   /// @brief Get the camera ID for the frame.
   /// @param [out] cameraID Camera ID for the frame.
