@@ -275,13 +275,11 @@ int main(int argc, char** argv)
         ip_address = argv[i];
         break;
       default:
-        std::cerr << "Usage: " << argv[0] << " <ip_address>" << std::endl;
-        return 2;
+        usage(argv[0]);
     }
   }
   if (realParams != 1) {
-    std::cerr << "Usage: " << argv[0] << " <ip_address>" << std::endl;
-    return 2;
+    usage(argv[0]);
   }
 
   // Open a client, specifying the IP address to listen on.
