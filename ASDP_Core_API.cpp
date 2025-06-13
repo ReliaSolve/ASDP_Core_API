@@ -6551,7 +6551,19 @@ std::string Core::GetVersion()
 {
   uint16_t major, minor, patch;
   UnpackVersion(VERSION, major, minor, patch);
-  return std::to_string(major) + "." + std::to_string(minor) + "." + std::to_string(patch);
+  std::string buildType =
+#ifdef BUILD_TYPE
+  BUILD_TYPE;
+#else
+  #ifdef _DEBUG
+    "Debug";
+  #elif defined(NDEBUG)
+    "Release";
+  #else
+    "Unknown";
+  #endif
+#endif
+  return std::to_string(major) + "." + std::to_string(minor) + "." + std::to_string(patch) + "-" + buildType;
 }
 
 Core::~Core() {}

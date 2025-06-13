@@ -15,6 +15,8 @@ int main(int argc, char** argv)
 {
   std::string ret;
 
+  std::cout << "Testing ASDP_Core_API version " << asdp::Core::GetVersion() << std::endl;
+
   // Test the core API
   ret = asdp::Test();
   if (ret.size() > 0) {
