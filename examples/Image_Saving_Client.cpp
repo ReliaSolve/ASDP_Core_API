@@ -461,7 +461,7 @@ int main(int argc, char** argv)
     if (!rawSaveFileName.empty()) {
       std::shared_ptr<SenderFile> sender = std::make_shared<SenderFile>(rawSaveFileName);
       if (sender == nullptr) {
-        std::cerr << "Failed to get SenderFile for raw data: " << ErrorMessage(sender->GetConstructorStatus()) << std::endl;
+        std::cerr << "Failed to construct SenderFile " << rawSaveFileName << " for raw data" << std::endl;
         return 33;
       }
       saveRawDataThread = std::thread(SaveRawDataThread, sender);
