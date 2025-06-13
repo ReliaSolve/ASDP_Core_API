@@ -96,12 +96,17 @@ add_library(ASDP_Core_API STATIC ${asdp_SOURCES} ${asdp_HEADERS})
 #set_target_properties(ASDP_Core_API PROPERTIES C_VISIBILITY_PRESET hidden)
 #set_target_properties(ASDP_Core_API PROPERTIES CXX_VISIBILITY_PRESET hidden)
 #set_target_properties(ASDP_Core_API PROPERTIES VISIBILITY_INLINES_HIDDEN 1)
-if(CMAKE_BUILD_TYPE)  # Handle single-config generators like Makefiles
-  target_compile_definitions(ASDP_Core_API PRIVATE BUILD_TYPE="${CMAKE_BUILD_TYPE}")
-elseif($<CONFIG>) # Handles multi-config generators like Visual Studio
+get_property(isMultiConfig GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+if(isMultiConfig)
+  # Multi-config (e.g., Visual Studio, Xcode)
   target_compile_definitions(ASDP_Core_API PRIVATE BUILD_TYPE="$<CONFIG>")
 else()
-  target_compile_definitions(ASDP_Core_API PRIVATE BUILD_TYPE="Default")
+  # Single-config (e.g., Makefiles, Ninja)
+  if(CMAKE_BUILD_TYPE AND NOT CMAKE_BUILD_TYPE STREQUAL "")
+    target_compile_definitions(ASDP_Core_API PRIVATE BUILD_TYPE="${CMAKE_BUILD_TYPE}")
+  else()
+    target_compile_definitions(ASDP_Core_API PRIVATE BUILD_TYPE="Default")
+  endif()
 endif()
 target_include_directories(ASDP_Core_API PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}
