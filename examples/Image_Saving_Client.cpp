@@ -194,10 +194,40 @@ void SaveFileThread()
 }
 
 //==============================================================================
+// Helper classes and thread function to save raw packet data to disk without blocking the
+// main thread.
+
+std::list< std::shared_ptr<StreamPacket> > rawDataList;
+std::mutex rawDataMutex;
+std::thread saveRawDataThread;
+
+void SaveRawDataThread(std::shared_ptr<SenderFile> sender)
+{
+  while (!done && (sender != nullptr)) {
+    std::shared_ptr<StreamPacket> packet;
+    {
+      if (rawDataList.empty()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        continue;
+      }
+      std::lock_guard<std::mutex> lock(rawDataMutex);
+      packet = rawDataList.front();
+      rawDataList.pop_front();
+      Status ret = sender->SendStreamPacket(*packet);
+      if (ret != OKAY) {
+        std::cerr << "SaveRawDataThread(): Error sending raw data packet: " << ErrorMessage(ret) << std::endl;
+        done = true;
+      }
+    }
+  }
+  std::cout << "SaveRawDataThread done" << std::endl;
+}
+
+//==============================================================================
 
 void usage(const char* name)
 {
-  std::cerr << "Usage: " << name << " [--replay R] <ip_address>" << std::endl;
+  std::cerr << "Usage: " << name << " [--replay R] [--rawSave F] [--frameStride S] [--durationSeconds D] <ip_address>" << std::endl;
   exit(1);
 }
 
@@ -207,11 +237,11 @@ int main(int argc, char** argv)
   float durationSeconds = 10;   ///< Run for this many seconds
   std::string ip_address;
   int replayID = 0;
+  std::string rawSaveFileName; ///< If set, save raw packets to this file.
   size_t realParams = 0;
 
   // Parse the command line arguments, with the first non-flag argument being the
-  // name of the IP address to listen on.  There is a --serial flag to specify
-  // the serial number of the server, which defaults to 1.
+  // name of the IP address to listen on.
   for (int i = 1; i < argc; ++i) {
     if (argv[i] == std::string("--replay")) {
       if (++i >= argc) {
@@ -219,6 +249,24 @@ int main(int argc, char** argv)
         return 1;
       }
       replayID = std::stoi(argv[i]);
+    } else if (argv[i] == std::string("--rawSave")) {
+      if (++i >= argc) {
+        std::cerr << "Missing argument for --rawSave" << std::endl;
+        return 1;
+      }
+      rawSaveFileName = argv[i];
+    } else if (argv[i] == std::string("--frameStride")) {
+      if (++i >= argc) {
+        std::cerr << "Missing argument for --frameStride" << std::endl;
+        return 1;
+      }
+      frameStride = std::stoi(argv[i]);
+    } else if (argv[i] == std::string("--durationSeconds")) {
+      if (++i >= argc) {
+        std::cerr << "Missing argument for --durationSeconds" << std::endl;
+        return 1;
+      }
+      durationSeconds = std::stof(argv[i]);
     } else if (argv[i][0] == '-') {
       std::cerr << "Unknown flag: " << argv[i] << std::endl;
       return 1;
@@ -411,6 +459,16 @@ int main(int argc, char** argv)
     // Start a thread to save the images to disk.
     saveFileThread = std::thread(SaveFileThread);
 
+    // If we have a rawSaveFileName, we will also save the raw packets to disk.
+    if (!rawSaveFileName.empty()) {
+      std::shared_ptr<SenderFile> sender = std::make_shared<SenderFile>(rawSaveFileName);
+      if (sender == nullptr) {
+        std::cerr << "Failed to get SenderFile for raw data: " << ErrorMessage(sender->GetConstructorStatus()) << std::endl;
+        return 33;
+      }
+      saveRawDataThread = std::thread(SaveRawDataThread, sender);
+    }
+
     // Use a sorting queue to ensure that we process the messages in order even if the UDP packets
     // arrive out of order.
     StreamPacketSortedQueue sortedQueue(50);
@@ -452,6 +510,12 @@ int main(int argc, char** argv)
 
         std::shared_ptr<asdp::StreamPacket> receiveStreamPacket = readyPackets.front();
         readyPackets.pop_front();
+
+        // Save the raw packet to disk if requested.
+        if (!rawSaveFileName.empty()) {
+          std::lock_guard<std::mutex> lock(rawDataMutex);
+          rawDataList.push_back(receiveStreamPacket);
+        }
 
         // Get and handle all messages from the packet.
         std::shared_ptr<asdp::Message> message;
@@ -557,8 +621,11 @@ int main(int argc, char** argv)
       }
 
     } while (std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count() <= durationSeconds);
+
+    // Stop our saving threads.
     done = true;
     saveFileThread.join();
+    if (saveRawDataThread.joinable()) { saveRawDataThread.join(); }
     std::cout << "Wrote " << numFrames << " images." << std::endl;
 
     // Turn off streaming.
