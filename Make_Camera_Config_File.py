@@ -62,7 +62,7 @@ def nested_rotations(X1, Y1, Z1, X2, Y2, Z2):
     return euler_angles
 
 def main():
-    print("Make_Camera_Config_File.py version 2.0.0");
+    print("Make_Camera_Config_File.py version 2.1.0");
 
     parser = argparse.ArgumentParser(description="Generate a camera configuration file for a specified number of cameras.")
     parser.add_argument('--output', type=str, default='camConfig.json', help='Output JSON file name (default: camConfig.json)')
@@ -95,6 +95,7 @@ def main():
     parser.add_argument('--add_rot_y', type=float, default=0.0, help='Additional rotation around Y axis deg (default: 0.0)')
     parser.add_argument('--add_rot_z', type=float, default=0.0, help='Additional rotation around Z axis deg (default: 0.0)')
     parser.add_argument('--upside_down', action='store_true', help='Flip the camera upside down')
+    parser.add_argument('--flip_parity', type=int, default=0, help='Parity of per-column camera rotation, set 1 for flipped')
     
     args = parser.parse_args()
 
@@ -138,7 +139,7 @@ def main():
             if builtArrangement:
                 # The built arrangement has the vertical axis flipped compared to initial simulations
                 desiredVer *= -1
-            if x % 2 == 0 or args.stills_arrangement:
+            if x % 2 == args.flip_parity or args.stills_arrangement:
                 rx = 90.0
                 ry = -90.0 + desiredHor
                 rz = 90.0 - desiredVer
