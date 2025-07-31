@@ -124,7 +124,7 @@ static const unsigned char MAGIC_COOKIE[4] = { 'A', 'S', 'D', 'P' };
 // NOTE: The version number is in the form major.minor.patch, where the first and third are bytes and
 // the second is a 16-bit integer.  This is done to allow for a large number of minor versions.  The
 // 16-bit minor version value is stored in little-endian format.
-static const unsigned char VERSION[4] = { 8, 1,0, 0 };
+static const unsigned char VERSION[4] = { 8, 2,0, 0 };
 
 static const uint32_t PACKET_HEADER_TOTAL_SIZE_OFFSET = 0;
 static const uint32_t PACKET_BASIC_HEADER_SIZE = sizeof(uint32_t);
