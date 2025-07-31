@@ -87,7 +87,7 @@ bool ClockSynchronizer::AddDataPoint(Time serverTime, const std::chrono::steady_
     std::vector<std::pair<double, double>> points;
     for (auto const &block : m_BlockOffsets) {
       int64_t time = std::chrono::duration_cast<std::chrono::microseconds>(localTime - block.lastPointTime).count();
-      points.push_back({static_cast<double>(time), static_cast<double>(maxOffset - block.maxOffset)});
+      points.push_back({static_cast<double>(time), static_cast<double>(block.maxOffset - maxOffset)});
     }
 
     // Compute the least-squares line fit.  Add its intercept to the maximum offset.  This is the expected

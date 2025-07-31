@@ -22,7 +22,7 @@
 namespace asdp {
 
   /// @brief Provides robust Timer offset and gain compared to a local clock based on
-  /// CLOCK_SYNC messages.
+  /// CLOCK_SYNC messages or local measurements of the Bsp time.
   class ClockSynchronizer {
   public:
     /// @brief Constructs a clock synchronizer and tells what Timer it should manage.
