@@ -28,7 +28,7 @@ namespace asdp {
     /// @brief Constructs a clock synchronizer and tells what Timer it should manage.
     /// @param timer The Timer to adjust
     /// @param transmissionDelay The expected delay between the server packing its CLOCK_SYNC
-    /// message and the client unpacking it.
+    /// message and the client unpacking it in microseconds.
     ClockSynchronizer(std::shared_ptr<Timer> timer, Time transmissionDelay = {});
 
     /// @brief Destroys the clock synchronizer.
@@ -69,9 +69,10 @@ namespace asdp {
 
     std::list<int64_t> m_offsetsInBlock; ///< The history of offsets within the current block.
     struct BlockRecord {
-      std::chrono::steady_clock::time_point lastPointTime; ///< The time of the last point in the block.
       int64_t maxOffset; ///< The maximum offset in the block.
+      std::chrono::steady_clock::time_point maxOffsetTime; ///< The time of the maximum offset in the block.
     };
+    std::chrono::steady_clock::time_point m_blockMaxOffsetTime; ///< The time of the maximum offset in the current block.
     std::list<BlockRecord> m_BlockOffsets; ///< The history of offsets across blocks.
   };
 
