@@ -27,6 +27,7 @@
 #include <mutex>
 #include <array>
 #include <list>
+#include <map>
 #include <ostream>
 
 namespace asdp {
@@ -2300,10 +2301,15 @@ public:
   /// @return OKAY if successful, otherwise an error code.
   Status GetDiscoveryThreadStatus(Status& threadStatus) const;
 
-  /// @brief Get the list of servers found.
+  /// @brief Get the list of servers found, returning just their connection strings.
   /// @param [out] servers List of servers found.
   /// @return OKAY if successful, otherwise an error code.
   Status IdentifiedServers(std::vector<std::string>& servers) const;
+
+  /// @brief Get the list of servers found as a map from serial number to connection string.
+  /// @param [out] servers Map of servers found, with serial number as key and connection string as value.
+  /// @return OKAY if successful, otherwise an error code.
+  Status IdentifiedServers(std::map<uint32_t, std::string>& servers) const;
 
   /// @brief Connect to a server.
   /// @param [in] serverURL Server to connect to.

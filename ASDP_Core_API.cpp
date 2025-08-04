@@ -124,7 +124,7 @@ static const unsigned char MAGIC_COOKIE[4] = { 'A', 'S', 'D', 'P' };
 // NOTE: The version number is in the form major.minor.patch, where the first and third are bytes and
 // the second is a 16-bit integer.  This is done to allow for a large number of minor versions.  The
 // 16-bit minor version value is stored in little-endian format.
-static const unsigned char VERSION[4] = { 8, 3,0, 0 };
+static const unsigned char VERSION[4] = { 8, 3,0, 1 };
 
 static const uint32_t PACKET_HEADER_TOTAL_SIZE_OFFSET = 0;
 static const uint32_t PACKET_BASIC_HEADER_SIZE = sizeof(uint32_t);
@@ -6856,6 +6856,21 @@ Status CoreClient::IdentifiedServers(std::vector<std::string>& servers) const
   return OKAY;
 }
 
+Status CoreClient::IdentifiedServers(std::map<uint32_t, std::string>& servers) const
+{
+  if (m_constructorStatus != OKAY) {
+    return m_constructorStatus;
+  }
+
+  std::lock_guard<std::mutex> lock(m_mutex);
+  std::map<uint32_t, std::string> ret;
+  for (size_t i = 0; i < m_servers.size(); i++) {
+    ret[m_servers[i].serial] = URLFromServerInfo(m_servers[i]);
+  }
+  servers = ret;
+  return OKAY;
+}
+
 Status CoreClient::GetMyIP(uint32_t& IP) const
 {
   if (m_constructorStatus != OKAY) {
@@ -7116,6 +7131,20 @@ std::string CoreClient::Test()
   if (servers.size() != 1) {
     return "Error getting identified servers, found " + std::to_string(servers.size()) +
         " (wait a minute between tests to let sockets close)";
+  }
+
+  // Use the map-based lookup and make sure it works.
+  std::map<uint32_t, std::string> serverMap;
+  status = coreClient.IdentifiedServers(serverMap);
+  if (status != OKAY) {
+    return "Error getting identified servers map: " + ErrorMessage(status);
+  }
+  if (serverMap.size() != 1) {
+    return "Error getting identified servers map, found " + std::to_string(serverMap.size()) +
+        " (wait a minute between tests to let sockets close)";
+  }
+  if (serverMap.begin()->first != serial) {
+    return "Error getting identified servers map, wrong serial number: " + std::to_string(serverMap.begin()->first);
   }
 
   // Try sending a CommandPacketReset from the CoreClient to the CoreServer, which
