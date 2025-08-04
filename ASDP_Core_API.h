@@ -140,8 +140,8 @@ enum EventID : uint32_t {
   CLOCK_SYNC                    = 768,
   START_OF_REPLAY               = 769,
   END_OF_REPLAY                 = 770,
-  NUC_FLAG_STATE                = 771,    ///< Sent on the camera UDP stream.
-  ON_CAMERA_NUC_STATE           = 772,    ///< Sent on the camera UDP stream.
+  NUC_FLAG_STATE                = 771,    ///< Sent on the camera UDP stream. @todo move into frame flags.
+  ON_CAMERA_NUC_STATE           = 772,    ///< Sent on the camera UDP stream. @todo move into frame flags.
   REPLAY_PAUSED                 = 773,
   REPLAY_RESUMED                = 774,
 };
