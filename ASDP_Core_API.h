@@ -2292,10 +2292,8 @@ class CoreClient : public Core {
 public:
   /// @brief Construct a CoreClient object.
   /// @param [in] NICName Name of the network interface to use.
-  /// @param [in] listenPort Port number to listen for Discovery packets on. Note that the default here is
-  /// different from the default for CoreServer, which is 10101, so that client and server will agree on which
-  /// port the server is listining on and will not collide; the client response listen port differs from the sender
-  /// request listen port.
+  /// @param [in] listenPort Port number to listen for Discovery packets on. Note that this matches the
+  /// sender port on the CoreServer -- clients listen on that port for messages sent by one or more servers.
   /// @param [in] maxPayloadSize Maximum size of a packet payload to send.
   CoreClient(std::string NICName, uint16_t listenPort = 10102, uint32_t maxPayloadSize = 9000 - 28);
 
