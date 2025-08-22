@@ -311,17 +311,17 @@ int main(int argc, char** argv)
     }
     auto start = std::chrono::high_resolution_clock::now();
     do {
-      std::shared_ptr<asdp::StreamPacket> receiveStreamPacket;
-      size_t offset = 0;
-      status = receiverUDP.ReceiveStreamPacket(1.0, receiveStreamPacket, offset);
+      std::vector<uint8_t> buffer(9000);
+      size_t size = buffer.size();
+      status = receiverUDP.ReceiveBuffer(buffer.data(), size);
       if (status != asdp::OKAY) {
-        std::cerr << "Error receiving StreamPacket: " << ErrorMessage(status) << std::endl;
+        std::cerr << "Error receiving packet into buffer: " << ErrorMessage(status) << std::endl;
         return 33;
       }
       count++;
       {
         //std::cout << "Writing UDP packet" << std::endl;
-        Status status = fileSender->SendStreamPacket(*receiveStreamPacket);
+        Status status = fileSender->Send(buffer.data(), size);
         if (status != OKAY) {
           std::cerr << "Error writing packet to file: " << ErrorMessage(status) << std::endl;
           return 102;
