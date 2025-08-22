@@ -156,6 +156,7 @@ if(BUILD_EXAMPLES)
     Stream_File_To_Images
     Multicast_Test
     Raw_Packet_Receiver
+    Store_Raw_Camera_Stream
   )
   foreach (BASE ${EXAMPLES})
     # C++ example
