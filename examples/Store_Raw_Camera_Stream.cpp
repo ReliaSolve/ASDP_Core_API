@@ -309,11 +309,6 @@ int main(int argc, char** argv)
       std::cerr << "Error constructing SenderFile: " << ErrorMessage(fileSender->GetConstructorStatus()) << std::endl;
       return 100;
     }
-    StreamWriter streamWriter(fileSender);
-    if (streamWriter.GetConstructorStatus() != OKAY) {
-      std::cerr << "Error constructing StreamWriter: " << ErrorMessage(streamWriter.GetConstructorStatus()) << std::endl;
-      return 101;
-    }
     auto start = std::chrono::high_resolution_clock::now();
     do {
       std::shared_ptr<asdp::StreamPacket> receiveStreamPacket;
@@ -326,15 +321,10 @@ int main(int argc, char** argv)
       count++;
       {
         //std::cout << "Writing UDP packet" << std::endl;
-        Status status = streamWriter.InsertPacket(*receiveStreamPacket);
+        Status status = fileSender->SendStreamPacket(*receiveStreamPacket);
         if (status != OKAY) {
           std::cerr << "Error writing packet to file: " << ErrorMessage(status) << std::endl;
           return 102;
-        }
-        status = streamWriter.Flush();
-        if (status != OKAY) {
-          std::cerr << "Error flushing file: " << ErrorMessage(status) << std::endl;
-          return 103;
         }
       }
     } while (std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - start).count() <= 0.5);
