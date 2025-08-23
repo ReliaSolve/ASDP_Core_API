@@ -102,14 +102,18 @@ std::shared_ptr<Message> WaitForMessageType(std::shared_ptr<Receiver> receiver, 
 
 void usage(std::string progName)
 {
-  std::cerr << "Usage: " << progName << " <ip_address> <dump_file>" << std::endl;
+  std::cerr << "Usage: " << progName << " [options] <ip_address> <dump_file>" << std::endl;
   std::cerr << "  <ip_address>: The IP address to listen on for servers." << std::endl;
   std::cerr << "  <dump_file>: The name of the file to write the raw packets to, e.g. stream1.dat." << std::endl;
+  std::cerr << "  Options:" << std::endl;
+  std::cerr << "    --help: Print this message." << std::endl;
+  std::cerr << "    --specifyPortWithoutListening <port>: Specify the UDP port to listen on without opening it (used to drive tcpdump)." << std::endl;
 }
 
 int main(int argc, char** argv)
 {
   std::string ip_address, dump_file;
+  int tcpdumpPort = 0;
   size_t realParams = 0;
 
   // Parse the command line arguments, with the first non-flag argument being the
@@ -119,6 +123,18 @@ int main(int argc, char** argv)
     if (argv[i] == std::string("--help")) {
       usage(argv[0]);
       return 0;
+    } else if (argv[i] == std::string("--specifyPortWithoutListening")) {
+      if (i + 1 >= argc) {
+        std::cerr << "--specifyPortWithoutListening requires a port argument" << std::endl;
+        usage(argv[0]);
+        return 1;
+      }
+      tcpdumpPort = std::stoi(argv[++i]);
+      if ((tcpdumpPort < 1) || (tcpdumpPort > 65535)) {
+        std::cerr << "Invalid port number: " << tcpdumpPort << std::endl;
+        usage(argv[0]);
+        return 1;
+      }
     } else if (argv[i][0] == '-') {
       std::cerr << "Unknown flag: " << argv[i] << std::endl;
       usage(argv[0]);
@@ -284,6 +300,13 @@ int main(int argc, char** argv)
       return 31;
     }
 
+    // If we've been given a port to use for tcpdump, change the port of the receiver to it so that we will request
+    // streaming from it rather than the one we opened.
+    if (tcpdumpPort != 0) {
+      std::cout << "Changing receiver port from " << port << " to " << tcpdumpPort << " for tcpdump, expect no stored packets" << std::endl;
+      port = tcpdumpPort;
+    }
+
     std::cout << "Streaming image messages from camera " << camID << " on port " << port << std::endl;
 
     // Request the camera to stream images.
@@ -311,20 +334,22 @@ int main(int argc, char** argv)
     }
     auto start = std::chrono::high_resolution_clock::now();
     do {
-      std::vector<uint8_t> buffer(9000);
-      size_t size = buffer.size();
-      status = receiverUDP.ReceiveBuffer(buffer.data(), size);
-      if (status != asdp::OKAY) {
-        std::cerr << "Error receiving packet into buffer: " << ErrorMessage(status) << std::endl;
-        return 33;
-      }
-      count++;
-      {
-        //std::cout << "Writing UDP packet" << std::endl;
-        Status status = fileSender->Send(buffer.data(), size);
-        if (status != OKAY) {
-          std::cerr << "Error writing packet to file: " << ErrorMessage(status) << std::endl;
-          return 102;
+      if (tcpdumpPort == 0) {
+        std::vector<uint8_t> buffer(9000);
+        size_t size = buffer.size();
+        status = receiverUDP.ReceiveBuffer(buffer.data(), size);
+        if (status != asdp::OKAY) {
+          std::cerr << "Error receiving packet into buffer: " << ErrorMessage(status) << std::endl;
+          return 33;
+        }
+        count++;
+        {
+          //std::cout << "Writing UDP packet" << std::endl;
+          Status status = fileSender->Send(buffer.data(), size);
+          if (status != OKAY) {
+            std::cerr << "Error writing packet to file: " << ErrorMessage(status) << std::endl;
+            return 102;
+          }
         }
       }
     } while (std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - start).count() <= 0.5);
