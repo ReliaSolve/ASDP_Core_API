@@ -124,7 +124,7 @@ static const unsigned char MAGIC_COOKIE[4] = { 'A', 'S', 'D', 'P' };
 // NOTE: The version number is in the form major.minor.patch, where the first and third are bytes and
 // the second is a 16-bit integer.  This is done to allow for a large number of minor versions.  The
 // 16-bit minor version value is stored in little-endian format.
-static const unsigned char VERSION[4] = { 8, 3,0, 3 };
+static const unsigned char VERSION[4] = { 8, 4,0, 0 };
 
 static const uint32_t PACKET_HEADER_TOTAL_SIZE_OFFSET = 0;
 static const uint32_t PACKET_BASIC_HEADER_SIZE = sizeof(uint32_t);
@@ -6733,22 +6733,25 @@ CoreClient::CoreClient(std::string NICName, uint16_t listenPort, uint32_t maxPay
   : Core(maxPayloadSize)
   , m_threadStatus(OKAY)
   , m_IP(0)
-  , m_serial(0)
 {
-  // Open a socket on our NICName to receive Discovery packets.
-  // Listen for broadcasts on this subnet.
-  m_discoveryReceiver = std::make_shared<ReceiverUDP>(NICName, listenPort, maxPayloadSize, true);
-  if (m_discoveryReceiver->GetConstructorStatus() != OKAY) {
-    m_constructorStatus = m_discoveryReceiver->GetConstructorStatus();
-    return;
-  }
+  // If the NICName is empty, do not start a discovery receiver or thread. In this case, the caller is
+  // expected to provide the server URL directly.
+  if (!NICName.empty()) {
+    // Open a socket on our NICName to receive Discovery packets.
+    // Listen for broadcasts on this subnet.
+    m_discoveryReceiver = std::make_shared<ReceiverUDP>(NICName, listenPort, maxPayloadSize, true);
+    if (m_discoveryReceiver->GetConstructorStatus() != OKAY) {
+      m_constructorStatus = m_discoveryReceiver->GetConstructorStatus();
+      return;
+    }
 
-  // Start the discovery thread to listen for servers and wait for it to start.
-  m_stopThread = false;
-  m_threadStarted = false;
-  m_discoveryThread = std::make_shared<std::thread>(&CoreClient::DiscoveryThread, this);
-  while (!m_threadStarted) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    // Start the discovery thread to listen for servers and wait for it to start.
+    m_stopThread = false;
+    m_threadStarted = false;
+    m_discoveryThread = std::make_shared<std::thread>(&CoreClient::DiscoveryThread, this);
+    while (!m_threadStarted) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
   }
 }
 
@@ -6885,19 +6888,6 @@ Status CoreClient::GetMyIP(uint32_t& IP) const
   return OKAY;
 }
 
-Status CoreClient::GetServerSerialNumber(uint32_t& serial) const
-{
-  if (m_constructorStatus != OKAY) {
-    return m_constructorStatus;
-  }
-  if (m_stream == nullptr) {
-    return NOT_CONNECTED;
-  }
-
-  serial = m_serial;
-  return OKAY;
-}
-
 Status CoreClient::GetMainStreamReceiver(std::shared_ptr<Receiver>& receiver) const
 {
   // Reset in case of failure.
@@ -7014,20 +7004,6 @@ Status CoreClient::ConnectToServer(std::string serverURL, uint16_t& major, uint1
   }
   uint32_t IP32 = ntohl(ip_addr.s_addr);
 
-  // Look up the server's serial number from our table based on the
-  // IP address and port being connected to.
-  bool found = false;
-  for (size_t i = 0; i < m_servers.size(); i++) {
-    if ((m_servers[i].IP == IP32) && (m_servers[i].port == port)) {
-      m_serial = m_servers[i].serial;
-      found = true;
-      break;
-    }
-  }
-  if (!found) {
-    return BAD_PARAMETER;
-  }
-
   return OKAY;
 }
 
@@ -7042,7 +7018,6 @@ Status CoreClient::DisconnectFromServer()
   // Disconnect any stream we have.
   m_stream.reset();
   m_IP = 0;
-  m_serial = 0;
 
   return OKAY;
 }
@@ -7198,7 +7173,7 @@ std::string CoreClient::Test()
     return "Error receiving CommandPacketReset: wrong type";
   }
 
-  // Get the IP address and server serial number from the CoreClient.
+  // Get the IP address from the CoreClient.
   uint32_t IP2;
   status = coreClient.GetMyIP(IP2);
   if (status != OKAY) {
@@ -7206,14 +7181,6 @@ std::string CoreClient::Test()
   }
   if (IP2 != IP) {
     return "Error getting IP: " + std::to_string(IP2);
-  }
-  uint32_t serial2;
-  status = coreClient.GetServerSerialNumber(serial2);
-  if (status != OKAY) {
-    return "Error getting serial number: " + ErrorMessage(status);
-  }
-  if (serial2 != serial) {
-    return "Error getting serial number: " + std::to_string(serial2);
   }
 
   // Send a Message from the server to the client and make sure it is received.

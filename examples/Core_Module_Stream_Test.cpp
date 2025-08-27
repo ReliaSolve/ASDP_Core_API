@@ -275,14 +275,7 @@ int main(int argc, char** argv)
     std::cerr << "Failed to connect to server: " << ErrorMessage(status) << std::endl;
     return 8;
   }
-  uint32_t serialNumber;
-  status = client.GetServerSerialNumber(serialNumber);
-  if (status != OKAY) {
-    std::cerr << "Failed to get server serial number: " << ErrorMessage(status) << std::endl;
-    return 9;
-  }
-  if (!summary) std::cout << "  Connected to server version " << major << "." << minor << "." << patch
-    << " with serial number " << serialNumber << std::endl;
+  if (!summary) std::cout << "  Connected to server version " << major << "." << minor << "." << patch << std::endl;
 
   // Get the main stream receiver
   std::shared_ptr<Receiver> receiver;

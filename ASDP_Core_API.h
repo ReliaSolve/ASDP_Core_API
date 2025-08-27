@@ -2291,7 +2291,10 @@ protected:
 class CoreClient : public Core {
 public:
   /// @brief Construct a CoreClient object.
-  /// @param [in] NICName Name of the network interface to use.
+  /// @param [in] NICName Name of the network interface to use. A discovery thread will be started
+  /// to listen for Discovery packets from servers on this interface with the specified port.  If
+  /// this name is empty, no discovery port or thread will be started, and the caller will need to
+  /// determine the approriate server address to connect to before calling ConnectToServer().
   /// @param [in] listenPort Port number to listen for Discovery packets on. Note that this matches the
   /// sender port on the CoreServer -- clients listen on that port for messages sent by one or more servers.
   /// @param [in] maxPayloadSize Maximum size of a packet payload to send.
@@ -2328,11 +2331,6 @@ public:
   /// @param [out] IP IP address of the NIC we're using to talk with the server.
   /// @return OKAY if successful, otherwise an error code.
   Status GetMyIP(uint32_t& IP) const;
-
-  /// @brief Get the serial number of the server we're connected to.
-  /// @param [out] serial Serial number of the server we're connected to.
-  /// @return OKAY if successful, otherwise an error code.
-  Status GetServerSerialNumber(uint32_t& serial) const;
 
   /// @brief Get the Receiver that will get all but Frame Info messages from the server.
   /// @param [out] receiver Receiver that will get all but Frame Info messages from the server.
@@ -2405,7 +2403,6 @@ protected:
   std::shared_ptr<SenderReceiverTCP> m_stream;      ///< Stream to use to send and receive packets.
   std::shared_ptr<ReceiverUDP> m_discoveryReceiver; ///< Receiver object to use to receive Discovery packets.
   uint32_t m_IP;                                    ///< Our IP address where we're listening for packets.
-  uint32_t m_serial;                                ///< Serial number of the server we're connected to.
 };
 
 //---------------------------------------------------------------------------
