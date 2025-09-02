@@ -303,7 +303,11 @@ uint32_t asdp::GetLocalIPForRemote(uint32_t remote_ip)
   close(sock);
 #endif
 
+#ifdef _WIN32
   return htonl(local_addr.sin_addr.S_un.S_addr);
+#else
+  return htonl(local_addr.sin_addr.s_addr);
+#endif
 }
 
 /// @brief Helper function to determine the size of the buffer needed to hold a message,
