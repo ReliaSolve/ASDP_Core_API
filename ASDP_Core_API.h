@@ -2734,6 +2734,13 @@ protected:
 };
 
 //---------------------------------------------------------------------------
+/// @brief Helper function to report the local IP address that would connect to a specified remote IP address.
+/// @param [out] IP IP address of the remote system to connect to in host byte order.
+/// @return The local NIC IP address in host byte order that would be used to connect to the specified remote IP address.
+/// If there is an error, 0 is returned.
+uint32_t GetLocalIPForRemote(uint32_t IP);
+
+//---------------------------------------------------------------------------
 /// @brief Test function that verifies that all classes and functions are working.
 /// @return Empty string if successful, otherwise descriptive error message.
 std::string Test();

@@ -124,7 +124,7 @@ static const unsigned char MAGIC_COOKIE[4] = { 'A', 'S', 'D', 'P' };
 // NOTE: The version number is in the form major.minor.patch, where the first and third are bytes and
 // the second is a 16-bit integer.  This is done to allow for a large number of minor versions.  The
 // 16-bit minor version value is stored in little-endian format.
-static const unsigned char VERSION[4] = { 8, 4,0, 1 };
+static const unsigned char VERSION[4] = { 8, 5,0, 0 };
 
 static const uint32_t PACKET_HEADER_TOTAL_SIZE_OFFSET = 0;
 static const uint32_t PACKET_BASIC_HEADER_SIZE = sizeof(uint32_t);
@@ -254,6 +254,57 @@ static WSAStart startUp;
 
 //----------------------------------------------------------------------------
 // Helper functions.
+
+uint32_t asdp::GetLocalIPForRemote(uint32_t remote_ip)
+{
+  static uint16_t remote_port = 80;
+
+  int sock = socket(AF_INET, SOCK_DGRAM, 0);
+  if (sock < 0) {
+    std::cerr << "Failed to create socket\n";
+    return 0;
+  }
+
+  sockaddr_in remote_addr{};
+  remote_addr.sin_family = AF_INET;
+  remote_addr.sin_addr.s_addr = htonl(remote_ip);
+  remote_addr.sin_port = htons(remote_port);
+
+  // Connect to remote address (no packets sent)
+  if (connect(sock, (sockaddr*)&remote_addr, sizeof(remote_addr)) < 0) {
+    std::cerr << "Connect failed\n";
+#ifdef _WIN32
+    closesocket(sock);
+#else
+    close(sock);
+#endif
+    return 0;
+  }
+
+  // Get local address used for this connection
+  sockaddr_in local_addr{};
+  socklen_t addr_len = sizeof(local_addr);
+  if (getsockname(sock, (sockaddr*)&local_addr, &addr_len) < 0) {
+    std::cerr << "getsockname failed\n";
+#ifdef _WIN32
+    closesocket(sock);
+#else
+    close(sock);
+#endif
+    return 0;
+  }
+
+  char ip_str[INET_ADDRSTRLEN];
+  inet_ntop(AF_INET, &local_addr.sin_addr, ip_str, sizeof(ip_str));
+
+#ifdef _WIN32
+  closesocket(sock);
+#else
+  close(sock);
+#endif
+
+  return htonl(local_addr.sin_addr.S_un.S_addr);
+}
 
 /// @brief Helper function to determine the size of the buffer needed to hold a message,
 /// which can include padding to align each line to a 4-byte boundary.
@@ -7913,6 +7964,12 @@ std::string asdp::Test()
     uint32_t broadcastAddress = MakeBroadcastAddress(localHostIP);
     if (broadcastAddress != localHostIP) {
       return "Error making broadcast address: " + std::to_string(broadcastAddress)
+        + " not " + std::to_string(localHostIP);
+    }
+
+    uint32_t IP = GetLocalIPForRemote(localHostIP);
+    if (IP != localHostIP) {
+      return "Error getting local IP for remote: " + std::to_string(IP)
         + " not " + std::to_string(localHostIP);
     }
   }
