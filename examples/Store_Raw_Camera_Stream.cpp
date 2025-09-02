@@ -203,7 +203,6 @@ int main(int argc, char** argv)
     return 8;
   }
   std::cout << "  Connected to server version " << major << "." << minor << "." << patch << std::endl;
-  uint32_t serialNumber;
 
   // Get the main stream receiver
   std::shared_ptr<Receiver> receiver;

@@ -224,8 +224,7 @@ int main(int argc, char** argv)
   size_t realParams = 0;
 
   // Parse the command line arguments, with the first non-flag argument being the
-  // name of the IP address to listen on.  There is a --serial flag to specify
-  // the serial number of the server, which defaults to 1.
+  // name of the IP address to listen on.
   for (int i = 1; i < argc; ++i) {
     if (std::string(argv[i]) == "--destructive") {
       destructive = true;
