@@ -2004,13 +2004,13 @@ public:
   /// @return OKAY if successful, otherwise an error code.
   Status SendStreamPacket(const StreamPacket& packet) override;
 
-  /// @brief Get the local IP address associated with this sender.
-  /// @param [out] IP local IP address associated with this sender in host byte order.
+  /// @brief Get the IP address of the server associated with this sender.
+  /// @param [out] IP IP address of the server associated with this sender in host byte order.
   /// @return OKAY if successful, otherwise an error code.
   Status GetIP(uint32_t& IP) const;
 
-  /// @brief Get the local port associated with this sender, which will be determined by the OS.
-  /// @param [out] port Local port associated with this sender in host byte order.
+  /// @brief Get the port of the server associated with this sender, which will be determined by the OS.
+  /// @param [out] port Port of the server associated with this sender in host byte order.
   /// @return OKAY if successful, otherwise an error code.
   Status GetPort(uint16_t& port) const;
 
@@ -2327,8 +2327,8 @@ public:
   /// @return OKAY if successful, otherwise an error code.
   Status DisconnectFromServer();
 
-  /// @brief Get the IP address of the NIC we're using to talk with the server.
-  /// @param [out] IP IP address of the NIC we're using to talk with the server.
+  /// @brief Get the IP address of the the server we're talking with.
+  /// @param [out] IP IP address of the server we're talking with.
   /// @return OKAY if successful, otherwise an error code.
   Status GetMyIP(uint32_t& IP) const;
 

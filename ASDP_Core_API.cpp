@@ -124,7 +124,7 @@ static const unsigned char MAGIC_COOKIE[4] = { 'A', 'S', 'D', 'P' };
 // NOTE: The version number is in the form major.minor.patch, where the first and third are bytes and
 // the second is a 16-bit integer.  This is done to allow for a large number of minor versions.  The
 // 16-bit minor version value is stored in little-endian format.
-static const unsigned char VERSION[4] = { 8, 4,0, 0 };
+static const unsigned char VERSION[4] = { 8, 4,0, 1 };
 
 static const uint32_t PACKET_HEADER_TOTAL_SIZE_OFFSET = 0;
 static const uint32_t PACKET_BASIC_HEADER_SIZE = sizeof(uint32_t);
@@ -4559,7 +4559,7 @@ SenderUDP::SenderUDP(const StreamEndpoint& endpoint, bool broadcast, std::string
   std::string multicastName)
   : m_socket(std::make_shared<Socket>())
 {
-  // Problem if the enpoint has been set to all zeros.
+  // Problem if the endpoint has been set to all zeros.
   if (endpoint.IP == 0) {
     m_constructorStatus = BAD_PARAMETER;
     return;
@@ -5595,7 +5595,7 @@ SenderReceiverTCP::SenderReceiverTCP(const StreamEndpoint& endpoint)
   , m_IP(0)
   , m_port(0)
 {
-  // Problem if the enpoint has been set to all zeros.
+  // Problem if the endpoint has been set to all zeros.
   if (endpoint.IP == 0) {
     Receiver::m_constructorStatus = BAD_PARAMETER;
     return;
@@ -5608,13 +5608,12 @@ SenderReceiverTCP::SenderReceiverTCP(const StreamEndpoint& endpoint)
     return;
   }
 
-  // Record the IP address of our NIC and the port we are using to send on.
+  // Record the IP address of the IP and port we are connecting to.
   // Convert the IP address and port to host byte order.
   m_IP = endpoint.IP;
   m_port = endpoint.port;
 
-  // Connect the socket to the specified host and to the port we want to use.
-  // The address is already in network byte order, just convert the port.
+  // Connect the socket to the specified host and to the port.
   struct sockaddr_in addr;
   memset(&addr, 0, sizeof(addr));
   addr.sin_family = AF_INET;
@@ -6996,13 +6995,6 @@ Status CoreClient::ConnectToServer(std::string serverURL, uint16_t& major, uint1
   if (status != OKAY) {
     return status;
   }
-
-  // Convert the string IP address into a 32-bit unsigned.
-  struct in_addr ip_addr;
-  if (!inet_pton(AF_INET, IP.c_str(), &ip_addr)) {
-    return BAD_PARAMETER;
-  }
-  uint32_t IP32 = ntohl(ip_addr.s_addr);
 
   return OKAY;
 }
