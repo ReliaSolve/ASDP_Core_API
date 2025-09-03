@@ -132,16 +132,16 @@ enum MessageID : uint32_t {
 };
 
 //---------------------------------------------------------------------------
-/// @brief Event IDs.  Most of these are sent on the main command stream.
+/// @brief Event IDs.  These are sent on the main command stream.
 enum EventID : uint32_t {
-  INVALID_OPERATION             = 256,
+  INVALID_OPERATION             = 256,  // String parameter with bad opcode.
   INTERNAL_ERROR                = 257,
-  UNRECOGNIZED_OPCODE           = 512,
+  UNRECOGNIZED_OPCODE           = 512,  // String parameter with bad opcode.
   CLOCK_SYNC                    = 768,
   START_OF_REPLAY               = 769,
   END_OF_REPLAY                 = 770,
-  NUC_FLAG_STATE                = 771,    ///< Sent on the camera UDP stream. @todo move into frame flags.
-  ON_CAMERA_NUC_STATE           = 772,    ///< Sent on the camera UDP stream. @todo move into frame flags.
+  NUC_FLAG_STATE                = 771,  // String parameter with CAMERA_ID,FLAG_STATE (0=off, 1=on)
+  ON_CAMERA_NUC_STATE           = 772,  // String parameter with CAMERA_ID,NUC_STATE (0=off, 1=on)
   REPLAY_PAUSED                 = 773,
   REPLAY_RESUMED                = 774,
 };
