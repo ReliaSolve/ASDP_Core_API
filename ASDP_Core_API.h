@@ -1259,7 +1259,7 @@ public:
   /// @param [in] timeCode Time code for the message.
   /// @param [in] features Vector of features supported by the system.
   /// @param [in] cameras Vector of cameras installed on the system.
-  /// @param [in] numTempSensorsPerCamera Number of temperature sensors per camera.
+  /// @param [in] numTempSensorsPerCamera Maximum number of temperature sensors per camera.
   /// @param [in] numExternalTempSensors Number of external temperature sensors.
   /// @param [in] storing Whether the system is storing data to disk.
   /// @param [in] camerasStreaming Whether the system is streaming data from its cameras.
@@ -1293,8 +1293,9 @@ public:
   /// @return OKAY if successful, otherwise an error code.
   Status GetCameras(std::vector<CameraInfo>& cameras) const;
 
-  /// @brief Get the number of temperature sensors per camera.
-  /// @param [out] numTempSensorsPerCamera Number of temperature sensors per camera.
+  /// @brief Get the maximum number of temperature sensors per camera.
+  /// @param [out] numTempSensorsPerCamera Maximum number of temperature sensors per camera
+  /// for all cameras in the system. Some cameras may have fewer sensors.
   /// @return OKAY if successful, otherwise an error code.
   Status GetNumTempSensorsPerCamera(uint32_t& numTempSensorsPerCamera) const;
 
@@ -1551,7 +1552,7 @@ public:
   /// @param [in] packet Pointer to the StreamPacket containing the message.
   /// @param [in] timeCode Time code for the message.
   /// @param [in] cameraID Camera ID for the temperature (0 for system sensor).
-  /// @param [in] sensorID Sensor ID for the temperature.
+  /// @param [in] sensorID Sensor ID for the temperature (first ID is 1).
   /// @param [in] temperatureCelcius Temperature in degrees Celcius.
   MessageTemperature(StreamPacket& packet, Time timeCode, uint16_t cameraID, uint16_t sensorID, float temperatureCelcius);
 
