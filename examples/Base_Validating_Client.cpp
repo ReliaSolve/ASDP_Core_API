@@ -596,10 +596,17 @@ int main(int argc, char** argv)
         std::cerr << "Error getting sequence number from StreamPacket: " << ErrorMessage(status) << std::endl;
         return 34;
       }
-      if (packetSequenceNumber != sequenceNumber++) {
-        std::cerr << " Bad sequence number: " << packetSequenceNumber << ", expected " << sequenceNumber - 1 << std::endl;
-        std::cerr << "  (Presumably dropped network packets, consider re-running)" << std::endl;
+      if (packetSequenceNumber != sequenceNumber) {
+        if (!sequenceNumber) {
+          std::cerr << " Missing first packet(s): " << packetSequenceNumber << ", expected " << sequenceNumber << std::endl;
+        } else {
+          std::cerr << " Bad sequence number: " << packetSequenceNumber << ", expected " << sequenceNumber << std::endl;
+          std::cerr << "  (Presumably dropped network packets, consider re-running)" << std::endl;
+        }
+        // Reset sequence number to avoid all subsequent packets from reporting error,
+        sequenceNumber = packetSequenceNumber;
       }
+      sequenceNumber++;
       std::shared_ptr<asdp::Message> message;
       status = receiveStreamPacket->GetNextMessage(message);
       if (status != asdp::OKAY) {
