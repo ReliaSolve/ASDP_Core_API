@@ -167,13 +167,14 @@ std::thread saveFileThread;
 
 void SaveFileThread()
 {
-  while (!done) {
+  // Finish any remaining files before exiting.
+  while (!done || !fileDataList.empty()) {
     std::shared_ptr<FileData> fileData;
+    if (fileDataList.empty()) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      continue;
+    }
     {
-      if (fileDataList.empty()) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        continue;
-      }
       std::lock_guard<std::mutex> lock(fileDataMutex);
       fileData = fileDataList.front();
       fileDataList.pop_front();
@@ -203,7 +204,8 @@ std::thread saveRawDataThread;
 
 void SaveRawDataThread(std::shared_ptr<SenderFile> sender)
 {
-  while (!done && (sender != nullptr)) {
+  // Finish any remaining packets before exiting.
+  while (!done || !rawDataList.empty()) {
     std::shared_ptr<StreamPacket> packet;
     {
       if (rawDataList.empty()) {
@@ -227,7 +229,18 @@ void SaveRawDataThread(std::shared_ptr<SenderFile> sender)
 
 void usage(const char* name)
 {
-  std::cerr << "Usage: " << name << " [--replay R] [--rawSave F] [--frameStride S] [--durationSeconds D] <ip_address>" << std::endl;
+  std::cerr << "Usage: " << name << " [options] <ip_address> <imageBaseFileName>" << std::endl;
+  std::cerr << "  options:" << std::endl;
+  std::cerr << "    --replay R            Replay stored stream with ID R (0=don't replay)" << std::endl;
+  std::cerr << "    --rawSave F           Save raw packets to file F" << std::endl;
+  std::cerr << "    --frameStride S       Read one out of every S frames (default 30)" << std::endl;
+  std::cerr << "    --durationFrames F    Run for F frames (default 0=use durationSeconds)" << std::endl;
+  std::cerr << "    --durationSeconds D   Run for D seconds (default 10)" << std::endl;
+  std::cerr << "    --camID C             Use camera with ID C (default 1 is first camera)" << std::endl;
+  std::cerr << "    --sequential          Use sequential file names instead of timestamp-based" << std::endl;
+  std::cerr << "  <ip_address> is the IP address of the local NIC to listen for servers on." << std::endl;
+  std::cerr << "  <imageBaseFileName> is the base name for the images to be saved, may be absolute or relative path." << std::endl;
+  std::cerr << "                      Names will have appended _*.pgm, where * is a timestamp or sequential number." << std::endl;
   exit(1);
 }
 
@@ -235,9 +248,13 @@ int main(int argc, char** argv)
 {
   uint32_t frameStride = 30;    ///< Read one out of every this many frames. Set to 1 for every frame.
   float durationSeconds = 10;   ///< Run for this many seconds
+  int durationFrames = 0;       ///< Number of frames to run for, 0=use durationSeconds
   std::string ip_address;
+  std::string imageBaseFileName;
   int replayID = 0;
-  std::string rawSaveFileName; ///< If set, save raw packets to this file.
+  std::string rawSaveFileName;  ///< If set, save raw packets to this file.
+  uint32_t camID = 1;
+  bool sequential = false;      ///< Whether to use sequential file names.
   size_t realParams = 0;
 
   // Parse the command line arguments, with the first non-flag argument being the
@@ -246,39 +263,76 @@ int main(int argc, char** argv)
     if (argv[i] == std::string("--replay")) {
       if (++i >= argc) {
         std::cerr << "Missing argument for --replay" << std::endl;
+        usage(argv[0]);
         return 1;
       }
       replayID = std::stoi(argv[i]);
-    } else if (argv[i] == std::string("--rawSave")) {
+    }
+    else if (argv[i] == std::string("--rawSave")) {
       if (++i >= argc) {
         std::cerr << "Missing argument for --rawSave" << std::endl;
+        usage(argv[0]);
         return 1;
       }
       rawSaveFileName = argv[i];
-    } else if (argv[i] == std::string("--frameStride")) {
+    }
+    else if (argv[i] == std::string("--frameStride")) {
       if (++i >= argc) {
         std::cerr << "Missing argument for --frameStride" << std::endl;
+        usage(argv[0]);
         return 1;
       }
       frameStride = std::stoi(argv[i]);
-    } else if (argv[i] == std::string("--durationSeconds")) {
+    }
+    else if (argv[i] == std::string("--durationFrames")) {
+      if (++i >= argc) {
+        std::cerr << "Missing argument for --durationFrames" << std::endl;
+        usage(argv[0]);
+        return 1;
+      }
+      durationFrames = std::stoi(argv[i]);
+    }
+    else if (argv[i] == std::string("--durationSeconds")) {
       if (++i >= argc) {
         std::cerr << "Missing argument for --durationSeconds" << std::endl;
+        usage(argv[0]);
         return 1;
       }
       durationSeconds = std::stof(argv[i]);
-    } else if (argv[i][0] == '-') {
-      std::cerr << "Unknown flag: " << argv[i] << std::endl;
-      return 1;
-    } else switch (realParams++) {
-      case 0:
-        ip_address = argv[i];
-        break;
-      default:
+    }
+    else if (argv[i] == std::string("--camID")) {
+      if (++i >= argc) {
+        std::cerr << "Missing argument for --camID" << std::endl;
         usage(argv[0]);
+        return 1;
+      }
+      camID = std::stoi(argv[i]);
+      if (camID < 1) {
+        std::cerr << "Camera ID must be at least 1" << std::endl;
+        usage(argv[0]);
+        return 1;
+      }
+    }
+    else if (argv[i] == std::string("--sequential")) {
+      sequential = true;
+    }
+    else if (argv[i][0] == '-') {
+      std::cerr << "Unknown flag: " << argv[i] << std::endl;
+      usage(argv[0]);
+      return 1;
+    }
+    else switch (realParams++) {
+    case 0:
+      ip_address = argv[i];
+      break;
+    case 1:
+      imageBaseFileName = argv[i];
+      break;
+    default:
+      usage(argv[0]);
     }
   }
-  if (realParams != 1) {
+  if (realParams != 2) {
     usage(argv[0]);
   }
 
@@ -398,8 +452,10 @@ int main(int argc, char** argv)
     std::cerr << "No cameras found." << std::endl;
     return 36;
   }
-  uint32_t camID = 1;
-  {
+  if (camID == 0 || camID > cameras.size()) {
+    std::cerr << "Camera ID " << camID << " is out of range; only " << cameras.size() << " cameras found." << std::endl;
+    return 37;
+  } else {
     // Find the minimum period for the camera and which internal trigger ID it uses, then
     // configure the trigger to run at that rate.
     TriggerInfo ti;
@@ -537,7 +593,18 @@ int main(int argc, char** argv)
               return 39;
             }
             if (isBeginFrame) {
-              fileName = "saved_image_" + std::to_string(numFrames) + ".pgm";
+              if (sequential) {
+                fileName = imageBaseFileName + "_" + std::to_string(numFrames) + ".pgm";
+              } else {
+                Time time;
+                status = frameData.GetTime(time);
+                if (status != OKAY) {
+                  std::cerr << "Error reading frame time: " << ErrorMessage(status) << std::endl;
+                  return 40;
+                }
+                fileName = imageBaseFileName + "_" + std::to_string(time.seconds)
+                  + "_" + std::to_string(time.microseconds) + ".pgm";
+              }
               fileData.reset(new FileData);
               fileData->fileName = fileName;
               size_t size = (cameras[camID - 1].width * cameras[camID - 1].height) * sizeof(uint16_t);
@@ -611,13 +678,24 @@ int main(int argc, char** argv)
         }
       }
 
-    } while (std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count() <= durationSeconds);
+      // If we are counting frames, stop when we've reached the requested number.
+      // Otherwise, stop when we've reached the requested time.
+      if (durationFrames > 0) {
+        if (numFrames >= (size_t)durationFrames) {
+          done = true;
+        }
+      } else {
+        if (std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count() >= durationSeconds) {
+          done = true;
+        }
+      }
+    } while (!done);
 
     // Stop our saving threads.
     done = true;
     saveFileThread.join();
-    if (saveRawDataThread.joinable()) { saveRawDataThread.join(); }
     std::cout << "Wrote " << numFrames << " images." << std::endl;
+    if (saveRawDataThread.joinable()) { saveRawDataThread.join(); }
 
     // Turn off streaming.
     status = client.SendCommandPacket(CommandPacketCancelSubregion(camID, endpoint));
