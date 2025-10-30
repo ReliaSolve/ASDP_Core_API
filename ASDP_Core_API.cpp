@@ -126,6 +126,8 @@ static const unsigned char MAGIC_COOKIE[4] = { 'A', 'S', 'D', 'P' };
 // 16-bit minor version value is stored in little-endian format.
 static const unsigned char VERSION[4] = { 8, 5,0, 0 };
 
+static std::string ANALYSIS_STREAM_HEADER = "[{\"Version\":\"01.000.000\"}";
+
 static const uint32_t PACKET_HEADER_TOTAL_SIZE_OFFSET = 0;
 static const uint32_t PACKET_BASIC_HEADER_SIZE = sizeof(uint32_t);
 static const uint32_t COMMAND_PACKET_OPCODE_OFFSET = PACKET_BASIC_HEADER_SIZE;
@@ -254,6 +256,31 @@ static WSAStart startUp;
 
 //----------------------------------------------------------------------------
 // Helper functions.
+
+/// @brief Get the server connection information from a URL.
+/// @param [in] URL URL for the server.
+/// @param [out] IP IP address of the server.
+/// @param [out] port Port number of the server.
+static Status ServerInfoFromURL(std::string URL, std::string& IP, uint16_t& port)
+{
+  // Make sure the URL starts with "tcp://".
+  if (URL.substr(0, 6) != "tcp://") {
+    return BAD_PARAMETER;
+  }
+
+  // Get the IP address and port.
+  std::string IPString = URL.substr(6);
+  size_t colonPos = IPString.find(':');
+  if (colonPos == std::string::npos) {
+    return BAD_PARAMETER;
+  }
+  IP = IPString.substr(0, colonPos);
+  std::string portString = IPString.substr(colonPos + 1);
+  port = 0;
+  port = std::stoi(portString);
+
+  return OKAY;
+}
 
 uint32_t asdp::GetLocalIPForRemote(uint32_t remote_ip)
 {
@@ -6962,27 +6989,6 @@ std::string CoreClient::URLFromServerInfo(ServerInfo serverInfo)
   return "tcp://" + IPString + ":" + std::to_string(port);
 }
 
-Status CoreClient::ServerInfoFromURL(std::string URL, std::string& IP, uint16_t& port)
-{
-  // Make sure the URL starts with "tcp://".
-  if (URL.substr(0, 6) != "tcp://") {
-    return BAD_PARAMETER;
-  }
-
-  // Get the IP address and port.
-  std::string IPString = URL.substr(6);
-  size_t colonPos = IPString.find(':');
-  if (colonPos == std::string::npos) {
-    return BAD_PARAMETER;
-  }
-  IP = IPString.substr(0, colonPos);
-  std::string portString = IPString.substr(colonPos + 1);
-  port = 0;
-  port = std::stoi(portString);
-
-  return OKAY;
-}
-
 Status CoreClient::ConnectToServer(std::string serverURL, uint16_t& major, uint16_t& minor, uint16_t& patch)
 {
   if (m_constructorStatus != OKAY) {
@@ -7089,6 +7095,215 @@ CoreClient::~CoreClient()
   if ((m_discoveryThread != nullptr) && m_discoveryThread->joinable()) {
     m_discoveryThread->join();
   }
+}
+
+Status JSONStringReceiver::Create(std::string URL, std::shared_ptr<JSONStringReceiver>& receiver)
+{
+  // In case we fail, reset the receiver.
+  receiver.reset();
+
+  // Parse the URL to determine the type of receiver to create.
+  if (URL.substr(0, 7) == "file://") {
+    // Pull the file name out of the URL and use it to create the object.
+    std::string fileName = URL.substr(7);
+    std::shared_ptr<JSONStringReceiver> receiverFile(new JSONStringReceiverFile(fileName));
+    if (receiverFile->GetConstructorStatus() != OKAY) {
+      receiverFile.reset();
+      return receiverFile->GetConstructorStatus();
+    }
+    receiver = receiverFile;
+    return OKAY;
+
+  } else if (URL.substr(0, 6) == "tcp://") {
+    // Pull the IP and port out of the URL and use it to create the object.
+    std::string IP;
+    uint16_t port;
+    Status s = ServerInfoFromURL(URL, IP, port);
+    if (s != OKAY) {
+      return s;
+    }
+    StreamEndpoint endpoint(IP, port);
+    std::shared_ptr<JSONStringReceiver> receiverTCP(new JSONStringReceiverTCP(endpoint));
+    if (receiverTCP->GetConstructorStatus() != OKAY) {
+      receiverTCP.reset();
+      return receiverTCP->GetConstructorStatus();
+    }
+    receiver = receiverTCP;
+    return OKAY;
+  }
+  
+  // Unknown URL type.
+  return BAD_PARAMETER;
+}
+
+JSONStringReceiverFile::JSONStringReceiverFile(std::string filePath)
+  : m_constructorStatus(OKAY)
+  , m_endOfFile(false)
+{
+  // Ensure that we can open the file.
+  m_file.open(filePath,  std::ios::in);
+  if (!m_file.is_open()) {
+    m_constructorStatus = BAD_PARAMETER;
+    return;
+  }
+
+  // Read and verify the header.
+  std::string header;
+  std::getline(m_file, header);
+  if (header != ANALYSIS_STREAM_HEADER) {
+    m_constructorStatus = INCOMPATIBLE_API_VERSION;
+    m_file.close();
+    return;
+  }
+}
+
+Status JSONStringReceiverFile::GetConstructorStatus()
+{
+  return m_constructorStatus;
+}
+
+JSONStringReceiverFile::~JSONStringReceiverFile()
+{
+  // Close the file.
+  if (m_file.is_open()) {
+    m_file.close();
+  }
+}
+
+Status JSONStringReceiverFile::Receive(double timeout_seconds, std::shared_ptr<std::string> result)
+{
+  if (!result) {
+    return BAD_PARAMETER;
+  }
+
+  // In case of failure, clear the output string.
+  result->clear();
+
+  if (m_endOfFile) {
+    return OKAY;
+  }
+
+  if (m_constructorStatus != OKAY) {
+    return m_constructorStatus;
+  }
+
+  // Make sure the file is open.
+  if (!m_file.is_open()) {
+    return UNEXPECTED_INTERNAL_STATE;
+  }
+
+  // Read the next line from the file.
+  if (!std::getline(m_file, *result)) {
+    result->clear();
+
+    // We got to the end of the file before we got to the closing bracket.
+    return UNEXPECTED_INTERNAL_STATE;
+  }
+
+  // If we read the last line, indicate end of stream.
+  if (*result == "]") {
+    m_endOfFile = true;
+    result->clear();
+    return OKAY;
+  }
+
+  // Remove any leading commas and return the result.
+  while ((!result->empty()) && ((*result)[0] == ',')) {
+    *result = result->substr(1);
+  }
+  return OKAY;
+}
+
+Status JSONStringSender::Create(std::string URL, std::shared_ptr<JSONStringSender>& sender)
+{
+  // In case we fail, reset the sender.
+  sender.reset();
+
+  // Parse the URL to determine the type of sender to create.
+  if (URL.substr(0, 7) == "file://") {
+    // Pull the file name out of the URL and use it to create the object.
+    std::string fileName = URL.substr(7);
+    std::shared_ptr<JSONStringSender> senderFile(new JSONStringSenderFile(fileName));
+    if (senderFile->GetConstructorStatus() != OKAY) {
+      senderFile.reset();
+      return senderFile->GetConstructorStatus();
+    }
+    sender = senderFile;
+    return OKAY;
+
+  } else if (URL.substr(0, 6) == "tcp://") {
+    // Pull the IP and port out of the URL and use it to create the object.
+    std::string IP;
+    uint16_t port;
+    Status s = ServerInfoFromURL(URL, IP, port);
+    if (s != OKAY) {
+      return s;
+    }
+    StreamEndpoint endpoint(IP, port);
+    std::shared_ptr<JSONStringSender> senderTCP(new JSONStringSenderTCP(endpoint));
+    if (senderTCP->GetConstructorStatus() != OKAY) {
+      senderTCP.reset();
+      return senderTCP->GetConstructorStatus();
+    }
+    sender = senderTCP;
+    return OKAY;
+  }
+
+  // Unknown URL type.
+  return BAD_PARAMETER;
+}
+
+JSONStringSenderFile::JSONStringSenderFile(std::string filePath)
+  : m_constructorStatus(OKAY)
+{
+  // Ensure that we can open the file.
+  m_file.open(filePath, std::ios::out);
+  if (!m_file.is_open()) {
+    m_constructorStatus = BAD_PARAMETER;
+    return;
+  }
+
+  // Add the header to the file.
+  m_file << ANALYSIS_STREAM_HEADER + "\n";
+}
+
+Status JSONStringSenderFile::GetConstructorStatus()
+{
+  return m_constructorStatus;
+}
+
+JSONStringSenderFile::~JSONStringSenderFile()
+{
+  // Write the last line and Close the file.
+  if (m_file.is_open()) {
+    m_file << "]\n";
+    m_file.close();
+  }
+}
+
+Status JSONStringSenderFile::Send(const std::string& jsonString)
+{
+  if (m_constructorStatus != OKAY) {
+    return m_constructorStatus;
+  }
+
+  // Make sure the file is open.
+  if (!m_file.is_open()) {
+    return UNEXPECTED_INTERNAL_STATE;
+  }
+
+  // Make a string that has all instances of newlines and carriage returns replaced with spaces
+  // so that we guarantee that we can read a line at a time and get one object at a time.
+  std::string sanitizedString = jsonString;
+  for (size_t i = 0; i < sanitizedString.size(); i++) {
+    if ((sanitizedString[i] == '\n') || (sanitizedString[i] == '\r')) {
+      sanitizedString[i] = ' ';
+    }
+  }
+
+  // Write the JSON string to the file with a comma in front of it and end the line.
+  m_file << "," << jsonString << "\n";
+  return OKAY;
 }
 
 std::string CoreClient::Test()

@@ -2391,12 +2391,6 @@ protected:
   /// @return URL for the server.
   static std::string URLFromServerInfo(ServerInfo serverInfo);
 
-  /// @brief Get the server connection information from a URL.
-  /// @param [in] URL URL for the server.
-  /// @param [out] IP IP address of the server.
-  /// @param [out] port Port number of the server.
-  static Status ServerInfoFromURL(std::string URL, std::string &IP, uint16_t& port);
-
   /// Mutex to protect the list of servers and other internal state.
   /// Marked mutable so it can be used in const member functions.
   mutable std::mutex m_mutex;
@@ -2740,6 +2734,157 @@ protected:
 /// @return The local NIC IP address in host byte order that would be used to connect to the specified remote IP address.
 /// If there is an error, 0 is returned.
 uint32_t GetLocalIPForRemote(uint32_t IP);
+
+//---------------------------------------------------------------------------
+/// @brief Class to receive JSON object strings from a URL (either TCP connection or file).
+/// @details This is an abstract base class.  Use the Create() function to create
+/// individual instances of derived classes.  This class is intentended for use by
+/// the Analysis workflow system to read JSON messages from an Analysis
+/// module into a Render Module.
+
+class JSONStringReceiver {
+public:
+  /// @brief Virtual destructor to enable derived classes to be destroyed properly.
+  virtual ~JSONStringReceiver() = default;
+
+  /// @brief Receive a single JSON object string.
+  /// @param timeout_seconds Maximum time to wait for the JSON string, 0 for immediate return.
+  /// @param [out] result Pointer to the string to store the received JSON string.  This is an
+  /// empty string if no data is received before the timeout.
+  /// @return OKAY if successful, TIMEOUT if no message is received, otherwise an error code.
+  virtual Status Receive(double timeout_seconds, std::shared_ptr<std::string> result) = 0;
+
+  /// @brief Create a JSONStringReceiver object for the specified URL.
+  /// @param [in] URL URL to receive the JSON messages from.  This can be either a TCP URL
+  /// like tcp://localhost:12345 or a file URL like file:///path/to/file.json.  If the TCP
+  /// port is not specified, port 10103 is used.
+  /// @param [out] receiver Shared pointer to the created JSONStringReceiver object.  This is
+  /// nullptr if there was an error creating the object.
+  /// @return OKAY if successful, otherwise an error code.
+  static Status Create(std::string URL, std::shared_ptr<JSONStringReceiver>& receiver);
+
+protected:
+  /// @brief Get the status of the constructor.  Used by Create() to test for errors during construction.
+  virtual Status GetConstructorStatus() = 0;
+};
+
+//---------------------------------------------------------------------------
+/// @brief Class to receive JSON object strings from a TCP connection.
+
+class JSONStringReceiverTCP : public JSONStringReceiver {
+public:
+  ~JSONStringReceiverTCP() override;
+
+  Status Receive(double timeout_seconds, std::shared_ptr<std::string> result) override;
+
+protected:
+  std::shared_ptr<Socket> m_socket; ///< Pointer to the socket object to use to do our work.
+
+  /// @brief Construct a JSONStringReceiverTCP object, giving it the endpoint to connect to.
+  JSONStringReceiverTCP(StreamEndpoint endpoint);
+
+  Status GetConstructorStatus() override;
+  friend class JSONStringReceiver;
+};
+
+//---------------------------------------------------------------------------
+/// @brief Class to receive JSON object strings from a file.
+
+class JSONStringReceiverFile : public JSONStringReceiver {
+public:
+  ~JSONStringReceiverFile() override;
+
+  Status Receive(double timeout_seconds, std::shared_ptr<std::string> result) override;
+
+protected:
+  Status m_constructorStatus; ///< Status of the constructor.
+  std::ifstream m_file; ///< Input file stream to read the JSON strings from.
+  bool m_endOfFile; ///< Flag to indicate if we've reached the end of the file.
+
+  /// @brief Construct a JSONStringReceiverFile object, giving it the file to read from.
+  JSONStringReceiverFile(std::string filePath);
+
+  Status GetConstructorStatus() override;
+  friend class JSONStringReceiver;
+};
+
+//---------------------------------------------------------------------------
+/// @brief Class to send JSON object strings from a URL (either TCP connection or file).
+/// @details This is an abstract base class.  Use the Create() function to create
+/// individual instances of derived classes.  This class is intentended for use by
+/// the Analysis workflow system to send JSON messages from an Analysis
+/// module to a Render Module.
+
+class JSONStringSender {
+public:
+  /// @brief Virtual destructor to enable derived classes to be destroyed properly.
+  virtual ~JSONStringSender() = default;
+
+  /// @brief Send a JSON object string.
+  /// @param [in] jsonString JSON string to send. This must be a single un-named JSON
+  /// object (i.e. starts with '{' and ends with '}').
+  /// @return OKAY if successful, TIMEOUT if no message is received, otherwise an error code.
+  virtual Status Send(const std::string& jsonString) = 0;
+
+  /// @brief Create a JSONStringSender object for the specified URL.
+  /// @param [in] URL URL to send the JSON messages to.  This can be either a TCP URL
+  /// like tcp://localhost:12345 or a file URL like file:///path/to/file.json.  If the TCP
+  /// port is not specified, port 10103 is used.
+  /// @param [out] sender Shared pointer to the created JSONStringSender object.  This is
+  /// nullptr if there was an error creating the object.
+  /// @return OKAY if successful, otherwise an error code.
+  static Status Create(std::string URL, std::shared_ptr<JSONStringSender>& sender);
+
+protected:
+  /// @brief Get the status of the constructor.  Used by Create() to test for errors during construction.
+  virtual Status GetConstructorStatus() = 0;
+};
+
+//---------------------------------------------------------------------------
+/// @brief Class to send JSON object strings to a TCP connection.
+
+class JSONStringSenderTCP : public JSONStringSender {
+public:
+  ~JSONStringSenderTCP() override;
+
+  Status Send(const std::string& jsonString) override;
+
+protected:
+  std::shared_ptr<Socket> m_listen_socket; ///< Pointer to the socket object to listen on.
+
+  std::vector<std::shared_ptr<Socket>> m_client_sockets; ///< Pointers to the client sockets connected.
+  std::recursive_mutex m_mutex;     ///< Mutex to protect operations on internal structures.
+
+  std::atomic_bool m_stopThread;    ///< Flag to tell the listening thread to stop.
+  std::shared_ptr<std::thread> m_listenThread; ///< Thread that listens for incoming connections.
+  void ListenThread();              ///< Thread that listens for incoming connections.
+
+  /// @brief Construct a JSONStringSenderTCP object, giving it the endpoint to listen on.
+  JSONStringSenderTCP(StreamEndpoint endpoint);
+
+  Status GetConstructorStatus() override;
+  friend class JSONStringSender;
+};
+
+//---------------------------------------------------------------------------
+/// @brief Class to send JSON object strings to a file.
+
+class JSONStringSenderFile : public JSONStringSender {
+public:
+  ~JSONStringSenderFile() override;
+
+  Status Send(const std::string& jsonString) override;
+
+protected:
+  Status m_constructorStatus; ///< Status of the constructor.
+  std::ofstream m_file; ///< Output file stream to write the JSON strings to.
+
+  /// @brief Construct a JSONStringSenderFile object, giving it the file to write to.
+  JSONStringSenderFile(std::string filePath);
+
+  Status GetConstructorStatus() override;
+  friend class JSONStringSender;
+};
 
 //---------------------------------------------------------------------------
 /// @brief Test function that verifies that all classes and functions are working.
