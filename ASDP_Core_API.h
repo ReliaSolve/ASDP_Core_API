@@ -2752,7 +2752,7 @@ public:
   /// @param [out] result Pointer to the string to store the received JSON string.  This is an
   /// empty string if no data is received before the timeout.
   /// @return OKAY if successful, TIMEOUT if no message is received, otherwise an error code.
-  virtual Status Receive(double timeout_seconds, std::shared_ptr<std::string> result) = 0;
+  virtual Status Receive(double timeout_seconds, std::string& result) = 0;
 
   /// @brief Create a JSONStringReceiver object for the specified URL.
   /// @param [in] URL URL to receive the JSON messages from.  This can be either a TCP URL
@@ -2762,6 +2762,10 @@ public:
   /// nullptr if there was an error creating the object.
   /// @return OKAY if successful, otherwise an error code.
   static Status Create(std::string URL, std::shared_ptr<JSONStringReceiver>& receiver);
+
+  /// @brief Test function.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
 
 protected:
   /// @brief Get the status of the constructor.  Used by Create() to test for errors during construction.
@@ -2775,7 +2779,7 @@ class JSONStringReceiverTCP : public JSONStringReceiver {
 public:
   ~JSONStringReceiverTCP() override;
 
-  Status Receive(double timeout_seconds, std::shared_ptr<std::string> result) override;
+  Status Receive(double timeout_seconds, std::string& result) override;
 
 protected:
   Status m_constructorStatus;       ///< Status of the constructor.
@@ -2797,7 +2801,7 @@ class JSONStringReceiverFile : public JSONStringReceiver {
 public:
   ~JSONStringReceiverFile() override;
 
-  Status Receive(double timeout_seconds, std::shared_ptr<std::string> result) override;
+  Status Receive(double timeout_seconds, std::string& result) override;
 
 protected:
   Status m_constructorStatus; ///< Status of the constructor.
@@ -2838,6 +2842,10 @@ public:
   /// @return OKAY if successful, otherwise an error code.
   static Status Create(std::string URL, std::shared_ptr<JSONStringSender>& sender);
 
+  /// @brief Test function.
+  /// @return Empty string if successful, otherwise descriptive error message.
+  static std::string Test();
+
 protected:
   /// @brief Get the status of the constructor.  Used by Create() to test for errors during construction.
   virtual Status GetConstructorStatus() = 0;
@@ -2862,6 +2870,7 @@ protected:
   std::atomic_bool m_stopThread;    ///< Flag to tell the listening thread to stop.
   std::shared_ptr<std::thread> m_listenThread; ///< Thread that listens for incoming connections.
   void ListenThread();              ///< Thread that listens for incoming connections.
+  std::atomic_bool m_threadStarted; ///< Thread uses to let us know that has started running.
 
   /// @brief Construct a JSONStringSenderTCP object, giving it the endpoint to listen on.
   JSONStringSenderTCP(StreamEndpoint endpoint);

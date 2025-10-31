@@ -7141,9 +7141,10 @@ Status JSONStringReceiver::Create(std::string URL, std::shared_ptr<JSONStringRec
     if (port == 0) { port = 10103; }
     StreamEndpoint endpoint(IP, port);
     std::shared_ptr<JSONStringReceiver> receiverTCP(new JSONStringReceiverTCP(endpoint));
-    if (receiverTCP->GetConstructorStatus() != OKAY) {
+    Status status = receiverTCP->GetConstructorStatus();
+    if (status != OKAY) {
       receiverTCP.reset();
-      return receiverTCP->GetConstructorStatus();
+      return status;
     }
     receiver = receiverTCP;
     return OKAY;
@@ -7151,6 +7152,75 @@ Status JSONStringReceiver::Create(std::string URL, std::shared_ptr<JSONStringRec
   
   // Unknown URL type.
   return BAD_PARAMETER;
+}
+
+std::string JSONStringReceiver::Test()
+{
+  Status s;
+
+  // Make a JSONStringSenderTCP to send data to JSONStringReceiverTCPs and verify that we can
+  // send messages.
+  {
+    std::shared_ptr<JSONStringSender> sender;
+    s = JSONStringSender::Create("tcp://localhost:10103", sender);
+    if (s != OKAY) {
+      return "Error creating JSONStringSenderTCP: " + ErrorMessage(s);
+    }
+    std::shared_ptr<JSONStringReceiver> receiver;
+    s = JSONStringReceiver::Create("tcp://localhost:10103", receiver);
+    if (s != OKAY) {
+      return "Error creating JSONStringReceiverTCP: " + ErrorMessage(s);
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    std::string sendString = "{ \"test\": 123 }";
+    for (size_t i = 0; i < 10; i++) {
+      s = sender->Send(sendString);
+      if (s != OKAY) {
+        return "Error sending JSON string via JSONStringSenderTCP: " + ErrorMessage(s);
+      }
+      std::string receiveString;
+      s = receiver->Receive(1.0, receiveString);
+      if (s != OKAY) {
+        return "Error receiving JSON string via JSONStringReceiverTCP: " + ErrorMessage(s);
+      }
+      if (receiveString != sendString) {
+        return "Received JSON string does not match sent string via JSONStringReceiverTCP";
+      }
+    }
+
+    // Attach a second JSONStringReceiverTCP to the same port and verify that it can also receive messages.
+    std::shared_ptr<JSONStringReceiver> receiver2;
+    s = JSONStringReceiver::Create("tcp://localhost:10103", receiver2);
+    if (s != OKAY) {
+      return "Error creating second JSONStringReceiverTCP: " + ErrorMessage(s);
+    }
+    for (size_t i = 0; i < 10; i++) {
+      s = sender->Send(sendString);
+      if (s != OKAY) {
+        return "Error sending JSON string via JSONStringSenderTCP to second receiver: " + ErrorMessage(s);
+      }
+      std::string receiveString;
+      s = receiver->Receive(1.0, receiveString);
+      if (s != OKAY) {
+        return "Error receiving JSON string via first JSONStringReceiverTCP: " + ErrorMessage(s);
+      }
+      if (receiveString != sendString) {
+        return "Received JSON string does not match sent string via first JSONStringReceiverTCP";
+      }
+      s = receiver2->Receive(1.0, receiveString);
+      if (s != OKAY) {
+        return "Error receiving JSON string via second JSONStringReceiverTCP: " + ErrorMessage(s);
+      }
+      if (receiveString != sendString) {
+        return "Received JSON string does not match sent string via second JSONStringReceiverTCP";
+      }
+    }
+  }
+
+
+  /// @todo
+
+  return "@todo Finish JSONStringReceiver::Test()";
 }
 
 JSONStringReceiverTCP::JSONStringReceiverTCP(StreamEndpoint endpoint)
@@ -7237,14 +7307,10 @@ JSONStringReceiverTCP::~JSONStringReceiverTCP()
   }
 }
 
-Status JSONStringReceiverTCP::Receive(double timeout_seconds, std::shared_ptr<std::string> result)
+Status JSONStringReceiverTCP::Receive(double timeout_seconds, std::string& result)
 {
-  if (!result) {
-    return BAD_PARAMETER;
-  }
-
   // In case of failure, clear the output string.
-  result->clear();
+  result.clear();
 
   if (m_constructorStatus != OKAY) {
     return m_constructorStatus;
@@ -7303,7 +7369,7 @@ Status JSONStringReceiverTCP::Receive(double timeout_seconds, std::shared_ptr<st
     if (m_buffer[0] != ',') {
       return UNEXPECTED_INTERNAL_STATE;
     }
-    *result = m_buffer.substr(1, lineEnd - 1);
+    result = m_buffer.substr(1, lineEnd - 1);
     m_buffer = m_buffer.substr(lineEnd + 1);
     return OKAY;
   }
@@ -7345,14 +7411,10 @@ JSONStringReceiverFile::~JSONStringReceiverFile()
   }
 }
 
-Status JSONStringReceiverFile::Receive(double timeout_seconds, std::shared_ptr<std::string> result)
+Status JSONStringReceiverFile::Receive(double timeout_seconds, std::string& result)
 {
-  if (!result) {
-    return BAD_PARAMETER;
-  }
-
   // In case of failure, clear the output string.
-  result->clear();
+  result.clear();
 
   if (m_endOfFile) {
     return OKAY;
@@ -7368,23 +7430,23 @@ Status JSONStringReceiverFile::Receive(double timeout_seconds, std::shared_ptr<s
   }
 
   // Read the next line from the file.
-  if (!std::getline(m_file, *result)) {
-    result->clear();
+  if (!std::getline(m_file, result)) {
+    result.clear();
 
     // We got to the end of the file before we got to the closing bracket.
     return UNEXPECTED_INTERNAL_STATE;
   }
 
   // If we read the last line, indicate end of stream.
-  if (*result == "]") {
+  if (result == "]") {
     m_endOfFile = true;
-    result->clear();
+    result.clear();
     return OKAY;
   }
 
   // Remove any leading commas and return the result.
-  while ((!result->empty()) && ((*result)[0] == ',')) {
-    *result = result->substr(1);
+  while ((!result.empty()) && ((result)[0] == ',')) {
+    result = result.substr(1);
   }
   return OKAY;
 }
@@ -7417,9 +7479,10 @@ Status JSONStringSender::Create(std::string URL, std::shared_ptr<JSONStringSende
     if (port == 0) { port = 10103; }
     StreamEndpoint endpoint(IP, port);
     std::shared_ptr<JSONStringSender> senderTCP(new JSONStringSenderTCP(endpoint));
-    if (senderTCP->GetConstructorStatus() != OKAY) {
+    Status status = senderTCP->GetConstructorStatus();
+    if (status != OKAY) {
       senderTCP.reset();
-      return senderTCP->GetConstructorStatus();
+      return status;
     }
     sender = senderTCP;
     return OKAY;
@@ -7427,6 +7490,13 @@ Status JSONStringSender::Create(std::string URL, std::shared_ptr<JSONStringSende
 
   // Unknown URL type.
   return BAD_PARAMETER;
+}
+
+std::string JSONStringSender::Test()
+{
+  // The test program is the same for both of these classes, since we use them to
+  // talk to one another.
+  return JSONStringReceiver::Test();
 }
 
 JSONStringSenderTCP::JSONStringSenderTCP(StreamEndpoint endpoint)
@@ -7460,8 +7530,13 @@ JSONStringSenderTCP::JSONStringSenderTCP(StreamEndpoint endpoint)
   }
 
   // Start the thread to accept connections and add their sockets to the list.
+  // Wait until the thread is started before returning.
   m_stopThread = false;
+  m_threadStarted = false;
   m_listenThread = std::make_shared<std::thread>(&JSONStringSenderTCP::ListenThread, this);
+  while (!m_threadStarted) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
 }
 
 Status JSONStringSenderTCP::GetConstructorStatus()
@@ -7535,8 +7610,10 @@ void JSONStringSenderTCP::ListenThread()
 {
   // Set the listen socket to listen.
   if (0 != listen(m_listen_socket->socket, 1)) {
+    m_threadStarted = true;
     return;
   }
+  m_threadStarted = true;
 
   while (!m_stopThread) {
 
@@ -7566,9 +7643,10 @@ void JSONStringSenderTCP::ListenThread()
         continue;
       }
 
-      // Write the header to the socket.
-      int length = send(socket->socket, ANALYSIS_STREAM_HEADER.c_str(), static_cast<int>(ANALYSIS_STREAM_HEADER.length()), 0);
-      if (length != static_cast<int>(ANALYSIS_STREAM_HEADER.length())) {
+      // Write the header to the socket with a carriage return at its end.
+      std::string msg = ANALYSIS_STREAM_HEADER + "\n";
+      int length = send(socket->socket, msg.c_str(), static_cast<int>(msg.length()), 0);
+      if (length != static_cast<int>(msg.length())) {
         continue;
       }
 
@@ -8691,6 +8769,15 @@ std::string asdp::Test()
   ret = StreamWriter::Test();
   if (ret.size() > 0) {
     return "Error testing StreamWriter: " + ret;
+  }
+
+  //-------------------------------------------------------------------
+  // Test for JSON string sender and receiver.
+  // We only need to test the receiver side of the JSON classes because the sender just
+  // calls the receiver test.
+  ret = asdp::JSONStringReceiver::Test();
+  if (ret.size() > 0) {
+    return "Error testing JSONStringReceiver/Sender: " + ret;
   }
 
   //-------------------------------------------------------------------
