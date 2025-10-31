@@ -2778,7 +2778,10 @@ public:
   Status Receive(double timeout_seconds, std::shared_ptr<std::string> result) override;
 
 protected:
+  Status m_constructorStatus;       ///< Status of the constructor.
   std::shared_ptr<Socket> m_socket; ///< Pointer to the socket object to use to do our work.
+  bool m_endOfStream;               ///< Flag to indicate if we've reached the end of the stream.
+  std::string m_buffer;             ///< Buffer to hold partial data read from the socket.
 
   /// @brief Construct a JSONStringReceiverTCP object, giving it the endpoint to connect to.
   JSONStringReceiverTCP(StreamEndpoint endpoint);
@@ -2850,10 +2853,11 @@ public:
   Status Send(const std::string& jsonString) override;
 
 protected:
+  Status m_constructorStatus; ///< Status of the constructor.
   std::shared_ptr<Socket> m_listen_socket; ///< Pointer to the socket object to listen on.
 
   std::vector<std::shared_ptr<Socket>> m_client_sockets; ///< Pointers to the client sockets connected.
-  std::recursive_mutex m_mutex;     ///< Mutex to protect operations on internal structures.
+  std::mutex m_mutex;     ///< Mutex to protect operations on internal structures.
 
   std::atomic_bool m_stopThread;    ///< Flag to tell the listening thread to stop.
   std::shared_ptr<std::thread> m_listenThread; ///< Thread that listens for incoming connections.

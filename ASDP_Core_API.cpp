@@ -4599,6 +4599,10 @@ class asdp::Socket {
 public:
   SOCKET socket = BAD_SOCKET;    ///< The socket to use, initially not open.
 
+  /// Address that is associated with the socket, used by SenderUDP to remember
+  /// where to send to.
+  struct sockaddr_in addr;
+
   /// @brief Default constructor
   Socket() {
     addr.sin_family = AF_INET;
@@ -4626,9 +4630,37 @@ public:
     return true;
   }
 
-  /// Address that is associated with the socket, used by SenderUDP to remember
-  /// where to send to.
-  struct sockaddr_in addr;
+  /// @brief Check to see if data is available to read on the socket.
+  /// @param timeout_seconds The maximum time to wait for data to be available, in seconds.
+  /// @param available Set to true if data is available to read, false if not.
+  /// @return OKAY if successful, SOCKET_FAILURE if there was a socket error.
+  Status IsDataAvailable(double timeout_seconds, bool& available) {
+    // Make sure we have a valid socket.
+    if (socket == BAD_SOCKET) {
+      return SOCKET_FAILURE;
+    }
+
+    // Set up the timeout.
+    struct timeval timeout;
+    timeout.tv_sec = (uint32_t)timeout_seconds;
+    timeout.tv_usec = (uint32_t)((timeout_seconds - (uint32_t)timeout_seconds) * 1000000);
+
+    // Set up the file descriptor set.
+    fd_set fds;
+    FD_ZERO(&fds);
+    FD_SET(socket, &fds);
+
+    // Wait for the socket to be ready.
+    int result = select(socket + 1, &fds, nullptr, nullptr, &timeout);
+    if (result == SOCKET_ERROR) {
+      return SOCKET_FAILURE;
+    }
+
+    // Check if the socket is ready.
+    available = (result > 0);
+    return OKAY;
+  }
+
 };
 
 SenderUDP::SenderUDP(std::string host, uint16_t port, bool broadcast, std::string const& NICName,
@@ -5840,25 +5872,7 @@ Status SenderReceiverTCP::IsPacketAvailable(double timeout_seconds, bool& availa
     return Receiver::m_constructorStatus;
   }
 
-  // Set up the timeout.
-  struct timeval timeout;
-  timeout.tv_sec = (uint32_t)timeout_seconds;
-  timeout.tv_usec = (uint32_t)((timeout_seconds - (uint32_t)timeout_seconds) * 1000000);
-
-  // Set up the file descriptor set.
-  fd_set fds;
-  FD_ZERO(&fds);
-  FD_SET(m_socket->socket, &fds);
-
-  // Wait for the socket to be ready.
-  int result = select(m_socket->socket + 1, &fds, nullptr, nullptr, &timeout);
-  if (result == SOCKET_ERROR) {
-    return SOCKET_FAILURE;
-  }
-
-  // Check if the socket is ready.
-  available = (result > 0);
-  return OKAY;
+  return m_socket->IsDataAvailable(timeout_seconds, available);
 }
 
 Status SenderReceiverTCP::ReceiveBuffer(uint8_t* buffer, size_t& size)
@@ -7136,6 +7150,164 @@ Status JSONStringReceiver::Create(std::string URL, std::shared_ptr<JSONStringRec
   return BAD_PARAMETER;
 }
 
+JSONStringReceiverTCP::JSONStringReceiverTCP(StreamEndpoint endpoint)
+  : m_constructorStatus(OKAY)
+  , m_endOfStream(false)
+{
+  // Problem if the endpoint has been set to all zeros.
+  if (endpoint.IP == 0) {
+    m_constructorStatus = BAD_PARAMETER;
+    return;
+  }
+
+  // Create and connect the socket
+  m_socket = std::make_shared<Socket>();
+  m_socket->socket = socket(AF_INET, SOCK_STREAM, 0);
+  if (m_socket->socket == BAD_SOCKET) {
+    m_constructorStatus = BAD_PARAMETER;
+    return;
+  }
+  struct sockaddr_in addr;
+  memset(&addr, 0, sizeof(addr));
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = ntohl(endpoint.IP);
+  addr.sin_port = htons(endpoint.port);
+  if (0 != connect(m_socket->socket, (struct sockaddr*)&addr, sizeof(addr))) {
+    m_constructorStatus = SOCKET_FAILURE;
+    m_socket.reset();
+    return;
+  }
+
+  // Turn on TCP_NODELAY for the socket so it sends data immediately rather than waiting
+  // to piggy-back on a response.
+  int flag = 1;
+  if (0 != setsockopt(m_socket->socket, IPPROTO_TCP, TCP_NODELAY, (char*)&flag, sizeof(flag))) {
+    m_constructorStatus = SOCKET_FAILURE;
+    m_socket.reset();
+    return;
+  }
+
+  // Read and verify the header, timing out after half a second if we don't get it.
+  // We also read the carriage return/newline character at the end of the header and
+  // then discard it.
+  std::string header;
+  header.resize(ANALYSIS_STREAM_HEADER.length() + 1);
+  bool available;
+  Status status = m_socket->IsDataAvailable(0.5, available);
+  if (status != OKAY) {
+    m_constructorStatus = status;
+    m_socket.reset();
+    return;
+  }
+  if (!available) {
+    m_constructorStatus = TIMEOUT;
+    m_socket.reset();
+    return;
+  }
+  int length = recv(m_socket->socket, &header[0], ANALYSIS_STREAM_HEADER.length()+1, 0);
+  if (length != static_cast<int>(ANALYSIS_STREAM_HEADER.length()+1)) {
+    m_constructorStatus = SOCKET_FAILURE;
+    m_socket.reset();
+    return;
+  }
+  header.resize(ANALYSIS_STREAM_HEADER.length());
+
+  // Check the header.
+  if (header != ANALYSIS_STREAM_HEADER) {
+    m_constructorStatus = INCOMPATIBLE_API_VERSION;
+    m_socket.reset();
+    return;
+  }
+}
+
+Status JSONStringReceiverTCP::GetConstructorStatus()
+{
+  return m_constructorStatus;
+}
+
+JSONStringReceiverTCP::~JSONStringReceiverTCP()
+{
+  // Close the socket.
+  if (m_socket != nullptr) {
+    closesocket(m_socket->socket);
+    m_socket.reset();
+  }
+}
+
+Status JSONStringReceiverTCP::Receive(double timeout_seconds, std::shared_ptr<std::string> result)
+{
+  if (!result) {
+    return BAD_PARAMETER;
+  }
+
+  // In case of failure, clear the output string.
+  result->clear();
+
+  if (m_constructorStatus != OKAY) {
+    return m_constructorStatus;
+  }
+
+  // See if we're at the end of the stream already.
+  if (m_endOfStream) {
+    return OKAY;
+  }
+
+  // Make sure the socket is valid.
+  if (m_socket == nullptr) {
+    return UNEXPECTED_INTERNAL_STATE;
+  }
+
+  // See if our buffer has a complete line in it. If so, pull it out (without the , at the front and newline at the end).
+  // if not, read more data from the socket until we get one or time out.
+  size_t lineEnd = m_buffer.find('\n');
+  if (lineEnd == std::string::npos) {
+    // See if data is available.
+    bool available;
+    Status status = m_socket->IsDataAvailable(timeout_seconds, available);
+    if (status != OKAY) {
+      return status;
+    }
+    if (!available) {
+      return TIMEOUT;
+    }
+
+    // Read data from the socket.
+    char readBuffer[2048];
+    int length = recv(m_socket->socket, readBuffer, sizeof(readBuffer), 0);
+    if (length < 0) {
+      return SOCKET_FAILURE;
+    }
+    if (length == 0) {
+      // End of the stream before we got the closing bracket, mark as end of stream.
+      m_endOfStream = true;
+      return UNEXPECTED_INTERNAL_STATE;
+    }
+
+    // Append the data to our buffer.
+    m_buffer.append(readBuffer, length);
+  }
+
+  // If we read the last line, indicate end of stream.
+  if (m_buffer[0] == ']') {
+    m_endOfStream = true;
+    return OKAY;
+  }
+
+  // See if we have a complete line now. If so, pull it out (without the , at the front and newline at the end).
+  // Then remove it from the buffer.
+  lineEnd = m_buffer.find('\n');
+  if (lineEnd != std::string::npos) {
+    if (m_buffer[0] != ',') {
+      return UNEXPECTED_INTERNAL_STATE;
+    }
+    *result = m_buffer.substr(1, lineEnd - 1);
+    m_buffer = m_buffer.substr(lineEnd + 1);
+    return OKAY;
+  }
+
+  return TIMEOUT;
+}
+
 JSONStringReceiverFile::JSONStringReceiverFile(std::string filePath)
   : m_constructorStatus(OKAY)
   , m_endOfFile(false)
@@ -7251,6 +7423,156 @@ Status JSONStringSender::Create(std::string URL, std::shared_ptr<JSONStringSende
 
   // Unknown URL type.
   return BAD_PARAMETER;
+}
+
+JSONStringSenderTCP::JSONStringSenderTCP(StreamEndpoint endpoint)
+  : m_constructorStatus(OKAY)
+  , m_stopThread(false)
+{
+  m_constructorStatus = OKAY;
+  // Problem if the endpoint has been set to all zeros.
+  if (endpoint.IP == 0) {
+    m_constructorStatus = BAD_PARAMETER;
+    return;
+  }
+
+  // Create the socket and set it for listening.
+  m_listen_socket = std::make_shared<Socket>();
+  m_listen_socket->socket = socket(AF_INET, SOCK_STREAM, 0);
+  if (m_listen_socket->socket == BAD_SOCKET) {
+    m_constructorStatus = BAD_PARAMETER;
+    return;
+  }
+  struct sockaddr_in addr;
+  memset(&addr, 0, sizeof(addr));
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = ntohl(endpoint.IP);
+  addr.sin_port = htons(endpoint.port);
+  if (0 != bind(m_listen_socket->socket, (struct sockaddr*)&addr, sizeof(addr))) {
+    m_constructorStatus = SOCKET_FAILURE;
+    closesocket(m_listen_socket->socket);
+    m_listen_socket.reset();
+    return;
+  }
+
+  // Start the thread to accept connections and add their sockets to the list.
+  m_stopThread = false;
+  m_listenThread = std::make_shared<std::thread>(&JSONStringSenderTCP::ListenThread, this);
+}
+
+Status JSONStringSenderTCP::GetConstructorStatus()
+{
+  return m_constructorStatus;
+}
+
+JSONStringSenderTCP::~JSONStringSenderTCP()
+{
+  // Stop the listen thread and wait for it to join.  Once this is done, we no longer
+  // need to use the mutex.
+  m_stopThread = true;
+  if ((m_listenThread != nullptr) && m_listenThread->joinable()) {
+    m_listenThread->join();
+  }
+
+  // Close the listening socket.
+  if (m_listen_socket != nullptr) {
+    closesocket(m_listen_socket->socket);
+    m_listen_socket.reset();
+  }
+
+  // Close any other sockets after sending the end-of-stream line.
+  for (auto& socket : m_client_sockets) {
+    if (socket != nullptr) {
+      // Send the closing bracket to indicate end of stream.
+      std::string endLine = "]\n";
+      send(socket->socket, endLine.c_str(), static_cast<int>(endLine.length()), 0);
+      // Close the socket.
+      closesocket(socket->socket);
+      socket.reset();
+    }
+  }
+}
+
+Status JSONStringSenderTCP::Send(const std::string& jsonString)
+{
+  if (m_constructorStatus != OKAY) {
+    return m_constructorStatus;
+  }
+
+  // Make a string that has all instances of newlines and carriage returns replaced with spaces
+  // so that we guarantee that we can read a line at a time and get one object at a time.
+  std::string sanitizedString = jsonString;
+  for (size_t i = 0; i < sanitizedString.size(); i++) {
+    if ((sanitizedString[i] == '\n') || (sanitizedString[i] == '\r')) {
+      sanitizedString[i] = ' ';
+    }
+  }
+
+  // Make the line to send.
+  std::string lineToSend = "," + sanitizedString + "\n";
+
+  // Send the line to all connected clients while holding the mutex so the list doesn't change out
+  // from under us.
+  std::lock_guard<std::mutex> lock(m_mutex);
+  for (auto& socket : m_client_sockets) {
+    if (socket != nullptr) {
+      int length = send(socket->socket, lineToSend.c_str(), static_cast<int>(lineToSend.length()), 0);
+      if (length != static_cast<int>(lineToSend.length())) {
+        // Problem sending to this socket, close it.
+        closesocket(socket->socket);
+        socket.reset();
+      }
+    }
+  }
+  return OKAY;
+}
+
+void JSONStringSenderTCP::ListenThread()
+{
+  // Set the listen socket to listen.
+  if (0 != listen(m_listen_socket->socket, 1)) {
+    return;
+  }
+
+  while (!m_stopThread) {
+
+    // See if the listening socket is ready to accept a connection.  Wait up to 100 ms.
+    bool available;
+    Status status = m_listen_socket->IsDataAvailable(0.1, available);
+    if (status != OKAY) {
+      m_constructorStatus = status;
+      return;
+    }
+
+    if (available) {
+
+      // Accept a new connection.
+      struct sockaddr_in client_addr;
+      socklen_t client_len = sizeof(client_addr);
+      std::shared_ptr<Socket> socket = std::make_shared<Socket>();
+      socket->socket = accept(m_listen_socket->socket, (struct sockaddr*)&client_addr, &client_len);
+      if (socket->socket == BAD_SOCKET) {
+        continue;
+      }
+
+      // Turn on TCP_NODELAY for the socket so it sends data immediately rather than waiting
+      // to piggy-back on a response.
+      int flag = 1;
+      if (0 != setsockopt(socket->socket, IPPROTO_TCP, TCP_NODELAY, (char*)&flag, sizeof(flag))) {
+        continue;
+      }
+
+      // Write the header to the socket.
+      int length = send(socket->socket, ANALYSIS_STREAM_HEADER.c_str(), static_cast<int>(ANALYSIS_STREAM_HEADER.length()), 0);
+      if (length != static_cast<int>(ANALYSIS_STREAM_HEADER.length())) {
+        continue;
+      }
+
+      // Add this to our list of active client sockets.
+      std::lock_guard<std::mutex> lock(m_mutex);
+      m_client_sockets.push_back(socket);
+    }
+  }
 }
 
 JSONStringSenderFile::JSONStringSenderFile(std::string filePath)
