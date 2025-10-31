@@ -260,7 +260,7 @@ static WSAStart startUp;
 /// @brief Get the server connection information from a URL.
 /// @param [in] URL URL for the server.
 /// @param [out] IP IP address of the server.
-/// @param [out] port Port number of the server.
+/// @param [out] port Port number of the server. If one is not specified in the URL, 0 is returned.
 static Status ServerInfoFromURL(std::string URL, std::string& IP, uint16_t& port)
 {
   // Make sure the URL starts with "tcp://".
@@ -271,13 +271,12 @@ static Status ServerInfoFromURL(std::string URL, std::string& IP, uint16_t& port
   // Get the IP address and port.
   std::string IPString = URL.substr(6);
   size_t colonPos = IPString.find(':');
-  if (colonPos == std::string::npos) {
-    return BAD_PARAMETER;
-  }
   IP = IPString.substr(0, colonPos);
-  std::string portString = IPString.substr(colonPos + 1);
   port = 0;
-  port = std::stoi(portString);
+  if (colonPos != std::string::npos) {
+    std::string portString = IPString.substr(colonPos + 1);
+    port = std::stoi(portString);
+  }
 
   return OKAY;
 }
@@ -7018,6 +7017,9 @@ Status CoreClient::ConnectToServer(std::string serverURL, uint16_t& major, uint1
   if (status != OKAY) {
     return status;
   }
+  if (port == 0) {
+    return BAD_PARAMETER;
+  }
 
   // Connect to the server.
   m_stream = std::make_shared<SenderReceiverTCP>(IP, port);
@@ -7136,6 +7138,7 @@ Status JSONStringReceiver::Create(std::string URL, std::shared_ptr<JSONStringRec
     if (s != OKAY) {
       return s;
     }
+    if (port == 0) { port = 10103; }
     StreamEndpoint endpoint(IP, port);
     std::shared_ptr<JSONStringReceiver> receiverTCP(new JSONStringReceiverTCP(endpoint));
     if (receiverTCP->GetConstructorStatus() != OKAY) {
@@ -7411,6 +7414,7 @@ Status JSONStringSender::Create(std::string URL, std::shared_ptr<JSONStringSende
     if (s != OKAY) {
       return s;
     }
+    if (port == 0) { port = 10103; }
     StreamEndpoint endpoint(IP, port);
     std::shared_ptr<JSONStringSender> senderTCP(new JSONStringSenderTCP(endpoint));
     if (senderTCP->GetConstructorStatus() != OKAY) {
