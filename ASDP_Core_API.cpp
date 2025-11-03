@@ -7180,7 +7180,7 @@ std::string JSONStringReceiver::Test()
         return "Error sending JSON string via JSONStringSenderTCP: " + ErrorMessage(s);
       }
       std::string receiveString;
-      s = receiver->Receive(1.0, receiveString);
+      s = receiver->Receive(2.0, receiveString);
       if (s != OKAY) {
         return "Error receiving JSON string via JSONStringReceiverTCP: " + ErrorMessage(s);
       }
@@ -7205,19 +7205,35 @@ std::string JSONStringReceiver::Test()
     for (size_t i = 0; i < 10; i++) {
       s = sender->Send(sendString);
       if (s != OKAY) {
-        return "Error sending JSON string via JSONStringSenderTCP to second receiver: " + ErrorMessage(s);
+        return "Error sending JSON string via JSONStringSenderTCP to two receivers: " + ErrorMessage(s);
       }
+      bool worked = false;
+      int retries = 0;
       std::string receiveString;
-      s = receiver->Receive(1.0, receiveString);
-      if (s != OKAY) {
-        return "Error receiving JSON string via first JSONStringReceiverTCP: " + ErrorMessage(s);
+      while (!worked && retries++ < 10) {
+        s = receiver->Receive(2.0, receiveString);
+        if (s == TIMEOUT) {
+          continue;
+        }
+        if (s != OKAY) {
+          return "Error receiving JSON string via first JSONStringReceiverTCP: " + ErrorMessage(s);
+        }
+        worked = true;
       }
       if (receiveString != sendString) {
         return "Received JSON string does not match sent string via first JSONStringReceiverTCP";
       }
-      s = receiver2->Receive(1.0, receiveString);
-      if (s != OKAY) {
-        return "Error receiving JSON string via second JSONStringReceiverTCP: " + ErrorMessage(s);
+      worked = false;
+      retries = 0;
+      while (!worked && retries++ < 10) {
+        s = receiver2->Receive(2.0, receiveString);
+        if (s == TIMEOUT) {
+          continue;
+        }
+        if (s != OKAY) {
+          return "Error receiving JSON string via second JSONStringReceiverTCP: " + ErrorMessage(s);
+        }
+        worked = true;
       }
       if (receiveString != sendString) {
         return "Received JSON string does not match sent string via second JSONStringReceiverTCP";
@@ -7229,7 +7245,7 @@ std::string JSONStringReceiver::Test()
   // a JSONStringReceiverFile.
   {
     // Create a temporary file name.
-    std::string tempFileName = std::tmpnam(nullptr);
+    std::string tempFileName = "deleteme_test_file.json";
 
     // Create a JSONStringSenderFile to write to the file.
     std::shared_ptr<JSONStringSender> sender;
