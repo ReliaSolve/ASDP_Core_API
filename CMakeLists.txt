@@ -157,6 +157,7 @@ if(BUILD_EXAMPLES)
     Multicast_Test
     Raw_Packet_Receiver
     Store_Raw_Camera_Stream
+    JSONString_Client
   )
   foreach (BASE ${EXAMPLES})
     # C++ example
