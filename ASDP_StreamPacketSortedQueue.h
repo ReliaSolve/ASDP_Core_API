@@ -46,8 +46,8 @@ namespace asdp {
     static std::string Test();
 
   protected:
-    size_t m_maxHeldCount;
-    uint32_t m_nextExpectedSequenceNumber;
+    size_t m_maxHeldCount;  ///< Maximum number of packets to hold before delivery.
+    uint32_t m_nextExpectedSequenceNumber;  ///< Next expected sequence number.
     std::list< std::shared_ptr<StreamPacket> > m_packetList;  ///< List of packets with increasing sequence number.
   };
 
