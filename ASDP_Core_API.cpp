@@ -7123,9 +7123,10 @@ Status JSONStringReceiver::Create(std::string URL, std::shared_ptr<JSONStringRec
     // Pull the file name out of the URL and use it to create the object.
     std::string fileName = URL.substr(7);
     std::shared_ptr<JSONStringReceiver> receiverFile(new JSONStringReceiverFile(fileName));
-    if (receiverFile->GetConstructorStatus() != OKAY) {
+    Status status = receiverFile->GetConstructorStatus();
+    if (status != OKAY) {
       receiverFile.reset();
-      return receiverFile->GetConstructorStatus();
+      return status;
     }
     receiver = receiverFile;
     return OKAY;
@@ -7188,6 +7189,13 @@ std::string JSONStringReceiver::Test()
       }
     }
 
+    // Check for timeout when no message is available.
+    std::string shouldBeEmpty;
+    s = receiver->Receive(0.1, shouldBeEmpty);
+    if (s != TIMEOUT) {
+      return "Expected timeout when receiving with no messages available via JSONStringReceiverTCP";
+    }
+
     // Attach a second JSONStringReceiverTCP to the same port and verify that it can also receive messages.
     std::shared_ptr<JSONStringReceiver> receiver2;
     s = JSONStringReceiver::Create("tcp://localhost:10103", receiver2);
@@ -7217,10 +7225,66 @@ std::string JSONStringReceiver::Test()
     }
   }
 
+  // Save JSON strings to a file using JSONStringSenderFile and verify that we can read them back using
+  // a JSONStringReceiverFile.
+  {
+    // Create a temporary file name.
+    std::string tempFileName = std::tmpnam(nullptr);
 
-  /// @todo
+    // Create a JSONStringSenderFile to write to the file.
+    std::shared_ptr<JSONStringSender> sender;
+    s = JSONStringSender::Create("file://" + tempFileName, sender);
+    if (s != OKAY) {
+      return "Error creating JSONStringSenderFile: " + ErrorMessage(s);
+    }
 
-  return "@todo Finish JSONStringReceiver::Test()";
+    // Send some JSON strings to the file.
+    std::vector<std::string> jsonStringsToSend = {
+      "{ \"test\": 1 }",
+      "{ \"test\": 2 }",
+      "{ \"test\": 3 }"
+    };
+    for (const auto& jsonString : jsonStringsToSend) {
+      s = sender->Send(jsonString);
+      if (s != OKAY) {
+        return "Error sending JSON string via JSONStringSenderFile: " + ErrorMessage(s);
+      }
+    }
+
+    // Close the file so it is flushed to disk.
+    sender.reset();
+
+    // Create a JSONStringReceiverFile to read from the file.
+    std::shared_ptr<JSONStringReceiver> receiver;
+    s = JSONStringReceiver::Create("file://" + tempFileName, receiver);
+    if (s != OKAY) {
+      return "Error creating JSONStringReceiverFile: " + ErrorMessage(s);
+    }
+
+    // Receive the JSON strings from the file and verify they match what was sent.
+    for (const auto& expectedJsonString : jsonStringsToSend) {
+      std::string receivedJsonString;
+      s = receiver->Receive(1.0, receivedJsonString);
+      if (s != OKAY) {
+        return "Error receiving JSON string via JSONStringReceiverFile: " + ErrorMessage(s);
+      }
+      if (receivedJsonString != expectedJsonString) {
+        return "Received JSON string does not match sent string via JSONStringReceiverFile";
+      }
+    }
+
+    // Verify that if we try to get another it times out.
+    std::string shouldBeEmpty;
+    s = receiver->Receive(0.5, shouldBeEmpty);
+    if (s != TIMEOUT) {
+      return "Expected timeout when receiving past end of JSONStringReceiverFile";
+    }
+
+    // Clean up the temporary file.
+    std::remove(tempFileName.c_str());
+  }
+
+  return "";
 }
 
 JSONStringReceiverTCP::JSONStringReceiverTCP(StreamEndpoint endpoint)
@@ -7318,7 +7382,7 @@ Status JSONStringReceiverTCP::Receive(double timeout_seconds, std::string& resul
 
   // See if we're at the end of the stream already.
   if (m_endOfStream) {
-    return OKAY;
+    return TIMEOUT;
   }
 
   // Make sure the socket is valid.
@@ -7359,7 +7423,7 @@ Status JSONStringReceiverTCP::Receive(double timeout_seconds, std::string& resul
   // If we read the last line, indicate end of stream.
   if (m_buffer[0] == ']') {
     m_endOfStream = true;
-    return OKAY;
+    return TIMEOUT;
   }
 
   // See if we have a complete line now. If so, pull it out (without the , at the front and newline at the end).
@@ -7417,7 +7481,7 @@ Status JSONStringReceiverFile::Receive(double timeout_seconds, std::string& resu
   result.clear();
 
   if (m_endOfFile) {
-    return OKAY;
+    return TIMEOUT;
   }
 
   if (m_constructorStatus != OKAY) {
@@ -7441,7 +7505,7 @@ Status JSONStringReceiverFile::Receive(double timeout_seconds, std::string& resu
   if (result == "]") {
     m_endOfFile = true;
     result.clear();
-    return OKAY;
+    return TIMEOUT;
   }
 
   // Remove any leading commas and return the result.
