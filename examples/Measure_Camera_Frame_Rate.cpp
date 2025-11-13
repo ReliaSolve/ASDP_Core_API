@@ -17,6 +17,7 @@
 #include <string.h>
 #include <ASDP_Core_API.h>
 #include <ASDP_BufferPool.h>
+#include <ASDP_StreamPacketSortedQueue.h>
 
 using namespace asdp;
 
@@ -144,76 +145,87 @@ void StreamReceiverThread(std::shared_ptr<ReceiverUDP> receiverUDP, std::atomic_
   // because we recycle the buffer each time.
   asdp::BufferPool bufferPool(9000, 10);
 
+  // Use a sorting queue to ensure that we process the messages in order even if the UDP packets
+  // arrive out of order.
+  StreamPacketSortedQueue sortedQueue(50);
+
   size_t sequenceNumber = 0;
-  std::shared_ptr<asdp::StreamPacket> receiveStreamPacket;
+  std::shared_ptr<asdp::StreamPacket> packet;
   while (!done) {
     // Get the next packet.
     size_t offset = 0;
-    Status status = receiverUDP->ReceiveStreamPacket(10.0, receiveStreamPacket, offset, bufferPool.GetBuffer());
+    Status status = receiverUDP->ReceiveStreamPacket(10.0, packet, offset, bufferPool.GetBuffer());
     if (status != asdp::OKAY) {
       std::cerr << "Error receiving StreamPacket: " << ErrorMessage(status) << std::endl;
       done = true;
       return;
     }
-    // We don't need to sort the StreamPackets -- if they arrive out of order, we'll still get
-    // the begin-frame messages.
 
-    // Find all of the messages in the packet. If any of them is a begin-frame message, increment
-    // the frame count.
-    std::shared_ptr<asdp::Message> message;
-    status = receiveStreamPacket->GetNextMessage(message);
-    if (status != asdp::OKAY) {
-      std::cerr << "Error getting first message from StreamPacket: " << ErrorMessage(status) << std::endl;
-      done = true;
-      return;
+    std::list< std::shared_ptr<StreamPacket> > readyPackets = sortedQueue.AddPacket(packet);
+    if (readyPackets.size() > 1) {
+      std::cerr << "Warning: More than one packet ready to process (re-ordered or missing packet)." << std::endl;
     }
-    while (message != nullptr) {
-      asdp::MessageID messageType;
-      status = message->GetType(messageType);
-      if (status != asdp::OKAY) {
-        std::cerr << "Error getting message type from Message: " << ErrorMessage(status) << std::endl;
-        done = true;
-        return;
-      }
-      if (messageType == asdp::CONSOLIDATED_FRAME_DATA) {
-        MessageConsolidatedFrameData frameData(*message);
-        if (frameData.GetConstructorStatus() != OKAY) {
-          std::cerr << "Error constructing frame data message: " << ErrorMessage(frameData.GetConstructorStatus()) << std::endl;
-          done = true;
-          return;
-        }
+    while (!readyPackets.empty()) {
+      std::shared_ptr<asdp::StreamPacket> receiveStreamPacket = readyPackets.front();
+      readyPackets.pop_front();
 
-        bool isBeginFrame;
-        status = frameData.GetBeginFrameFlag(isBeginFrame);
-        if (status != OKAY) {
-          std::cerr << "Error getting begin-frame flag: " << ErrorMessage(status) << std::endl;
-          done = true;
-          return;
-        }
-        if (isBeginFrame) {
-          beginFrameTimes.push_back(std::chrono::steady_clock::now());
-          frames++;
-        }
-
-        bool isEndFrame;
-        status = frameData.GetEndFrameFlag(isEndFrame);
-        if (status != OKAY) {
-          std::cerr << "Error getting end-frame flag: " << ErrorMessage(status) << std::endl;
-          done = true;
-          return;
-        }
-        if (isEndFrame) {
-          endFrameTimes.push_back(std::chrono::steady_clock::now());
-        }
-      }
+      // Find all of the messages in the packet. If any of them is a begin-frame message, increment
+      // the frame count.
+      std::shared_ptr<asdp::Message> message;
       status = receiveStreamPacket->GetNextMessage(message);
       if (status != asdp::OKAY) {
-        std::cerr << "Error getting next message from StreamPacket: " << ErrorMessage(status) << std::endl;
+        std::cerr << "Error getting first message from StreamPacket: " << ErrorMessage(status) << std::endl;
         done = true;
         return;
       }
+      while (message != nullptr) {
+        asdp::MessageID messageType;
+        status = message->GetType(messageType);
+        if (status != asdp::OKAY) {
+          std::cerr << "Error getting message type from Message: " << ErrorMessage(status) << std::endl;
+          done = true;
+          return;
+        }
+        if (messageType == asdp::CONSOLIDATED_FRAME_DATA) {
+          MessageConsolidatedFrameData frameData(*message);
+          if (frameData.GetConstructorStatus() != OKAY) {
+            std::cerr << "Error constructing frame data message: " << ErrorMessage(frameData.GetConstructorStatus()) << std::endl;
+            done = true;
+            return;
+          }
+
+          bool isBeginFrame;
+          status = frameData.GetBeginFrameFlag(isBeginFrame);
+          if (status != OKAY) {
+            std::cerr << "Error getting begin-frame flag: " << ErrorMessage(status) << std::endl;
+            done = true;
+            return;
+          }
+          if (isBeginFrame) {
+            beginFrameTimes.push_back(std::chrono::steady_clock::now());
+            frames++;
+          }
+
+          bool isEndFrame;
+          status = frameData.GetEndFrameFlag(isEndFrame);
+          if (status != OKAY) {
+            std::cerr << "Error getting end-frame flag: " << ErrorMessage(status) << std::endl;
+            done = true;
+            return;
+          }
+          if (isEndFrame) {
+            endFrameTimes.push_back(std::chrono::steady_clock::now());
+          }
+        }
+        status = receiveStreamPacket->GetNextMessage(message);
+        if (status != asdp::OKAY) {
+          std::cerr << "Error getting next message from StreamPacket: " << ErrorMessage(status) << std::endl;
+          done = true;
+          return;
+        }
+      }
     }
-  };
+  }
 }
 
 //==============================================================================
