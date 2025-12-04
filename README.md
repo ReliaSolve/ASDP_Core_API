@@ -74,6 +74,8 @@ tests to be run.  The program describes its usage when it is run.
 The **network_tuning.sh script** can be used to configure the network for the ASDP
 servers on a Linux system.  It configures the MTU, the global receive buffer size, and the
 the global UDP buffer pool size.  It also downloads and runs the Mellanox tuning script.
+(On the laptop using the ATTO ThunderLink 5102, use the **network_tuning_ATTO.sh script**
+instead.
 
 To ensure that this runs at boot time, you can copy the script to /usr/local/bin and then
 add the following into a new file named /etc/systemd/system/network_tuning.service:
