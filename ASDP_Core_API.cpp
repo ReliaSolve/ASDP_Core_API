@@ -7541,9 +7541,10 @@ Status JSONStringSender::Create(std::string URL, std::shared_ptr<JSONStringSende
     // Pull the file name out of the URL and use it to create the object.
     std::string fileName = URL.substr(7);
     std::shared_ptr<JSONStringSender> senderFile(new JSONStringSenderFile(fileName));
-    if (senderFile->GetConstructorStatus() != OKAY) {
+    Status status = senderFile->GetConstructorStatus();
+    if (status != OKAY) {
       senderFile.reset();
-      return senderFile->GetConstructorStatus();
+      return status;
     }
     sender = senderFile;
     return OKAY;
