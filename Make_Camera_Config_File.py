@@ -207,6 +207,9 @@ def main():
             camID += 1
 
     if args.wide_field:
+        # Start the wide-field camera IDs after the normal cameras
+        camID = 22
+
         # Determine the total field of regard in the horizontal direction and then divide by
         # two to find the field of regard for each half of the scene.  This is the horizontal
         # field of regard that we need to cover with the wide-field cameras.
@@ -257,7 +260,9 @@ def main():
                 dMap = [ [0, 0], [10, 10] ]
 
                 # Add default vignette data
+                cam["vignette"] = {}
                 cam["vignette"]["type"] = "evenPolynomial"
+                cam["vignette"]["parameters"] = {}
                 cam["vignette"]["parameters"]["COP"] = [0.0, 0.0]
                 cam["vignette"]["parameters"]["ceofficients"] = [1.0]
 
