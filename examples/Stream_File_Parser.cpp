@@ -128,6 +128,26 @@ int main(int argc, char** argv)
       }
       std::cout << " " << MessageName(type) << " @" << time.seconds << ":" << time.microseconds;
 
+      // provide more information about pose messages.
+      if (type == POSE) {
+        MessagePose poseMsg(*msg);
+        if (poseMsg.GetConstructorStatus() != OKAY) {
+          std::cerr << "Error parsing POSE message" << std::endl;
+          return 9;
+        }
+        std::array<float, 3> rotation, rotVel;
+        if (OKAY != poseMsg.GetRot(rotation)) {
+          std::cerr << "Error reading rotation from POSE message" << std::endl;
+          return 10;
+        }
+        if (OKAY != poseMsg.GetRotVel(rotVel)) {
+          std::cerr << "Error reading reticle velocity from POSE message" << std::endl;
+          return 11;
+        }
+        std::cout << " (rotation: [" << rotation[0] << ", " << rotation[1] << ", " << rotation[2]
+                  << "], rotVel: [" << rotVel[0] << ", " << rotVel[1] << ", " << rotVel[2] << "])";
+      }
+
       // provide more information for frame-data messages.
       if (type == CONSOLIDATED_FRAME_DATA) {
         MessageConsolidatedFrameData cfd(*msg);
