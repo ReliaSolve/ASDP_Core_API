@@ -146,13 +146,21 @@ int main(int argc, char** argv)
           {
             uint16_t imageWidth, imageHeight;
 
-            // Read the time and resolution of the image.
+            // Read the time and resolution of the image.  If the begin-frame time is nonzero use it, otherwise
+            // use the message time.
             MessageConsolidatedFrameData frameData(*msg);
             Time time;
-            status = frameData.GetTime(time);
+            status = frameData.GetFirstPixelTime(time);
             if (status != OKAY) {
-              std::cerr << "Error reading frame time: " << ErrorMessage(status) << std::endl;
+              std::cerr << "Error reading first pixel time: " << ErrorMessage(status) << std::endl;
               return 9;
+            }
+            if (time == Time()) {
+              status = frameData.GetTime(time);
+              if (status != OKAY) {
+                std::cerr << "Error reading frame time: " << ErrorMessage(status) << std::endl;
+                return 9;
+              }
             }
             status = frameData.GetSensorWidth(imageWidth);
             if (status != OKAY) {

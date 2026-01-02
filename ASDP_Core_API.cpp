@@ -124,7 +124,7 @@ static const unsigned char MAGIC_COOKIE[4] = { 'A', 'S', 'D', 'P' };
 // NOTE: The version number is in the form major.minor.patch, where the first and third are bytes and
 // the second is a 16-bit integer.  This is done to allow for a large number of minor versions.  The
 // 16-bit minor version value is stored in little-endian format.
-static const unsigned char VERSION[4] = { 8, 5,0, 0 };
+static const unsigned char VERSION[4] = { 8, 6,0, 0 };
 
 static std::string ANALYSIS_STREAM_HEADER = "[{\"Version\":\"01.000.000\"}";
 
@@ -3665,7 +3665,8 @@ MessageConsolidatedFrameData::MessageConsolidatedFrameData(StreamPacket& packet,
   uint16_t left, uint16_t top, uint16_t right, uint16_t bottom,
   bool beginFrame, bool endFrame,
   uint8_t* data, uint16_t stride,
-  float exposure, float gain)
+  float exposure, float gain,
+  Time firstPixelTime, uint32_t frameTimeUSec)
   : Message(packet,
     sizeof(cameraID) + sizeof(cameraType) + sizeof(sensorWidth) + sizeof(sensorHeight) +
     sizeof(left) + sizeof(top) + sizeof(right) + sizeof(bottom) +
@@ -3697,8 +3698,15 @@ MessageConsolidatedFrameData::MessageConsolidatedFrameData(StreamPacket& packet,
   memcpy(bufPtr, &exposure, sizeof(exposure)); bufPtr += sizeof(exposure);
   memcpy(bufPtr, &gain, sizeof(gain)); bufPtr += sizeof(gain);
 
+  // Filled-in padding bytes, decreasing the 128 total bytes of padding.
+  uint8_t* startPadding = bufPtr;
+  bufPtr += 2 * sizeof(uint16_t); ///< Skipping unused frame number and line counter.
+  memcpy(bufPtr, &firstPixelTime.seconds, sizeof(firstPixelTime.seconds)); bufPtr += sizeof(firstPixelTime.seconds);
+  memcpy(bufPtr, &firstPixelTime.microseconds, sizeof(firstPixelTime.microseconds)); bufPtr += sizeof(firstPixelTime.microseconds);
+  memcpy(bufPtr, &frameTimeUSec, sizeof(frameTimeUSec)); bufPtr += sizeof(frameTimeUSec);
+
   // Pack our padding, which will be all zeroes.
-  static std::vector<uint8_t> padding(128, 0);
+  static std::vector<uint8_t> padding(128 - (bufPtr - startPadding), 0);
   memcpy(bufPtr, padding.data(), padding.size()); bufPtr += padding.size();
 
   // Copy the data a row at a time, adding padding if needed to make an even number of pixels.
@@ -3707,6 +3715,9 @@ MessageConsolidatedFrameData::MessageConsolidatedFrameData(StreamPacket& packet,
   for (uint16_t row = top; row <= bottom; row++) {
     memcpy(bufPtr, data + row * rowStride + left * sizeof(uint16_t), rowSize);
     // Add padding if needed to make an even number of pixels.
+    // We use a trick here: rowSize % 4 will be 0 if we have an even number of pixels (2 bytes each),
+    // and 2 if we have an odd number of pixels, so just adding that value to rowSize gives us the
+    // correct amount to advance bufPtr to the next row.
     bufPtr += rowSize + (rowSize % 4);
   }
 }
@@ -3758,6 +3769,60 @@ MessageConsolidatedFrameData::MessageConsolidatedFrameData(Message& baseMessage)
     m_constructorStatus = READ_PAST_END;
     return;
   }
+}
+
+Status MessageConsolidatedFrameData::CopyToStreamPacket(StreamPacket& packet, Time timeCode) const
+{
+  // Store the time from the message if a non-default timeCode is specified so that we can see how much it was
+  // adjusted.  Also store the original size of the packet so we'll know what to offset from.
+  Status status = OKAY;
+  Time originalTime;
+  uint32_t originalPacketSize = 0;
+  if (timeCode != Time()) {
+    status = GetTime(originalTime);
+    if (status != OKAY) {
+      return status;
+    }
+    status = packet.GetTotalLength(originalPacketSize);
+    if (status != OKAY) {
+      return status;
+    }
+  }
+
+  // Call the base-class method to do the copy and adjust the message time.
+  status = Message::CopyToStreamPacket(packet, timeCode);
+  if (status != OKAY) {
+    return status;
+  }
+
+  // If the timeCode is not default, and if the first-pixel time in the message is not default, then
+  // we need to adjust the first-pixel time in the packet by the same offset as the time was adjusted.
+  Time firstPixelTime;
+  status = GetFirstPixelTime(firstPixelTime);
+  if (status != OKAY) {
+    return status;
+  }
+  if (timeCode != Time() && firstPixelTime != Time()) {
+    // Compute the adjusted first-pixel time.  This has the same offset as the timeCode adjustment.
+    // We check which is larger to avoid negative time values.
+    Time adjustedTime;
+    if (originalTime < timeCode) {
+      // Time was moved forward.
+      adjustedTime = firstPixelTime + (timeCode - originalTime);
+    } else {
+      // Time was moved backward.
+      adjustedTime = firstPixelTime - (originalTime - timeCode);
+    }
+
+    // Get the start of the first-pixel time in the packet and copy the adjusted time into it.
+    uint32_t packetOffset = packet.m_offset + originalPacketSize;
+    unsigned char* bufPtr = packet.m_buffer->data() + packetOffset + MESSAGE_BASE_SIZE
+      + 2 * sizeof(uint32_t) + 6 * sizeof(uint16_t) + sizeof(uint32_t) + 2 * sizeof(float) + 2 * sizeof(uint16_t);
+    memcpy(bufPtr, &adjustedTime.seconds, sizeof(adjustedTime.seconds)); bufPtr += sizeof(adjustedTime.seconds);
+    memcpy(bufPtr, &adjustedTime.microseconds, sizeof(adjustedTime.microseconds)); bufPtr += sizeof(adjustedTime.microseconds);
+  }
+
+  return OKAY;
 }
 
 Status MessageConsolidatedFrameData::GetCameraID(uint32_t& cameraID) const
@@ -3885,9 +3950,34 @@ Status MessageConsolidatedFrameData::GetGain(float& gain) const
   return OKAY;
 }
 
+Status MessageConsolidatedFrameData::GetFirstPixelTime(Time& firstPixelTime) const
+{
+  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 2 * sizeof(uint32_t) + 6 * sizeof(uint16_t) + sizeof(uint32_t) + 2 * sizeof(float)
+    + 2 * sizeof(uint16_t);
+  if (m_buffer->size() < myOffset + sizeof(firstPixelTime.seconds) + sizeof(firstPixelTime.microseconds)) {
+    return READ_PAST_END;
+  }
+  memcpy(&firstPixelTime.seconds, m_buffer->data() + myOffset, sizeof(firstPixelTime.seconds));
+  myOffset += sizeof(firstPixelTime.seconds);
+  memcpy(&firstPixelTime.microseconds, m_buffer->data() + myOffset, sizeof(firstPixelTime.microseconds));
+  return OKAY;
+}
+
+Status MessageConsolidatedFrameData::GetFrameDurationUSec(uint32_t& frameDurationUSec) const
+{
+  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 2 * sizeof(uint32_t) + 6 * sizeof(uint16_t) + sizeof(uint32_t) + 2 * sizeof(float)
+    + 2 * sizeof(uint16_t) + 2 * sizeof(uint32_t);
+  if (m_buffer->size() < myOffset + sizeof(frameDurationUSec)) {
+    return READ_PAST_END;
+  }
+  memcpy(&frameDurationUSec, m_buffer->data() + myOffset, sizeof(frameDurationUSec));
+  return OKAY;
+}
+
 Status MessageConsolidatedFrameData::GetDataPointer(uint8_t*& data, uint16_t row) const
 {
-  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 2 * sizeof(uint32_t) + 6 * sizeof(uint16_t) + sizeof(uint32_t) + 2 * sizeof(float) + 128;
+  uint32_t myOffset = m_offset + MESSAGE_BASE_SIZE + 2 * sizeof(uint32_t) + 6 * sizeof(uint16_t) + sizeof(uint32_t) + 2 * sizeof(float)
+    + 2 * sizeof(uint16_t) + 2 * sizeof(uint32_t) + sizeof(uint32_t) + 112;
   uint16_t left, right;
   Status status = GetLeft(left);
   if (status != OKAY) {
@@ -3922,6 +4012,8 @@ std::string MessageConsolidatedFrameData::Test()
     uint16_t sensorWidth = 100, sensorHeight = 200;
     uint16_t left = 10, top = 20, right = 30, bottom = 39;
     float exposure = 1.0f, gain = 2.0f;
+    Time firstPixelTime = { 2234, 5678 };
+    uint32_t frameDurationUSec = 16666;
     std::vector<uint16_t> data16(sensorWidth * sensorHeight);
     for (int y = 0; y < sensorHeight; y++) {
       for (int x = 0; x < sensorWidth; x++) {
@@ -3934,7 +4026,8 @@ std::string MessageConsolidatedFrameData::Test()
       left, top, right, bottom,
       true, false,
       data, sensorWidth,
-      exposure, gain);
+      exposure, gain,
+      firstPixelTime, frameDurationUSec);
     if (message.GetConstructorStatus() != OKAY) {
       return "Error constructing MessageConsolidatedFrameData: " + ErrorMessage(message.GetConstructorStatus());
     }
@@ -4079,6 +4172,24 @@ std::string MessageConsolidatedFrameData::Test()
       return "Error getting gain from message for MessageConsolidatedFrameData test: gain is not " +
         std::to_string(gain);
     }
+    Time rFirstPixelTime;
+    status = message.GetFirstPixelTime(rFirstPixelTime);
+    if (status != OKAY) {
+      return "Error getting first pixel time from message for MessageConsolidatedFrameData test: " + ErrorMessage(status);
+    }
+    if (rFirstPixelTime != firstPixelTime) {
+      return "Error getting first pixel time from message for MessageConsolidatedFrameData test: first pixel time is not " +
+        std::to_string(firstPixelTime.seconds) + "." + std::to_string(firstPixelTime.microseconds);
+    }
+    uint32_t rFrameDurationUSec;
+    status = message.GetFrameDurationUSec(rFrameDurationUSec);
+    if (status != OKAY) {
+      return "Error getting frame duration from message for MessageConsolidatedFrameData test: " + ErrorMessage(status);
+    }
+    if (rFrameDurationUSec != frameDurationUSec) {
+      return "Error getting frame duration from message for MessageConsolidatedFrameData test: frame duration is not " +
+        std::to_string(frameDurationUSec);
+    }
     uint8_t* rData;
     status = message.GetDataPointer(rData);
     if (status != OKAY) {
@@ -4118,7 +4229,7 @@ std::string MessageConsolidatedFrameData::Test()
     }
 
     // Construct a Message based on the existing one in the StreamPacket and make sure we
-    // Can read its parameters (just doing a spot check on the final parameter).
+    // Can read its parameters (just doing a spot check on the final parameters).
     MessageConsolidatedFrameData message2(static_cast<Message&>(message));
     if (message2.GetConstructorStatus() != OKAY) {
       return "Error constructing second MessageConsolidatedFrameData: " + ErrorMessage(message2.GetConstructorStatus());
@@ -4146,6 +4257,22 @@ std::string MessageConsolidatedFrameData::Test()
       return "Error getting gain from second message for MessageConsolidatedFrameData test: gain is not " +
         std::to_string(gain);
     }
+    status = message2.GetFirstPixelTime(rFirstPixelTime);
+    if (status != OKAY) {
+      return "Error getting first pixel time from second message for MessageConsolidatedFrameData test: " + ErrorMessage(status);
+    }
+    if (rFirstPixelTime != firstPixelTime) {
+      return "Error getting first pixel time from second message for MessageConsolidatedFrameData test: first pixel time is not " +
+        std::to_string(firstPixelTime.seconds) + "." + std::to_string(firstPixelTime.microseconds);
+    }
+    status = message2.GetFrameDurationUSec(rFrameDurationUSec);
+    if (status != OKAY) {
+      return "Error getting frame duration from second message for MessageConsolidatedFrameData test: " + ErrorMessage(status);
+    }
+    if (rFrameDurationUSec != frameDurationUSec) {
+      return "Error getting frame duration from second message for MessageConsolidatedFrameData test: frame duration is not " +
+        std::to_string(frameDurationUSec);
+    }
     uint8_t* rData2;
     status = message2.GetDataPointer(rData2);
     if (status != OKAY) {
@@ -4157,6 +4284,143 @@ std::string MessageConsolidatedFrameData::Test()
     MessageConsolidatedFrameData message3(static_cast<Message&>(message));
     if (message3.GetConstructorStatus() != READ_PAST_END) {
       return "Error constructing third MessageConsolidatedFrameData: Allowed read past end.";
+    }
+  }
+
+  // Test copying a message into a StreamPacket and make sure both times get adjusted forwards, or backwards, or not
+  {
+    StreamPacket packet;
+    if (packet.GetConstructorStatus() != OKAY) {
+      return "Error constructing stream packet for MessageConsolidatedFrameData copy test: " + ErrorMessage(packet.GetConstructorStatus());
+    }
+
+    Time timeCode = { 10, 10 };
+    uint32_t cameraID = 0, cameraType = 1;
+    uint16_t sensorWidth = 100, sensorHeight = 200;
+    uint16_t left = 10, top = 20, right = 30, bottom = 39;
+    float exposure = 1.0f, gain = 2.0f;
+    Time firstPixelTime = { 11, 11 };
+    uint32_t frameDurationUSec = 16666;
+    std::vector<uint16_t> data16(sensorWidth* sensorHeight);
+    for (int y = 0; y < sensorHeight; y++) {
+      for (int x = 0; x < sensorWidth; x++) {
+        data16[y * sensorWidth + x] = (x + y) % 65536;
+      }
+    }
+    uint8_t* data = reinterpret_cast<uint8_t*>(data16.data());
+    MessageConsolidatedFrameData message(packet, timeCode,
+      cameraID, cameraType, sensorWidth, sensorHeight,
+      left, top, right, bottom,
+      true, false,
+      data, sensorWidth,
+      exposure, gain,
+      firstPixelTime, frameDurationUSec);
+    if (message.GetConstructorStatus() != OKAY) {
+      return "Error constructing MessageConsolidatedFrameData for copy test: " + ErrorMessage(message.GetConstructorStatus());
+    }
+
+    // Check making the time later.
+    {
+      Time newTime = { 15, 10 };
+      StreamPacket packet2;
+      Status status = message.CopyToStreamPacket(packet2, newTime);
+      if (status != OKAY) {
+        return "Error copying message to packet for MessageConsolidatedFrameData copy later test: " + ErrorMessage(status);
+      }
+
+      // Read the new message and convert into MessageConsolidatedFrameData
+      std::shared_ptr<Message> message2;
+      status = packet2.GetNextMessage(message2);
+      if (status != OKAY) {
+        return "Error getting message from packet for MessageConsolidatedFrameData copy message later test: " + ErrorMessage(status);
+      }
+      MessageConsolidatedFrameData message3(*message2);
+      status = message3.GetConstructorStatus();
+      if (status != OKAY) {
+        return "Error converting to MessageConsolidatedFrameData for MessageConsolidatedFrameData copy message later test: " +
+          ErrorMessage(status);
+      }
+
+      // Verify that the first-pixel time incremented by 5 seconds and no microseconds.
+      Time expected = firstPixelTime + newTime - timeCode;
+      Time found;
+      status = message3.GetFirstPixelTime(found);
+      if (status != OKAY) {
+        return "Error getting first pixel time for MessageConsolidatedFrameData copy message later test: " + ErrorMessage(status);
+      }
+      if (expected != found) {
+        return "Mismatched time for MessageConsolidatedFrameData copy message later test";
+      }
+    }
+
+    // Check making the time earlier.
+    {
+      Time newTime = { 5, 10 };
+
+      StreamPacket packet2;
+      Status status = message.CopyToStreamPacket(packet2, newTime);
+      if (status != OKAY) {
+        return "Error copying message to packet for MessageConsolidatedFrameData copy earlier test: " + ErrorMessage(status);
+      }
+
+      // Read the new message and convert into MessageConsolidatedFrameData
+      std::shared_ptr<Message> message2;
+      status = packet2.GetNextMessage(message2);
+      if (status != OKAY) {
+        return "Error getting message from packet for MessageConsolidatedFrameData copy message earlier test: " + ErrorMessage(status);
+      }
+      MessageConsolidatedFrameData message3(*message2);
+      status = message3.GetConstructorStatus();
+      if (status != OKAY) {
+        return "Error converting to MessageConsolidatedFrameData for MessageConsolidatedFrameData copy message earlier test: " +
+          ErrorMessage(status);
+      }
+
+      // Verify that the first-pixel time decremented by 5 seconds and no microseconds.
+      Time expected = firstPixelTime + newTime - timeCode;
+      Time found;
+      status = message3.GetFirstPixelTime(found);
+      if (status != OKAY) {
+        return "Error getting first pixel time for MessageConsolidatedFrameData copy message earlier test: " + ErrorMessage(status);
+      }
+      if (expected != found) {
+        return "Mismatched time for MessageConsolidatedFrameData copy message earlier test";
+      }
+    }
+
+    // Check not adjusting the time.
+    {
+      Time newTime; // Default does not change time.
+
+      StreamPacket packet2;
+      Status status = message.CopyToStreamPacket(packet2, newTime);
+      if (status != OKAY) {
+        return "Error copying message to packet for MessageConsolidatedFrameData copy same test: " + ErrorMessage(status);
+      }
+
+      // Read the new message and convert into MessageConsolidatedFrameData
+      std::shared_ptr<Message> message2;
+      status = packet2.GetNextMessage(message2);
+      if (status != OKAY) {
+        return "Error getting message from packet for MessageConsolidatedFrameData copy message same test: " + ErrorMessage(status);
+      }
+      MessageConsolidatedFrameData message3(*message2);
+      status = message3.GetConstructorStatus();
+      if (status != OKAY) {
+        return "Error converting to MessageConsolidatedFrameData for MessageConsolidatedFrameData copy message same test: " +
+          ErrorMessage(status);
+      }
+
+      // Verify that the first-pixel time is the same.
+      Time expected = firstPixelTime;
+      Time found;
+      status = message3.GetFirstPixelTime(found);
+      if (status != OKAY) {
+        return "Error getting first pixel time for MessageConsolidatedFrameData copy message same test: " + ErrorMessage(status);
+      }
+      if (expected != found) {
+        return "Mismatched time for MessageConsolidatedFrameData copy message same test";
+      }
     }
   }
 

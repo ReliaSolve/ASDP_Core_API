@@ -189,10 +189,26 @@ int main(int argc, char** argv)
           return 18;
         }
 
+        Time firstPixelTime;
+        status = cfd.GetFirstPixelTime(firstPixelTime);
+        if (status != OKAY) {
+          std::cerr << "Error reading first pixel time: " << ErrorMessage(status) << std::endl;
+          return 19;
+        }
+
+        uint32_t frameDurationUsec;
+        status = cfd.GetFrameDurationUSec(frameDurationUsec);
+        if (status != OKAY) {
+          std::cerr << "Error reading frame duration: " << ErrorMessage(status) << std::endl;
+          return 20;
+        }
+
         std::cout << " (camera " << cameraID << ", size " << sensorWidth << "x" << sensorHeight
                   << ", region [" << left << "," << right << "," << top << "," << bottom
                   << "], begin frame: " << beginFrame
                   << ", end frame: " << endFrame
+                  << ", first pixel @" << firstPixelTime.seconds << ":" << firstPixelTime.microseconds
+                  << ", duration (usec): " << frameDurationUsec
                   << ")";
       }
 

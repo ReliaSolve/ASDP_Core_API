@@ -1180,7 +1180,7 @@ public:
   /// @param [in] packet StreamPacket to copy the message into.
   /// @param [in] timeCode Time code to override the message's time code with (default Time re-uses existing time).
   /// @return OKAY if successful, otherwise an error code.
-  Status CopyToStreamPacket(StreamPacket& packet, Time timeCode = Time()) const;
+  virtual Status CopyToStreamPacket(StreamPacket& packet, Time timeCode = Time()) const;
 
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
@@ -1411,12 +1411,7 @@ class MessageConsolidatedFrameData : public Message {
 public:
   /// @brief Construct a MessageConsolidateFrameData and store it into a buffer from a StreamPacket.
   /// @param [in] packet Pointer to the StreamPacket containing the message.
-  /// @param [in] timeCode Time code for the message. If neither beginFrame nor endFrame is set, this
-  /// is the time of the last pixel in this packet.  If only beginFrame is set, this is the time of the
-  /// first pixel in the entire frame, whether not it is in the subregion being sent.  If only endFrame is set,
-  /// this is the time of the last pixel in the entire frame, whether or not it is in the subregion being sent.
-  /// If both bits are set, this is the average of the first and last pixel times in the entire frame, whether or
-  /// not they are in the subregion being sent.
+  /// @param [in] timeCode Time code for the message. This is the time of the first pixel in the message.
   /// @param [in] cameraID Camera ID for the frame.
   /// @param [in] cameraType Camera type that can be used to determine the lens and sensor by
   /// looking up the information in a table.  This also indicates whether the camera is an IR
@@ -1438,16 +1433,26 @@ public:
   /// the image may be padded to a larger size.
   /// @param [in] exposure Exposure in seconds for the frame (0 for none reported).
   /// @param [in] gain Gain for the frame (0 for none reported).
+  /// @param [in] firstPixeltime Time code of the first pixel in the entire frame (whether or not it is in the
+  /// region being sent). 0 for none reported.
+  /// @param [in] frameTimeUSec Total time in microseconds for the entire previous frame (0 for none reported).
   MessageConsolidatedFrameData(StreamPacket& packet, Time timeCode,
     uint32_t cameraID, uint32_t cameraType, uint16_t sensorWidth, uint16_t sensorHeight,
     uint16_t left, uint16_t top, uint16_t right, uint16_t bottom,
     bool beginFrame, bool endFrame,
     uint8_t *data, uint16_t stride,
-    float exposure = 0, float gain = 0);
+    float exposure = 0, float gain = 0,
+    Time firstPixeltime = Time(), uint32_t frameTimeUSec = 0);
 
   /// @brief Type-cast a base Message into a MessageConsolidateFrameData packet, re-using its buffer.
   /// @param [in] baseMessage The base Message to convert from.
   MessageConsolidatedFrameData(Message& baseMessage);
+
+  /// @brief Override the Message base-class function so that we also adjust the first-pixel time if it is nonzero.
+  /// @param [in] packet StreamPacket to copy the message into.
+  /// @param [in] timeCode Time code to override the message's time code with (default Time re-uses existing time).
+  /// @return OKAY if successful, otherwise an error code.
+  Status CopyToStreamPacket(StreamPacket& packet, Time timeCode = Time()) const override;
 
   /// @brief Get the camera ID for the frame.
   /// @param [out] cameraID Camera ID for the frame.
@@ -1508,6 +1513,16 @@ public:
   /// @param [out] gain Gain for the frame.
   /// @return OKAY if successful, otherwise an error code.
   Status GetGain(float& gain) const;
+
+  /// @brief Get the time of the first pixel in the entire frame.
+  /// @param [out] firstPixelTime Time of the first pixel in the entire frame.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetFirstPixelTime(Time& firstPixelTime) const;
+
+  /// @brief Get the total time in microseconds for the entire previous frame.
+  /// @param [out] frameDurationUSec Total time in microseconds for the entire previous frame.
+  /// @return OKAY if successful, otherwise an error code.
+  Status GetFrameDurationUSec(uint32_t& frameDurationUSec) const;
 
   /// @brief Get a pointer to the data for the frame.
   /// @param [out] data Pointer to the data for the frame.

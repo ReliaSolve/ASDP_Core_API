@@ -596,11 +596,19 @@ int main(int argc, char** argv)
               if (sequential) {
                 fileName = imageBaseFileName + "_" + std::to_string(numFrames) + ".pgm";
               } else {
+                // Try reading the first-pixel time.  If it is empty, use the message time.
                 Time time;
-                status = frameData.GetTime(time);
+                status = frameData.GetFirstPixelTime(time);
                 if (status != OKAY) {
-                  std::cerr << "Error reading frame time: " << ErrorMessage(status) << std::endl;
+                  std::cerr << "Error reading first-pixel time: " << ErrorMessage(status) << std::endl;
                   return 40;
+                }
+                if (time == Time()) {
+                  status = frameData.GetTime(time);
+                  if (status != OKAY) {
+                    std::cerr << "Error reading frame time: " << ErrorMessage(status) << std::endl;
+                    return 41;
+                  }
                 }
                 fileName = imageBaseFileName + "_" + std::to_string(time.seconds)
                   + "_" + std::to_string(time.microseconds) + ".pgm";
@@ -621,28 +629,28 @@ int main(int argc, char** argv)
             status = frameData.GetLeft(left);
             if (status != asdp::OKAY) {
               std::cerr << "Error getting left from FrameData message: " << ErrorMessage(status) << std::endl;
-              return 40;
+              return 42;
             }
             status = frameData.GetRight(right);
             if (status != asdp::OKAY) {
               std::cerr << "Error getting right from FrameData message: " << ErrorMessage(status) << std::endl;
-              return 41;
+              return 43;
             }
             status = frameData.GetTop(top);
             if (status != asdp::OKAY) {
               std::cerr << "Error getting top from FrameData message: " << ErrorMessage(status) << std::endl;
-              return 42;
+              return 44;
             }
             status = frameData.GetBottom(bottom);
             if (status != asdp::OKAY) {
               std::cerr << "Error getting bottom from FrameData message: " << ErrorMessage(status) << std::endl;
-              return 43;
+              return 45;
             }
             uint8_t* rawData;
             status = frameData.GetDataPointer(rawData);
             if (status != asdp::OKAY) {
               std::cerr << "Error getting data pointer from FrameData message: " << ErrorMessage(status) << std::endl;
-              return 44;
+              return 46;
             }
             // NOTE: This makes use of the fact that we're asking for the full frame, and that the server sends
             // full lines at once when this is the case.  Otherwise, we'd need to copy the data line by line and
@@ -654,7 +662,7 @@ int main(int argc, char** argv)
             status = frameData.GetEndFrameFlag(isEndFrame);
             if (status != asdp::OKAY) {
               std::cerr << "Error getting end frame flag from FrameData message: " << ErrorMessage(status) << std::endl;
-              return 45;
+              return 47;
             }
             if (isEndFrame) {
               // Don't do anything if we haven't created fileData yet.
@@ -673,7 +681,7 @@ int main(int argc, char** argv)
           status = receiveStreamPacket->GetNextMessage(message);
           if (status != asdp::OKAY) {
             std::cerr << "Error getting first message from packet: " << ErrorMessage(status) << std::endl;
-            return 45;
+            return 48;
           }
         }
       }
@@ -701,7 +709,7 @@ int main(int argc, char** argv)
     status = client.SendCommandPacket(CommandPacketCancelSubregion(camID, endpoint));
     if (status != OKAY) {
       std::cerr << "Failed to cancel stream images: " << ErrorMessage(status) << std::endl;
-      return 46;
+      return 49;
     }
   }
 
