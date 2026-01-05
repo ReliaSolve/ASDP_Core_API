@@ -2111,10 +2111,25 @@ Status StreamPacket::OffsetMessageTimes(double offset)
       time += Time(seconds, microseconds);
     }
 
-    // Set the new time in the message.
-    status = msg->SetTime(time);
+    // If this is a MessageConsolidatedFrameData message, we need to convert to that type so that we call
+    // the correct SetTime function.
+    asdp::MessageID type;
+    status = msg->GetType(type);
     if (status != OKAY) {
       return status;
+    }
+    if (type == asdp::MessageID::CONSOLIDATED_FRAME_DATA) {
+      MessageConsolidatedFrameData frameMsg(*msg);
+      status = frameMsg.SetTime(time);
+      if (status != OKAY) {
+        return status;
+      }
+    } else {
+      // Set the new time in the base message type.
+      status = msg->SetTime(time);
+      if (status != OKAY) {
+        return status;
+      }
     }
 
     // Get the next message.
@@ -2291,7 +2306,7 @@ std::string StreamPacket::Test()
   // Test adding messages to a StreamPacket and then using OffsetMessageTimes to adjust them.
   {
     // Construct a StreamPacket with a sequence number.
-    StreamPacket packet(1200, 1234);
+    StreamPacket packet(9000, 1234);
     if (packet.GetConstructorStatus() != OKAY) {
       return "Error constructing stream packet: " + ErrorMessage(packet.GetConstructorStatus());
     }
@@ -2367,6 +2382,26 @@ std::string StreamPacket::Test()
     }
     if (rTime.seconds != 0 || rTime.microseconds != 0) {
       return "Error getting time from negative clamp message: time is not 0.0";
+    }
+
+    // Construct a consolidated frame data message and verify that its time is adjusted correctly.
+    time = { 10, 500000 };
+    uint8_t rowBuffer[1280 * sizeof(uint16_t)];
+    MessageConsolidatedFrameData frameMessage(packet, time, 1, 2, 1280, 1024, 0, 0, 1279, 0, false, false,
+      rowBuffer, 1280, 0, 0, Time(50,60), 0);
+    if (frameMessage.GetConstructorStatus() != OKAY) {
+      return "Error constructing consolidated frame data message: " + ErrorMessage(frameMessage.GetConstructorStatus());
+    }
+    status = packet.OffsetMessageTimes(-5.25);
+    if (status != OKAY) {
+      return "Error offsetting message times negative clamp: " + ErrorMessage(status);
+    }
+    status = frameMessage.GetTime(rTime);
+    if (status != OKAY) {
+      return "Error getting time from negative clamp message: " + ErrorMessage(status);
+    }
+    if (rTime.seconds != 5 || rTime.microseconds != 250000) {
+      return "Error getting time from negative clamp message: time is not 5.250000";
     }
   }
 
@@ -2458,8 +2493,14 @@ Status Message::GetTotalSize(uint32_t& size) const
   return OKAY;
 }
 
-Status Message::CopyToStreamPacket(StreamPacket& packet, Time timeCode) const
+// Templated implementation that performs the actual copy.
+// It uses a cast of *this to the template type M; callers do not pass a source object.
+template <typename M>
+Status Message::CopyToStreamPacketTemplate(StreamPacket & packet, Time timeCode) const
 {
+  // Use the concrete type reference to access base fields via Message's scope.
+  const M& src = static_cast<const M&>(*this);
+
   // Make sure we have enough room in the buffer to add the message to the packet.
   uint32_t originalSize;
   Status status = packet.GetTotalLength(originalSize);
@@ -2467,7 +2508,7 @@ Status Message::CopyToStreamPacket(StreamPacket& packet, Time timeCode) const
     return status;
   }
   uint32_t mySize;
-  status = GetTotalSize(mySize);
+  status = src.GetTotalSize(mySize);
   if (status != OKAY) {
     return status;
   }
@@ -2478,16 +2519,33 @@ Status Message::CopyToStreamPacket(StreamPacket& packet, Time timeCode) const
 
   // Copy the message to the packet.
   uint32_t packetOffset = packet.m_offset + originalSize;
-  memcpy(packet.m_buffer->data() + packetOffset, m_buffer->data() + m_offset, mySize);
+  memcpy(packet.m_buffer->data() + packetOffset, src.m_buffer->data() + src.m_offset, mySize);
 
   // Update the time code in the packet if necessary.
   if (timeCode != Time()) {
-    unsigned char* bufPtr = packet.m_buffer->data() + packetOffset + MESSAGE_HEADER_MESSAGE_TIME_SECONDS_OFFSET;
-    memcpy(bufPtr, &timeCode.seconds, sizeof(timeCode.seconds)); bufPtr += sizeof(timeCode.seconds);
-    memcpy(bufPtr, &timeCode.microseconds, sizeof(timeCode.microseconds)); bufPtr += sizeof(timeCode.microseconds);
+    Message message(packet.m_buffer, packetOffset);
+    if (message.GetConstructorStatus() != OKAY) {
+      return message.GetConstructorStatus();      
+    }
+    M messageAsM(message);
+    if (messageAsM.GetConstructorStatus() != OKAY) {
+      return messageAsM.GetConstructorStatus();
+    }
+    status = messageAsM.SetTime(timeCode);
+    if (status != OKAY) {
+      return status;
+      
+    }
   }
-
+  
   return OKAY;
+}
+
+// Instantiate the template for Message and then implement the call.
+template Status Message::CopyToStreamPacketTemplate<Message>(StreamPacket& packet, Time timeCode) const;
+Status Message::CopyToStreamPacket(StreamPacket& packet, Time timeCode) const
+{
+  return CopyToStreamPacketTemplate<Message>(packet, timeCode);
 }
 
 Message::~Message()
@@ -3771,26 +3829,21 @@ MessageConsolidatedFrameData::MessageConsolidatedFrameData(Message& baseMessage)
   }
 }
 
-Status MessageConsolidatedFrameData::CopyToStreamPacket(StreamPacket& packet, Time timeCode) const
+Status MessageConsolidatedFrameData::SetTime(Time timeCode)
 {
   // Store the time from the message if a non-default timeCode is specified so that we can see how much it was
   // adjusted.  Also store the original size of the packet so we'll know what to offset from.
   Status status = OKAY;
   Time originalTime;
-  uint32_t originalPacketSize = 0;
   if (timeCode != Time()) {
     status = GetTime(originalTime);
-    if (status != OKAY) {
-      return status;
-    }
-    status = packet.GetTotalLength(originalPacketSize);
     if (status != OKAY) {
       return status;
     }
   }
 
   // Call the base-class method to do the copy and adjust the message time.
-  status = Message::CopyToStreamPacket(packet, timeCode);
+  status = Message::SetTime(timeCode);
   if (status != OKAY) {
     return status;
   }
@@ -3815,8 +3868,7 @@ Status MessageConsolidatedFrameData::CopyToStreamPacket(StreamPacket& packet, Ti
     }
 
     // Get the start of the first-pixel time in the packet and copy the adjusted time into it.
-    uint32_t packetOffset = packet.m_offset + originalPacketSize;
-    unsigned char* bufPtr = packet.m_buffer->data() + packetOffset + MESSAGE_BASE_SIZE
+    unsigned char* bufPtr = m_buffer->data() + m_offset + MESSAGE_BASE_SIZE
       + 2 * sizeof(uint32_t) + 6 * sizeof(uint16_t) + sizeof(uint32_t) + 2 * sizeof(float) + 2 * sizeof(uint16_t);
     memcpy(bufPtr, &adjustedTime.seconds, sizeof(adjustedTime.seconds)); bufPtr += sizeof(adjustedTime.seconds);
     memcpy(bufPtr, &adjustedTime.microseconds, sizeof(adjustedTime.microseconds)); bufPtr += sizeof(adjustedTime.microseconds);
@@ -3824,6 +3876,14 @@ Status MessageConsolidatedFrameData::CopyToStreamPacket(StreamPacket& packet, Ti
 
   return OKAY;
 }
+
+// Instantiate the template for Message and then implement the call.
+template Status Message::CopyToStreamPacketTemplate<MessageConsolidatedFrameData>(StreamPacket& packet, Time timeCode) const;
+Status MessageConsolidatedFrameData::CopyToStreamPacket(StreamPacket& packet, Time timeCode) const
+{
+  return CopyToStreamPacketTemplate<MessageConsolidatedFrameData>(packet, timeCode);
+}
+
 
 Status MessageConsolidatedFrameData::GetCameraID(uint32_t& cameraID) const
 {

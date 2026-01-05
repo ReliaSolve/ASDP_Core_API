@@ -1176,7 +1176,7 @@ public:
   /// @return OKAY if successful, otherwise an error code.
   Status GetTotalSize(uint32_t& size) const;
 
-  /// @brief Copy the message into a StreamPacket, possibly overriding the time.
+  /// @brief Copy the message into a StreamPacket, possibly overriding the time.  Derived classes can override.
   /// @param [in] packet StreamPacket to copy the message into.
   /// @param [in] timeCode Time code to override the message's time code with (default Time re-uses existing time).
   /// @return OKAY if successful, otherwise an error code.
@@ -1201,15 +1201,22 @@ protected:
   /// the StreamPacket plus the offset into the message.
   Message(std::shared_ptr<std::vector<uint8_t>> existingBuffer, uint32_t offset);
 
-  /// @brief Set the message time.
-  /// @param [in] time Time code for the message.
+  /// @brief Set the message time. Derived classes may adjust more than one time as needed.
+  /// @param [in] time New time code for the message.
   /// @return OKAY if successful, otherwise an error code.
-  Status SetTime(Time time);
+  virtual Status SetTime(Time time);
 
   Status m_constructorStatus;                       ///< Status of the constructor.
 
   std::shared_ptr<std::vector<uint8_t>> m_buffer;   ///< Buffer containing the message.
   uint32_t m_offset;                                ///< Offset into the buffer to the start of the message.
+
+  /// @brief Templated implementation used by CopyToStreamPacket.  The template parameter
+  /// is the concrete message type (defaults to Message when explicitly instantiated).
+  /// This member template is not intended to be called directly by callers; CopyToStreamPacket
+  /// forwards to the Message-instantiated version.
+  template <typename M>
+  Status CopyToStreamPacketTemplate(StreamPacket & packet, Time timeCode = Time()) const;
 
   friend class StreamPacket;
 };
@@ -1448,12 +1455,6 @@ public:
   /// @param [in] baseMessage The base Message to convert from.
   MessageConsolidatedFrameData(Message& baseMessage);
 
-  /// @brief Override the Message base-class function so that we also adjust the first-pixel time if it is nonzero.
-  /// @param [in] packet StreamPacket to copy the message into.
-  /// @param [in] timeCode Time code to override the message's time code with (default Time re-uses existing time).
-  /// @return OKAY if successful, otherwise an error code.
-  Status CopyToStreamPacket(StreamPacket& packet, Time timeCode = Time()) const override;
-
   /// @brief Get the camera ID for the frame.
   /// @param [out] cameraID Camera ID for the frame.
   /// @return OKAY if successful, otherwise an error code.
@@ -1535,6 +1536,16 @@ public:
   /// @brief Test function.
   /// @return Empty string if successful, otherwise descriptive error message.
   static std::string Test();
+
+  protected:
+    /// @brief Override the Message base-class function so that we also adjust the first-pixel time if it is nonzero.
+    /// @param [in] time New time code for the message.
+    Status SetTime(Time timeCode) override;
+
+    /// @brief Override the Message base-class function to copy the message into a StreamPacket.
+    Status CopyToStreamPacket(StreamPacket& packet, Time timeCode = Time()) const override;
+    friend Status Message::CopyToStreamPacketTemplate<MessageConsolidatedFrameData>(StreamPacket& packet, Time timeCode) const;
+    friend Status StreamPacket::OffsetMessageTimes(double offset);
 };
 
 /// @brief List of stored message.
