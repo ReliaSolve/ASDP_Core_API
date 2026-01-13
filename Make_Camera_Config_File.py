@@ -73,7 +73,7 @@ def main():
     parser.add_argument('--pixels_x', type=int, default=1280, help='Number of pixels in X (default: 1280)')
     parser.add_argument('--pixels_y', type=int, default=1024, help='Number of pixels in Y (default: 1024)')
     parser.add_argument('--fov_h', type=float, default=40.0, help='Horizontal camera field of view deg (default: 40)')
-    parser.add_argument('--fov_v', type=float, default=32.5, help='Vertical camera field of view deg (default: 32.5)')
+    parser.add_argument('--fov_v', type=float, default=32.4686, help='Vertical camera field of view deg (default: 32.4686)')
     # 27 degrees horizontal rotation and 35 vertical in the construction specifications
     parser.add_argument('--overlap_x', type=float, default=5.5, help='Camera overlap in X direction deg (default: 5.5)')
     parser.add_argument('--overlap_y', type=float, default=5.0, help='Camera overlap in Y direction deg (default: 5)')
