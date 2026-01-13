@@ -1219,6 +1219,8 @@ protected:
   Status CopyToStreamPacketTemplate(StreamPacket & packet, Time timeCode = Time()) const;
 
   friend class StreamPacket;
+  // Required by the template class.
+  friend class MessageConsolidatedFrameData;
 };
 
 /// @brief Discovery message.
@@ -1544,6 +1546,7 @@ public:
 
     /// @brief Override the Message base-class function to copy the message into a StreamPacket.
     Status CopyToStreamPacket(StreamPacket& packet, Time timeCode = Time()) const override;
+    friend Status Message::CopyToStreamPacketTemplate<Message>(StreamPacket& packet, Time timeCode) const;
     friend Status Message::CopyToStreamPacketTemplate<MessageConsolidatedFrameData>(StreamPacket& packet, Time timeCode) const;
     friend Status StreamPacket::OffsetMessageTimes(double offset);
 };
