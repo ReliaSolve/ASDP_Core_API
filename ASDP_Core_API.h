@@ -355,8 +355,8 @@ public:
     *this = value;
   }
 
-  /// @brief Construct with two values
-  Time(uint32_t sec, uint32_t usec) : seconds(sec), microseconds(usec) { }
+  /// @brief Construct with two values, normalizing microseconds to less than 1,000,000.
+  Time(uint32_t sec, uint32_t usec) : seconds(sec + usec / 1000000), microseconds(usec % 1000000) { }
 
   /// @brief Default constructor
   Time() : seconds(0), microseconds(0) {};
