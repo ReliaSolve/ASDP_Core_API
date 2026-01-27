@@ -322,64 +322,111 @@ public:
       return;
     }
 
-    // We want receive buffers that are aligned to the allocation granularity and that are
-    // sized to be a multiple of the allocation granularity.  We also want them to be enough to hold all
-    // expected requests if each is the maximum size.
+    // Gather system info to get the allocation granularity.
     SYSTEM_INFO systemInfo;
     ::GetSystemInfo(&systemInfo);
-    const uint64_t granularity = systemInfo.dwAllocationGranularity;
-    const uint64_t desiredSize = m_maxLen * m_numReceives;
-    uint64_t actualSize = ((desiredSize + granularity - 1) / granularity) * granularity;
-    if (actualSize > std::numeric_limits<DWORD>::max()) {
-      actualSize = (std::numeric_limits<DWORD>::max() / granularity) * granularity;
-    }
+    const DWORD granularity = systemInfo.dwAllocationGranularity;
 
-    // Allocate and register receive buffers and request receives.  The desired size may be larger than the maximum we can allocate,
-    // so keep going until we have enough buffers to cover the maximum number of pending receives.
-    DWORD totalBuffersAllocated = 0;
-    while (totalBuffersAllocated < m_numReceives) {
-      // Allocate a set of receive buffers.
-      DWORD bufferSize = static_cast<DWORD>(actualSize);
-      char* buffer = reinterpret_cast<char*>(VirtualAlloc(nullptr, bufferSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
-      if (buffer == nullptr) {
-        std::cerr << "Error allocating receive buffer: " << GetLastError() << std::endl;
-        return;
-      }
-      DWORD receiveBuffersAllocated = std::min<DWORD>(m_numReceives, static_cast<DWORD>(actualSize / m_maxLen));
-      totalBuffersAllocated += receiveBuffersAllocated;
-
-      // Register the buffer.
-      m_rioBufferIDs.push_back(m_rioFunctionTable.RIORegisterBuffer(buffer, bufferSize));
-      if (m_rioBufferIDs.back() == RIO_INVALID_BUFFERID) {
-        std::cerr << "Error registering receive buffer: " << WSAGetLastError() << std::endl;
-        return;
+    { // Handle receive buffers
+      // We want receive buffers that are aligned to the allocation granularity and that are
+      // sized to be a multiple of the allocation granularity.  We also want them to be enough to hold all
+      // expected requests if each is the maximum size.
+      const uint64_t desiredSize = m_maxLen * m_numReceives;
+      uint64_t actualSize = ((desiredSize + granularity - 1) / granularity) * granularity;
+      if (actualSize > std::numeric_limits<DWORD>::max()) {
+        actualSize = (std::numeric_limits<DWORD>::max() / granularity) * granularity;
       }
 
-      // Store the buffer pointer in the map so we can find it later.
-      m_bufferMap[m_rioBufferIDs.back()] = buffer;
-
-      // Queue the receive requests into the locations in the buffer.
-      RIO_BUF rioBuffer;
-      rioBuffer.BufferId = m_rioBufferIDs.back();
-      rioBuffer.Length = m_maxLen;
-      for (DWORD i = 0; i < receiveBuffersAllocated; ++i) {
-        // Store a uint64_t context = (uint64_t(bufferIndex) << 32) | slotIndex so we can find the buffer later.
-        uint32_t bufferIndex = static_cast<uint32_t>(m_rioBufferIDs.size() - 1);
-        uint32_t slotIndex = i;
-        uint64_t context = (static_cast<uint64_t>(bufferIndex) << 32) | slotIndex;
-        // Post the receive.
-        rioBuffer.Offset = i * m_maxLen;
-        if (!m_rioFunctionTable.RIOReceive(m_requestQueue, &rioBuffer, 1, 0, reinterpret_cast<PVOID>(context))) {
-          std::cerr << "Error posting RIO receive: " << WSAGetLastError() << std::endl;
+      // Allocate and register receive buffers and request receives.  The desired size may be larger than the maximum we can allocate,
+      // so keep going until we have enough buffers to cover the maximum number of pending receives.
+      DWORD totalBuffersAllocated = 0;
+      while (totalBuffersAllocated < m_numReceives) {
+        // Allocate a set of receive buffers.
+        DWORD bufferSize = static_cast<DWORD>(actualSize);
+        char* buffer = reinterpret_cast<char*>(VirtualAlloc(nullptr, bufferSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
+        if (buffer == nullptr) {
+          std::cerr << "Error allocating receive buffer: " << GetLastError() << std::endl;
           return;
         }
-      }
-    } // End of while loop over buffer allocations
+        DWORD receiveBuffersAllocated = std::min<DWORD>(m_numReceives, static_cast<DWORD>(actualSize / m_maxLen));
+        totalBuffersAllocated += receiveBuffersAllocated;
 
-    // Notify RIO that we want to get completions for the posted receives.
+        // Register the buffer.
+        m_rioBufferIDs.push_back(m_rioFunctionTable.RIORegisterBuffer(buffer, bufferSize));
+        if (m_rioBufferIDs.back() == RIO_INVALID_BUFFERID) {
+          std::cerr << "Error registering receive buffer: " << WSAGetLastError() << std::endl;
+          return;
+        }
+
+        // Store the buffer pointer in the map so we can find it later.
+        m_bufferMap[m_rioBufferIDs.back()] = buffer;
+
+        // Queue the receive requests into the locations in the buffer.
+        RIO_BUF rioBuffer;
+        rioBuffer.BufferId = m_rioBufferIDs.back();
+        rioBuffer.Length = m_maxLen;
+        for (DWORD i = 0; i < receiveBuffersAllocated; ++i) {
+          // Store a uint64_t context = (uint64_t(bufferIndex) << 32) | slotIndex so we can find the buffer later.
+          uint32_t bufferIndex = static_cast<uint32_t>(m_rioBufferIDs.size() - 1);
+          uint32_t slotIndex = i;
+          uint64_t context = (static_cast<uint64_t>(bufferIndex) << 32) | slotIndex;
+          // Post the receive to the proper location within the buffer.
+          rioBuffer.Offset = i * m_maxLen;
+          if (!m_rioFunctionTable.RIOReceive(m_requestQueue, &rioBuffer, 1, 0, reinterpret_cast<PVOID>(context))) {
+            std::cerr << "Error posting RIO receive: " << WSAGetLastError() << std::endl;
+            return;
+          }
+        }
+      } // End of while loop over buffer allocations
+    }
+
+    { // Handle send buffers
+      // We want send buffers that are aligned to the allocation granularity and that are
+      // sized to be a multiple of the allocation granularity.  We also want them to be enough to hold all
+      // expected requests if each is the maximum size.
+      const uint64_t desiredSize = m_maxLen * m_numSends;
+      uint64_t actualSize = ((desiredSize + granularity - 1) / granularity) * granularity;
+      if (actualSize > std::numeric_limits<DWORD>::max()) {
+        actualSize = (std::numeric_limits<DWORD>::max() / granularity) * granularity;
+      }
+
+      // Allocate and register send buffers and push them into the queue of available buffers. 
+      // The desired size may be larger than the maximum we can allocate, so keep going until we have
+      // enough buffers to cover the maximum number of pending sends.
+      DWORD totalBuffersAllocated = 0;
+      while (totalBuffersAllocated < m_numSends) {
+        // Allocate a set of send buffers.
+        DWORD bufferSize = static_cast<DWORD>(actualSize);
+        char* buffer = reinterpret_cast<char*>(VirtualAlloc(nullptr, bufferSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
+        if (buffer == nullptr) {
+          std::cerr << "Error allocating send buffer: " << GetLastError() << std::endl;
+          return;
+        }
+        DWORD sendBuffersAllocated = std::min<DWORD>(m_numSends, static_cast<DWORD>(actualSize / m_maxLen));
+        totalBuffersAllocated += sendBuffersAllocated;
+
+        // Register the buffer.
+        m_rioBufferIDs.push_back(m_rioFunctionTable.RIORegisterBuffer(buffer, bufferSize));
+        if (m_rioBufferIDs.back() == RIO_INVALID_BUFFERID) {
+          std::cerr << "Error registering send buffer: " << WSAGetLastError() << std::endl;
+          return;
+        }
+
+        // Store the buffer pointer in the map so we can find it later.
+        m_bufferMap[m_rioBufferIDs.back()] = buffer;
+
+        // Queue the send buffers into the free list.
+        RIO_BUFFERID bufferID = m_rioBufferIDs.back();
+        for (DWORD i = 0; i < sendBuffersAllocated; ++i) {
+          m_freeSendSlices.push_back({ static_cast<uint32_t>(m_rioBufferIDs.size() - 1), i });
+        }
+      } // End of while loop over buffer allocations
+    }
+
+    // Notify RIO that we want to get completions for the posted operations.
     const INT notifyResult = m_rioFunctionTable.RIONotify(m_queue);
     if (notifyResult != ERROR_SUCCESS) {
-      std::cerr << "Error notifying RIO for receives: " << WSAGetLastError() << std::endl;
+      std::cerr << "Error notifying RIO: " << WSAGetLastError() << std::endl;
       return;
     }
 
@@ -464,6 +511,13 @@ public:
 
   /// Map from buffer IDs to buffer pointers
   std::map<RIO_BUFFERID, char*> m_bufferMap;
+
+  /// List of buffer slices that are available for sending
+  struct sliceInfo {
+    uint32_t bufferID;
+    uint32_t slot;
+  };
+  std::list<sliceInfo> m_freeSendSlices;
 
   BaseRegisteredIO() = delete;
   BaseRegisteredIO(const BaseRegisteredIO&) = delete;
@@ -5194,6 +5248,23 @@ public:
 
 };
 
+#ifdef ASDP_USE_WINSOCK_SOCKETS
+class SenderUDP::SenderUDPPrivate : public BaseRegisteredIO {
+public:
+  explicit SenderUDPPrivate(SOCKET sock, uint32_t maxLen)
+    : BaseRegisteredIO(sock, maxLen, 5000, 0)
+  {
+    // If our base class failed, we're done.
+    // Reset okay flag to false until we complete initialization.
+    if (!m_okay) { return; }
+    m_okay = false;
+
+    // We finished our specific initialization successfully.
+    m_okay = true;
+  }
+};
+#endif
+
 SenderUDP::SenderUDP(std::string host, uint16_t port, bool broadcast, std::string const& NICName,
   std::string multicastName)
   : SenderUDP(StreamEndpoint(host, port), broadcast, NICName, multicastName)
@@ -5216,12 +5287,18 @@ SenderUDP::SenderUDP(const StreamEndpoint& endpoint, bool broadcast, std::string
   // address to determine which one we should use.
 
   // Open the socket to use for sending UDP packets.
+#ifndef ASDP_USE_WINSOCK_SOCKETS
   m_socket->socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+#else
+  // On Windows, create a Registered I/O socket.
+  m_socket->socket = WSASocket(AF_INET, SOCK_DGRAM, IPPROTO_UDP, nullptr, 0, WSA_FLAG_REGISTERED_IO);
+#endif
   if (m_socket->socket == BAD_SOCKET) {
     m_constructorStatus = BAD_PARAMETER;
     return;
   }
 
+#ifndef ASDP_USE_WINSOCK_SOCKETS
   // Set the socket output buffer to be large enough to hold many outgoing packets.
   int size = 65536 * 128;
   if (0 != setsockopt(m_socket->socket, SOL_SOCKET, SO_SNDBUF, (char*)&size, sizeof(size))) {
@@ -5229,6 +5306,7 @@ SenderUDP::SenderUDP(const StreamEndpoint& endpoint, bool broadcast, std::string
     m_socket.reset();
     return;
   }
+#endif
 
   // If we have specified a NIC name, bind to the address of that NIC using any available port.
   if (!NICName.empty()) {
@@ -5285,12 +5363,46 @@ SenderUDP::SenderUDP(const StreamEndpoint& endpoint, bool broadcast, std::string
       return;
     }
   }
+
+#ifdef ASDP_USE_WINSOCK_SOCKETS
+  // Connect the socket to the specified address so that we don't have to tell Registered I/O the address each time.
+  if (0 != connect(m_socket->socket, (struct sockaddr*)&(m_socket->addr), sizeof(m_socket->addr))) {
+    m_constructorStatus = SOCKET_FAILURE;
+    m_socket.reset();
+    return;
+  }
+
+  // Create our private implementation object, which will configure registered I/O for the socket.
+  // Maximum UDP packet size minus IP and UDP headers, which matches the default for Receiver sockets is enough
+  // to cover 9000-byte jumbo packets.
+  m_private = new SenderUDPPrivate(m_socket->socket, 9000 - 28);
+  if (!m_private->m_okay) {
+    m_constructorStatus = SOCKET_FAILURE;
+    m_socket.reset();
+    delete m_private;
+    return;
+  }
+#endif
+}
+
+SenderUDP::~SenderUDP()
+{
+#ifdef ASDP_USE_WINSOCK_SOCKETS
+  // Close the socket and then clean up Registered I/O resources.
+  m_socket.reset();
+  if (m_private != nullptr) {
+    delete m_private;
+  }
+#endif
 }
 
 Status SenderUDP::Send(const void* buffer, uint32_t length)
 {
   // Check our parameters
   if (buffer == nullptr) {
+    return BAD_PARAMETER;
+  }
+  if (length > m_private->m_maxLen) {
     return BAD_PARAMETER;
   }
 
@@ -5300,11 +5412,60 @@ Status SenderUDP::Send(const void* buffer, uint32_t length)
   }
 
   // Send the data.
+#ifdef ASDP_USE_WINSOCK_SOCKETS
+  // We use registered I/O here.
+  // First gobble up all of the completed sends and add them to the free list based on their context.
+  // Keep doing this until we have at least one free send slice.
+  RIORESULT result;
+  do {
+    while (m_private->m_rioFunctionTable.RIODequeueCompletion(m_private->m_queue, &result, 1)) {
+      // We stored a uint64_t context = (uint64_t(bufferIndex) << 32) | slotIndex;
+      ULONGLONG ctx = result.RequestContext;
+      uint32_t bufferIndex = static_cast<uint32_t>(ctx >> 32);
+      uint32_t slotIndex = static_cast<uint32_t>(ctx & 0xffffffff);
+
+      m_private->m_freeSendSlices.push_back({ bufferIndex, slotIndex });
+    }
+  } while (m_private->m_freeSendSlices.empty());
+
+  // Take an entry from the free list and use it for this send.  Provide a context that encodes
+  // the buffer index and slot index so we can free it later.
+  auto sendSlice = m_private->m_freeSendSlices.back();
+  m_private->m_freeSendSlices.pop_back();
+  RIO_BUF rioBuf;
+  rioBuf.BufferId = m_private->m_rioBufferIDs[sendSlice.bufferID];
+  rioBuf.Offset = sendSlice.slot * m_private->m_maxLen;
+  rioBuf.Length = length;
+
+  // Copy from the buffer into the registered memory.
+  // Look up the buffer pointer in the map by buffer index and compute the offset.
+  char* basePtr = m_private->m_bufferMap[rioBuf.BufferId];
+  size_t offset = rioBuf.Offset;
+  memcpy(basePtr + offset, buffer, length);
+
+  // Construct the destination address for the RIOSendEx call.
+  // For UDP RIOSendEx you provide a pointer to a SOCKADDR (sockaddr_in for IPv4).
+  // We reuse the Socket::addr already stored (it contains network-order fields).
+  sockaddr_in sendAddr;
+  memset(&sendAddr, 0, sizeof(sendAddr));
+  sendAddr.sin_family = AF_INET;
+  // If m_socket->addr was stored with network-order port/address, copy directly.
+  sendAddr.sin_port = m_socket->addr.sin_port;
+  sendAddr.sin_addr = m_socket->addr.sin_addr;
+
+  // Start the send, packing the buffer and slot index into the context.
+  ULONGLONG ctx = (static_cast<ULONGLONG>(sendSlice.bufferID) << 32) | sendSlice.slot;
+  if (!m_private->m_rioFunctionTable.RIOSend(m_private->m_requestQueue, &rioBuf, 1, 0, reinterpret_cast<PVOID>(ctx))) {
+    return SOCKET_FAILURE;
+  }
+#else
+  // Don't let it create the SIGPIPE signal.
   int result = sendto(m_socket->socket, (const char*)buffer, length, MSG_NOSIGNAL,
     (const sockaddr *)&(m_socket->addr), sizeof(m_socket->addr));
   if (result == SOCKET_ERROR) {
     return SOCKET_FAILURE;
   }
+#endif
 
   // Everything worked.
   return OKAY;
@@ -5312,11 +5473,6 @@ Status SenderUDP::Send(const void* buffer, uint32_t length)
 
 Status SenderUDP::SendCommandPacket(const CommandPacket& packet)
 {
-  // Make sure we have a valid socket.
-  if ((m_socket == nullptr) || (m_socket->socket == BAD_SOCKET)) {
-    return m_constructorStatus;
-  }
-
   // Find out how large the data in the packet is.
   uint32_t length;
   Status status = packet.GetTotalLength(length);
@@ -5325,23 +5481,11 @@ Status SenderUDP::SendCommandPacket(const CommandPacket& packet)
   }
 
   // Send the data.
-  int result = sendto(m_socket->socket, (const char*)packet.MyData(), length, MSG_NOSIGNAL,
-    (const sockaddr*)&(m_socket->addr), sizeof(m_socket->addr));
-  if (result == SOCKET_ERROR) {
-    return SOCKET_FAILURE;
-  }
-
-  // Everything worked.
-  return OKAY;
+  return Send((const char*)packet.MyData(), length);
 }
 
 Status SenderUDP::SendStreamPacket(const StreamPacket& packet)
 {
-  // Make sure we have a valid socket.
-  if ((m_socket == nullptr) || (m_socket->socket == BAD_SOCKET)) {
-    return m_constructorStatus;
-  }
-
   // Find out how large the data in the packet is.
   uint32_t length;
   Status status = packet.GetTotalLength(length);
@@ -5350,14 +5494,7 @@ Status SenderUDP::SendStreamPacket(const StreamPacket& packet)
   }
 
   // Send the data.  Don't let it create the SIGPIPE signal.
-  int result = sendto(m_socket->socket, (const char*)packet.MyData(), length, MSG_NOSIGNAL,
-    (const sockaddr*)&(m_socket->addr), sizeof(m_socket->addr));
-  if (result == SOCKET_ERROR) {
-    return SOCKET_FAILURE;
-  }
-
-  // Everything worked.
-  return OKAY;
+  return Send((const char*)packet.MyData(), length);
 }
 
 SenderFile::SenderFile(std::string fileName, bool doDirect)
@@ -5498,6 +5635,7 @@ ReceiverUDP::ReceiverUDP(const StreamEndpoint& endpoint, uint32_t maxLen, bool b
     return;
   }
 
+#ifndef ASDP_USE_WINSOCK_SOCKETS
   // Set the socket input buffer to be large enough to hold many incoming packets.
   int size = 65536 * 128;
   if (0 != setsockopt(m_socket->socket, SOL_SOCKET, SO_RCVBUF, (char*)&size, sizeof(size))) {
@@ -5505,6 +5643,7 @@ ReceiverUDP::ReceiverUDP(const StreamEndpoint& endpoint, uint32_t maxLen, bool b
     m_socket.reset();
     return;
   }
+#endif
 
   // If we're listening for broadcast, set the address to use for broadcast.
   StreamEndpoint myEndpoint = endpoint;

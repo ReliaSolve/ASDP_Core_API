@@ -1739,6 +1739,9 @@ public:
   SenderUDP(const StreamEndpoint& endpoint, bool broadcast = false, std::string const& NICName = "",
     std::string multicastName = "");
 
+  /// @brief Destructor.
+  ~SenderUDP() override;
+
   /// @brief Send a buffer full of data.
   /// @param [in] buffer Pointer to the buffer containing the packet to send.
   /// @param [in] length Length of the packet to send.
