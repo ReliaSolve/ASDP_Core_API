@@ -5272,7 +5272,7 @@ public:
     completionType.Type = RIO_EVENT_COMPLETION;
     completionType.Event.EventHandle = m_completionEvent;
     completionType.Event.NotifyReset = TRUE;
-    static const DWORD RIO_PENDING_RECVS = 50000;
+    static const DWORD RIO_PENDING_RECVS = 5000;
     m_queue = m_rioFunctionTable.RIOCreateCompletionQueue(RIO_PENDING_RECVS, &completionType);
     if (m_queue == RIO_INVALID_CQ) {
       std::cerr << "Error creating RIO completion queue: " << WSAGetLastError() << std::endl;
@@ -5417,7 +5417,12 @@ public:
   /// Completion event handle for waiting on receives
   HANDLE m_completionEvent = nullptr;
 
-  /// Booling saying whether we're okay or not.
+  /// Holds a result from the time we check for a packet available to when we receive it.
+  /// This is needed because there are spurious completions that can occur on the socket
+  /// and we must do an actual read to verify that data is available.
+  RIORESULT *m_lastReceiveResult = nullptr;
+
+  /// Boolean saying whether we're okay or not.
   bool m_okay = false;
 
   ReceiverUDPPrivate() = delete;
@@ -5535,7 +5540,17 @@ Status ReceiverUDP::IsPacketAvailable(double timeout_seconds, bool& available)
   }
 
 #ifdef ASDP_USE_WINSOCK_SOCKETS
+  if (!m_private || !m_private->m_okay) {
+    return SOCKET_FAILURE;
+  }
+
   // Use RIO to check for available data on Windows.
+
+  // If we've already stored a completed receive result, then there is one available.
+  if (m_private->m_lastReceiveResult != nullptr) {
+    available = true;
+    return OKAY;
+  }
 
   // Wait for an event handle that is signaled when a receive completes.
   available = false;
@@ -5544,8 +5559,20 @@ Status ReceiverUDP::IsPacketAvailable(double timeout_seconds, bool& available)
     // Timed out waiting for data.
     available = false;
   } else if (w == WAIT_OBJECT_0) {
-    // Data is available.
-    available = true;
+    // Data may be available.  We can only be sure by reading it and seeing that it arrives.
+    // Only leave the result stored if we actually got data, otherwise clear it back to nullptr.
+    m_private->m_lastReceiveResult = new RIORESULT;
+    ULONG numResults = m_private->m_rioFunctionTable.RIODequeueCompletion(m_private->m_queue, m_private->m_lastReceiveResult, 1);
+    if (numResults == 0) {
+      // Nothing available.
+      delete m_private->m_lastReceiveResult;
+      m_private->m_lastReceiveResult = nullptr;
+      available = false;
+    } else {
+      // We have a real completion. Re-arm notifications for future completions.
+      available = true;
+      m_private->m_rioFunctionTable.RIONotify(m_private->m_queue);
+    }
   } else {
     return SOCKET_FAILURE;
   }
@@ -5577,6 +5604,8 @@ Status ReceiverUDP::IsPacketAvailable(double timeout_seconds, bool& available)
 
 Status ReceiverUDP::ReceiveBuffer(uint8_t* buffer, size_t& size)
 {
+  Status status = OKAY;
+
   // Make sure we have a valid socket.
   if ((m_socket == nullptr) || (m_socket->socket == BAD_SOCKET)) {
     return m_constructorStatus;
@@ -5590,13 +5619,20 @@ Status ReceiverUDP::ReceiveBuffer(uint8_t* buffer, size_t& size)
   // Receive the data. On Linux, we need to ask it to inform us if the buffer is too small.
   // On Windows, it returns an error if the buffer is too small.
 #ifdef ASDP_USE_WINSOCK_SOCKETS
-  // Use RIO to receive data on Windows. Read only a single buffer and copy it to the user buffer.
-  RIORESULT rioResults[1];
-  ULONG numResults = m_private->m_rioFunctionTable.RIODequeueCompletion(m_private->m_queue, rioResults, 1);
-  if (numResults == 0) {
+  if (!m_private || !m_private->m_okay) {
     return SOCKET_READ_FAILURE;
   }
-  const RIORESULT& r = rioResults[0];
+
+  // If we don't have a stored receive result, loop forever waiting for one.
+  bool available = false;
+  while (!available) {
+    Status res = IsPacketAvailable(10000, available);
+    if (res != OKAY) {
+      return res;
+    }
+  }
+
+  const RIORESULT& r = *m_private->m_lastReceiveResult;
   if (r.Status != 0) {
     return SOCKET_READ_FAILURE;
   }
@@ -5628,8 +5664,12 @@ Status ReceiverUDP::ReceiveBuffer(uint8_t* buffer, size_t& size)
 
   // If the buffer was too small, return a warning.
   if (r.BytesTransferred > size) {
-    return BUFFER_TOO_SMALL;
+    status = BUFFER_TOO_SMALL;
   }
+
+  // Done with this stored receive result.
+  delete m_private->m_lastReceiveResult;
+  m_private->m_lastReceiveResult = nullptr;
 
   /// @todo Consider grabbing a bunch of completed receives from RIO instead of just one at a time and
   /// storing them in a vector for faster processing. We will report ready until the vector is empty.
@@ -5662,7 +5702,7 @@ Status ReceiverUDP::ReceiveBuffer(uint8_t* buffer, size_t& size)
 #endif
 
   // Everything worked.
-  return OKAY;
+  return status;
 }
 
 Status ReceiverUDP::ReceiveCommandPacket(double timeout_seconds, std::shared_ptr<CommandPacket>& packet)
