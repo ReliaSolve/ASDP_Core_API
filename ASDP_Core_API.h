@@ -44,6 +44,9 @@ enum Status : uint32_t {
   /// @brief A thread has completed its work (not an error).
   THREAD_COMPLETED              = 2,
 
+  /// @brief A socket read was made into a buffer that was too small (not an error).
+  BUFFER_TOO_SMALL              = 3,
+
   /// @brief Can be used to see if the return was a system error.
   HIGHEST_WARNING               = 1000,
 
@@ -1876,6 +1879,8 @@ public:
   ReceiverUDP(const StreamEndpoint& endpoint, uint32_t maxLen = 9000 - 28, bool broadcast = false,
     std::string multicastName = "");
 
+  ~ReceiverUDP() override;
+
   /// @brief Get the port associated with this receiver in host byte order.
   /// @return The port associated with this receiver, or 0 for failure.
   Status GetPort(uint16_t& port) const { port = m_port;  return OKAY; }
@@ -1930,6 +1935,12 @@ public:
 protected:
   std::shared_ptr<Socket> m_socket; ///< Pointer to the socket object to use to do our work.
   uint16_t m_port;                  ///< Port number we are listening on in host byte order.
+private:
+#ifdef _WIN32
+  /// @brief Private implementation class to hide Windows-specific details.
+  class ReceiverUDPPrivate;
+  ReceiverUDPPrivate *m_private = nullptr;
+#endif
 };
 
 //---------------------------------------------------------------------------

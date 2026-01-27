@@ -44,6 +44,9 @@ std::string asdp::ErrorMessage(Status status)
   case THREAD_COMPLETED:
     return "Thread completed";
 
+  case BUFFER_TOO_SMALL:
+    return "Buffer too small";
+
   case BAD_PARAMETER:
     return "Bad parameter";
   case OUT_OF_MEMORY:
@@ -124,7 +127,7 @@ static const unsigned char MAGIC_COOKIE[4] = { 'A', 'S', 'D', 'P' };
 // NOTE: The version number is in the form major.minor.patch, where the first and third are bytes and
 // the second is a 16-bit integer.  This is done to allow for a large number of minor versions.  The
 // 16-bit minor version value is stored in little-endian format.
-static const unsigned char VERSION[4] = { 8, 6,0, 0 };
+static const unsigned char VERSION[4] = { 8, 7,0, 0 };
 
 static std::string ANALYSIS_STREAM_HEADER = "[{\"Version\":\"01.000.000\"}";
 
@@ -188,6 +191,7 @@ static const uint32_t MESSAGE_HEADER_MESSAGE_TYPE_OFFSET = 3 * sizeof(uint32_t);
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <winsock2.h> // struct timeval is defined here
+#include <mswsock.h>
 #include "Ws2Tcpip.h"
 #pragma comment(lib,"WS2_32")
 #ifdef ASDP_CORESOCKET_REPLACE_NOMINMAX
@@ -215,6 +219,8 @@ typedef int SOCKET;
 // We can't redefine it locally, so we have to switch to another name
 static const int BAD_SOCKET = -1;
 static const int SOCKET_ERROR = -1;
+
+// Define closesocket to be close on non-Winsock systems so that we can call the same functions across platforms.
 #define closesocket close
 
 #else // not winsock sockets
@@ -299,11 +305,7 @@ uint32_t asdp::GetLocalIPForRemote(uint32_t remote_ip)
   // Connect to remote address (no packets sent)
   if (connect(sock, (sockaddr*)&remote_addr, sizeof(remote_addr)) < 0) {
     std::cerr << "Connect failed\n";
-#ifdef _WIN32
     closesocket(sock);
-#else
-    close(sock);
-#endif
     return 0;
   }
 
@@ -312,22 +314,14 @@ uint32_t asdp::GetLocalIPForRemote(uint32_t remote_ip)
   socklen_t addr_len = sizeof(local_addr);
   if (getsockname(sock, (sockaddr*)&local_addr, &addr_len) < 0) {
     std::cerr << "getsockname failed\n";
-#ifdef _WIN32
     closesocket(sock);
-#else
-    close(sock);
-#endif
     return 0;
   }
 
   char ip_str[INET_ADDRSTRLEN];
   inet_ntop(AF_INET, &local_addr.sin_addr, ip_str, sizeof(ip_str));
 
-#ifdef _WIN32
   closesocket(sock);
-#else
-  close(sock);
-#endif
 
 #ifdef _WIN32
   return htonl(local_addr.sin_addr.S_un.S_addr);
@@ -4954,6 +4948,9 @@ public:
   }
 
   /// @brief Check to see if data is available to read on the socket.
+  /// @details This function uses select() to wait for data to be available and will not
+  /// detect any ongoing UDP Registered I/O operations on a Windows socket. It is useful
+  /// for TCP sockets.
   /// @param timeout_seconds The maximum time to wait for data to be available, in seconds.
   /// @param available Set to true if data is available to read, false if not.
   /// @return OKAY if successful, SOCKET_FAILURE if there was a socket error.
@@ -5245,6 +5242,190 @@ Status SenderFile::SendStreamPacket(const StreamPacket& packet)
   return Send(packet.MyData(), length);
 }
 
+#ifdef ASDP_USE_WINSOCK_SOCKETS
+class ReceiverUDP::ReceiverUDPPrivate {
+public:
+  explicit ReceiverUDPPrivate(ReceiverUDP* parent)
+    : m_parent(parent)
+  {
+    // Fill in the RIO function table.
+    GUID functionTableID = WSAID_MULTIPLE_RIO;
+    DWORD dwBytes;
+    int result = WSAIoctl(m_parent->m_socket->socket, SIO_GET_MULTIPLE_EXTENSION_FUNCTION_POINTER,
+      (void*)&functionTableID, sizeof(functionTableID),
+      (void*)&m_rioFunctionTable, sizeof(m_rioFunctionTable),
+      &dwBytes, nullptr, nullptr);
+    if (result != 0) {
+      std::cerr << "Error getting RIO function table: " << WSAGetLastError() << std::endl;
+      return;
+    }
+
+    // Create an event handle for the completion queue to use to signal completions.
+    m_completionEvent = WSACreateEvent();
+    if (m_completionEvent == WSA_INVALID_EVENT) {
+      std::cerr << "Error creating RIO completion event: " << WSAGetLastError() << std::endl;
+      return;
+    }
+
+    // Create a completion queue for the socket.
+    RIO_NOTIFICATION_COMPLETION completionType;
+    completionType.Type = RIO_EVENT_COMPLETION;
+    completionType.Event.EventHandle = m_completionEvent;
+    completionType.Event.NotifyReset = TRUE;
+    static const DWORD RIO_PENDING_RECVS = 50000;
+    m_queue = m_rioFunctionTable.RIOCreateCompletionQueue(RIO_PENDING_RECVS, &completionType);
+    if (m_queue == RIO_INVALID_CQ) {
+      std::cerr << "Error creating RIO completion queue: " << WSAGetLastError() << std::endl;
+      return;
+    }
+
+    // Create a request queue for the socket.
+    ULONG maxOutstandingReceive = RIO_PENDING_RECVS;
+    ULONG maxReceiveDataBuffers = 1;
+    ULONG maxOutstandingSend = 0;
+    ULONG maxSendDataBuffers = 1;    void* pContext = nullptr;
+    m_requestQueue = m_rioFunctionTable.RIOCreateRequestQueue(
+      m_parent->m_socket->socket,
+      maxOutstandingReceive, maxReceiveDataBuffers,
+      maxOutstandingSend, maxSendDataBuffers,
+      m_queue,
+      m_queue,
+      pContext);
+    if (m_requestQueue == RIO_INVALID_RQ) {
+      std::cerr << "Error creating RIO request queue: " << WSAGetLastError() << std::endl;
+      return;
+    }
+
+    // We want to allocate receive buffers that are aligned to the allocation granularity and that are
+    // sized to be a multiple of the allocation granularity.  We also want them to be enough to hold all
+    // expected requests if each is the maximum size.
+    SYSTEM_INFO systemInfo;
+    ::GetSystemInfo(&systemInfo);
+    const uint64_t granularity = systemInfo.dwAllocationGranularity;
+    const uint64_t desiredSize = m_parent->m_maxLen * RIO_PENDING_RECVS;
+    uint64_t actualSize = ((desiredSize + granularity - 1) / granularity) * granularity;
+    if (actualSize > std::numeric_limits<DWORD>::max()) {
+      actualSize = (std::numeric_limits<DWORD>::max() / granularity) * granularity;
+    }
+
+    // Allocate and register receive buffers and request receives.  The desired size may be larger than the maximum we can allocate,
+    // so keep going until we have enough buffers to cover the maximum number of pending receives.
+    DWORD totalBuffersAllocated = 0;
+    while (totalBuffersAllocated < RIO_PENDING_RECVS) {
+      // Allocate a set of receive buffers.
+      DWORD bufferSize = static_cast<DWORD>(actualSize);
+      char* buffer = reinterpret_cast<char*>(VirtualAlloc(nullptr, bufferSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
+      if (buffer == nullptr) {
+        std::cerr << "Error allocating receive buffer: " << GetLastError() << std::endl;
+        return;
+      }
+      DWORD receiveBuffersAllocated = std::min<DWORD>(RIO_PENDING_RECVS, static_cast<DWORD>(actualSize / m_parent->m_maxLen));
+      totalBuffersAllocated += receiveBuffersAllocated;
+
+      // Register the buffer.
+      m_rioBufferIDs.push_back(m_rioFunctionTable.RIORegisterBuffer(buffer, bufferSize));
+      if (m_rioBufferIDs.back() == RIO_INVALID_BUFFERID) {
+        std::cerr << "Error registering receive buffer: " << WSAGetLastError() << std::endl;
+        return;
+      }
+
+      // Store the buffer pointer in the map so we can find it later.
+      m_bufferMap[m_rioBufferIDs.back()] = buffer;
+
+      // Queue the receive requests into the locations in the buffer.
+      RIO_BUF rioBuffer;
+      rioBuffer.BufferId = m_rioBufferIDs.back();
+      rioBuffer.Length = m_parent->m_maxLen;
+      for (DWORD i = 0; i < receiveBuffersAllocated; ++i) {
+        // Store a uint64_t context = (uint64_t(bufferIndex) << 32) | slotIndex so we can find the buffer later.
+        uint32_t bufferIndex = static_cast<uint32_t>(m_rioBufferIDs.size() - 1);
+        uint32_t slotIndex = i;
+        uint64_t context = (static_cast<uint64_t>(bufferIndex) << 32) | slotIndex;
+        // Post the receive.
+        rioBuffer.Offset = i * m_parent->m_maxLen;
+        if (!m_rioFunctionTable.RIOReceive(m_requestQueue, &rioBuffer, 1, 0, reinterpret_cast<PVOID>(context))) {
+          std::cerr << "Error posting RIO receive: " << WSAGetLastError() << std::endl;
+          return;
+        }
+      }
+    } // End of while loop over buffer allocations
+
+    // Notify RIO that we want to get completions for the posted receives.
+    const INT notifyResult = m_rioFunctionTable.RIONotify(m_queue);
+    if (notifyResult != ERROR_SUCCESS) {
+      std::cerr << "Error notifying RIO for receives: " << WSAGetLastError() << std::endl;
+      return;
+    }
+
+    // We got to the end, so we're okay.
+    m_okay = true;
+  }
+
+  ~ReceiverUDPPrivate()
+  {
+    // Done with the completion queue.
+    if (m_queue != RIO_INVALID_CQ && m_rioFunctionTable.RIOCloseCompletionQueue != nullptr) {
+      m_rioFunctionTable.RIOCloseCompletionQueue(m_queue);
+      m_queue = RIO_INVALID_CQ;
+    }
+
+    // Done with the request queue. We just reset it, there is no destroy function.
+    m_requestQueue = RIO_INVALID_RQ;
+
+    // Deregister and free the receive buffers.
+    for (auto &id : m_rioBufferIDs) {
+      if (id != RIO_INVALID_BUFFERID) {
+        m_rioFunctionTable.RIODeregisterBuffer(id);
+        id = RIO_INVALID_BUFFERID;
+      }
+    }
+    m_rioBufferIDs.clear();
+    for (auto &pair : m_bufferMap) {
+      if (pair.second != nullptr) {
+        VirtualFree(pair.second, 0, MEM_RELEASE);
+        pair.second = nullptr;
+      }
+    }
+    m_bufferMap.clear();
+
+    // Done with our completion event.
+    if (m_completionEvent != WSA_INVALID_EVENT) {
+      WSACloseEvent(m_completionEvent);
+      m_completionEvent = WSA_INVALID_EVENT;
+    }
+
+   }
+
+  /// The parent ReceiverUDP object that constructed us, used to access its members
+  ReceiverUDP *m_parent = nullptr;
+
+  /// The Registered I/O function table for the socket
+  RIO_EXTENSION_FUNCTION_TABLE m_rioFunctionTable = {0};
+
+  /// The Registered I/O completion queue
+  RIO_CQ m_queue = nullptr;
+
+  /// The Registered I/O request queue
+  RIO_RQ m_requestQueue = nullptr;
+
+  /// The RIO buffer IDs
+  std::vector<RIO_BUFFERID> m_rioBufferIDs;
+
+  /// Map from buffer IDs to buffer pointers
+  std::map<RIO_BUFFERID, char*> m_bufferMap;
+
+  /// Completion event handle for waiting on receives
+  HANDLE m_completionEvent = nullptr;
+
+  /// Booling saying whether we're okay or not.
+  bool m_okay = false;
+
+  ReceiverUDPPrivate() = delete;
+  ReceiverUDPPrivate(const ReceiverUDPPrivate&) = delete;
+  ReceiverUDPPrivate& operator=(const ReceiverUDPPrivate&) = delete;
+};
+#endif
+
 ReceiverUDP::ReceiverUDP(std::string host, uint16_t port, uint32_t maxLen, bool broadcast, std::string multicastName)
   : ReceiverUDP(StreamEndpoint(host, port), maxLen, broadcast, multicastName)
 {
@@ -5256,7 +5437,12 @@ ReceiverUDP::ReceiverUDP(const StreamEndpoint& endpoint, uint32_t maxLen, bool b
   , m_port(endpoint.port)
 {
   // Open the socket to use for receiving UDP packets.
+#ifndef ASDP_USE_WINSOCK_SOCKETS
   m_socket->socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+#else
+  // On Windows, create a Registered I/O socket.
+  m_socket->socket = WSASocket(AF_INET, SOCK_DGRAM, IPPROTO_UDP, nullptr, 0, WSA_FLAG_REGISTERED_IO);
+#endif
   if (m_socket->socket == BAD_SOCKET) {
     m_constructorStatus = BAD_PARAMETER;
     m_socket.reset();
@@ -5318,6 +5504,27 @@ ReceiverUDP::ReceiverUDP(const StreamEndpoint& endpoint, uint32_t maxLen, bool b
     }
     m_port = ntohs(sin.sin_port);
   }
+
+#ifdef ASDP_USE_WINSOCK_SOCKETS
+  // Create our private implementation object, which will configure registered I/O for the socket.
+  m_private = new ReceiverUDPPrivate(this);
+  if (!m_private->m_okay) {
+    m_constructorStatus = SOCKET_FAILURE;
+    m_socket.reset();
+    delete m_private;
+    return;
+  }
+#endif
+}
+
+ReceiverUDP::~ReceiverUDP()
+{
+#ifdef ASDP_USE_WINSOCK_SOCKETS
+  // Destroy our private implementation object first, which will unregister the socket from registered I/O.
+  if (m_private != nullptr) {
+    delete m_private;
+  }
+#endif
 }
 
 Status ReceiverUDP::IsPacketAvailable(double timeout_seconds, bool& available)
@@ -5327,6 +5534,23 @@ Status ReceiverUDP::IsPacketAvailable(double timeout_seconds, bool& available)
     return m_constructorStatus;
   }
 
+#ifdef ASDP_USE_WINSOCK_SOCKETS
+  // Use RIO to check for available data on Windows.
+
+  // Wait for an event handle that is signaled when a receive completes.
+  available = false;
+  DWORD w = WaitForSingleObject(m_private->m_completionEvent, (DWORD)(timeout_seconds * 1000));
+  if (w == WAIT_TIMEOUT) {
+    // Timed out waiting for data.
+    available = false;
+  } else if (w == WAIT_OBJECT_0) {
+    // Data is available.
+    available = true;
+  } else {
+    return SOCKET_FAILURE;
+  }
+
+#else
   // Set up the timeout.
   struct timeval timeout;
   timeout.tv_sec = (uint32_t)timeout_seconds;
@@ -5345,6 +5569,9 @@ Status ReceiverUDP::IsPacketAvailable(double timeout_seconds, bool& available)
 
   // Check if the socket is ready.
   available = (result > 0);
+#endif
+
+  // Everything worked.
   return OKAY;
 }
 
@@ -5363,12 +5590,50 @@ Status ReceiverUDP::ReceiveBuffer(uint8_t* buffer, size_t& size)
   // Receive the data. On Linux, we need to ask it to inform us if the buffer is too small.
   // On Windows, it returns an error if the buffer is too small.
 #ifdef ASDP_USE_WINSOCK_SOCKETS
-  int length = recv(m_socket->socket, reinterpret_cast<char*>(buffer), size, 0);
-  if (length == SOCKET_ERROR) {
-    // Windows will fall through to here if the buffer is too small.
-    // There is no way to tell on Windows whether the buffer was too small or if there was some other error.
+  // Use RIO to receive data on Windows. Read only a single buffer and copy it to the user buffer.
+  RIORESULT rioResults[1];
+  ULONG numResults = m_private->m_rioFunctionTable.RIODequeueCompletion(m_private->m_queue, rioResults, 1);
+  if (numResults == 0) {
     return SOCKET_READ_FAILURE;
   }
+  const RIORESULT& r = rioResults[0];
+  if (r.Status != 0) {
+    return SOCKET_READ_FAILURE;
+  }
+
+  // We stored a uint64_t context = (uint64_t(bufferIndex) << 32) | slotIndex;
+  ULONGLONG ctx = r.RequestContext;
+  uint32_t bufferIndex = static_cast<uint32_t>(ctx >> 32);
+  uint32_t slotIndex = static_cast<uint32_t>(ctx & 0xffffffff);
+
+  // Look up the buffer pointer in the map by buffer index and compute the offset.
+  RIO_BUFFERID bid = m_private->m_rioBufferIDs[bufferIndex];
+  char* basePtr = m_private->m_bufferMap[bid];
+  size_t offset = slotIndex * m_maxLen;
+
+  // Copy the data to the user buffer, at most as many bytes as will fit.
+  size_t numBytesToCopy = std::min<size_t>(size, r.BytesTransferred);
+  memcpy(buffer, basePtr + offset, numBytesToCopy);
+  size = numBytesToCopy;
+
+  // Repost the receive for this buffer.
+  RIO_BUF rioBuffer;
+  rioBuffer.BufferId = bid;
+  rioBuffer.Offset = offset;
+  rioBuffer.Length = m_maxLen;
+  if (!m_private->m_rioFunctionTable.RIOReceive(m_private->m_requestQueue, &rioBuffer, 1, 0, reinterpret_cast<PVOID>(ctx))) {
+    std::cerr << "Error reposting RIO receive: " << WSAGetLastError() << std::endl;
+    return SOCKET_READ_FAILURE;
+  }
+
+  // If the buffer was too small, return a warning.
+  if (r.BytesTransferred > size) {
+    return BUFFER_TOO_SMALL;
+  }
+
+  /// @todo Consider grabbing a bunch of completed receives from RIO instead of just one at a time and
+  /// storing them in a vector for faster processing. We will report ready until the vector is empty.
+  /// We would resubmit as they were read and re-arm when we run out.
 #else
   struct iovec iov[1];
   struct msghdr msg;
@@ -5386,16 +5651,15 @@ Status ReceiverUDP::ReceiveBuffer(uint8_t* buffer, size_t& size)
   // Receive the data
   ssize_t length = recvmsg(m_socket->socket, &msg, 0);
   if (msg.msg_flags & MSG_TRUNC) {
-    // Return the same error on Windows and Linux when the buffer is too small.
-    return SOCKET_READ_FAILURE;
+    return BUFFER_TOO_SMALL;
   }
   if (length < 0) {
     return SOCKET_READ_FAILURE;
   }
-#endif
 
   // Record how many bytes we received.
   size = length;
+#endif
 
   // Everything worked.
   return OKAY;
@@ -5545,7 +5809,7 @@ std::string ReceiverUDP::Test()
   size = receiveBuffer.size();
   status = receiver.ReceiveBuffer(receiveBuffer.data(), size);
   receiveBuffer.resize(size);
-  if (status != SOCKET_READ_FAILURE) {
+  if (status != BUFFER_TOO_SMALL) {
     return "Unexpected return value when receiving into a too-small buffer";
   }
 
