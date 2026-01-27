@@ -5363,6 +5363,17 @@ public:
 
   ~ReceiverUDPPrivate()
   {
+    // Drain all of the completions.
+    if (m_queue != RIO_INVALID_CQ && m_rioFunctionTable.RIODequeueCompletion != nullptr) {
+      RIORESULT rioResults[100];
+      while (true) {
+        DWORD numResults = m_rioFunctionTable.RIODequeueCompletion(m_queue, rioResults, 100);
+        if (numResults == 0) {
+          break;
+        }
+      }
+    }
+
     // Done with the completion queue.
     if (m_queue != RIO_INVALID_CQ && m_rioFunctionTable.RIOCloseCompletionQueue != nullptr) {
       m_rioFunctionTable.RIOCloseCompletionQueue(m_queue);
@@ -5393,7 +5404,6 @@ public:
       WSACloseEvent(m_completionEvent);
       m_completionEvent = WSA_INVALID_EVENT;
     }
-
    }
 
   /// The parent ReceiverUDP object that constructed us, used to access its members
@@ -5525,7 +5535,8 @@ ReceiverUDP::ReceiverUDP(const StreamEndpoint& endpoint, uint32_t maxLen, bool b
 ReceiverUDP::~ReceiverUDP()
 {
 #ifdef ASDP_USE_WINSOCK_SOCKETS
-  // Destroy our private implementation object first, which will unregister the socket from registered I/O.
+  // Close the socket and then clean up Registered I/O resources.
+  m_socket.reset();
   if (m_private != nullptr) {
     delete m_private;
   }
@@ -5569,10 +5580,11 @@ Status ReceiverUDP::IsPacketAvailable(double timeout_seconds, bool& available)
       m_private->m_lastReceiveResult = nullptr;
       available = false;
     } else {
-      // We have a real completion. Re-arm notifications for future completions.
+      // We have a real completion.
       available = true;
-      m_private->m_rioFunctionTable.RIONotify(m_private->m_queue);
     }
+    // Re-arm notifications for future completions whether this one was real or spurious.
+    m_private->m_rioFunctionTable.RIONotify(m_private->m_queue);
   } else {
     return SOCKET_FAILURE;
   }
@@ -7853,7 +7865,7 @@ std::string JSONStringReceiver::Test()
       }
       worked = false;
       retries = 0;
-      while (!worked && retries++ < 10) {
+      while (!worked && retries++ < 20) {
         s = receiver2->Receive(2.0, receiveString);
         if (s == TIMEOUT) {
           continue;
@@ -7864,7 +7876,8 @@ std::string JSONStringReceiver::Test()
         worked = true;
       }
       if (receiveString != sendString) {
-        return "Received JSON string does not match sent string via second JSONStringReceiverTCP";
+        return "Received JSON string does not match sent string via second JSONStringReceiverTCP ('"
+          + receiveString + "' vs. '" + sendString + "')";
       }
     }
   }

@@ -1935,8 +1935,8 @@ public:
 protected:
   std::shared_ptr<Socket> m_socket; ///< Pointer to the socket object to use to do our work.
   uint16_t m_port;                  ///< Port number we are listening on in host byte order.
-private:
 #ifdef _WIN32
+private:
   /// @brief Private implementation class to hide Windows-specific details.
   class ReceiverUDPPrivate;
   ReceiverUDPPrivate *m_private = nullptr;
