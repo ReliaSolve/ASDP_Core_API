@@ -517,7 +517,7 @@ public:
     uint32_t bufferID;
     uint32_t slot;
   };
-  std::list<sliceInfo> m_freeSendSlices;
+  std::vector<sliceInfo> m_freeSendSlices;
 
   BaseRegisteredIO() = delete;
   BaseRegisteredIO(const BaseRegisteredIO&) = delete;
