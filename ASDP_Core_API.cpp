@@ -261,6 +261,217 @@ static WSAStart startUp;
 #endif
 
 //----------------------------------------------------------------------------
+// Class definitions for Windows Registered I/O.
+#ifdef ASDP_USE_WINSOCK_SOCKETS
+class BaseRegisteredIO {
+public:
+  explicit BaseRegisteredIO(SOCKET sock, uint32_t maxLen, DWORD numSends, DWORD numReceives)
+    : m_socket(sock)
+    , m_maxLen(maxLen)
+    , m_numSends(numSends)
+    , m_numReceives(numReceives)
+  {
+    // Total of sends and receives is the number of requests.
+    DWORD numRequests = numSends + numReceives;
+
+    // Fill in the RIO function table.
+    GUID functionTableID = WSAID_MULTIPLE_RIO;
+    DWORD dwBytes;
+    int result = WSAIoctl(m_socket, SIO_GET_MULTIPLE_EXTENSION_FUNCTION_POINTER,
+      (void*)&functionTableID, sizeof(functionTableID),
+      (void*)&m_rioFunctionTable, sizeof(m_rioFunctionTable),
+      &dwBytes, nullptr, nullptr);
+    if (result != 0) {
+      std::cerr << "Error getting RIO function table: " << WSAGetLastError() << std::endl;
+      return;
+    }
+
+    // Create an event handle for the completion queue to use to signal completions.
+    m_completionEvent = WSACreateEvent();
+    if (m_completionEvent == WSA_INVALID_EVENT) {
+      std::cerr << "Error creating RIO completion event: " << WSAGetLastError() << std::endl;
+      return;
+    }
+
+    // Create a completion queue for the socket.
+    RIO_NOTIFICATION_COMPLETION completionType;
+    completionType.Type = RIO_EVENT_COMPLETION;
+    completionType.Event.EventHandle = m_completionEvent;
+    completionType.Event.NotifyReset = TRUE;
+    m_queue = m_rioFunctionTable.RIOCreateCompletionQueue(numRequests, &completionType);
+    if (m_queue == RIO_INVALID_CQ) {
+      std::cerr << "Error creating RIO completion queue: " << WSAGetLastError() << std::endl;
+      return;
+    }
+
+    // Create a request queue for the socket.
+    ULONG maxOutstandingReceive = m_numReceives;
+    ULONG maxReceiveDataBuffers = 1;
+    ULONG maxOutstandingSend = m_numSends;
+    ULONG maxSendDataBuffers = 1;
+    void* pContext = nullptr;
+    m_requestQueue = m_rioFunctionTable.RIOCreateRequestQueue(
+      m_socket,
+      maxOutstandingReceive, maxReceiveDataBuffers,
+      maxOutstandingSend, maxSendDataBuffers,
+      m_queue,
+      m_queue,
+      pContext);
+    if (m_requestQueue == RIO_INVALID_RQ) {
+      std::cerr << "Error creating RIO request queue: " << WSAGetLastError() << std::endl;
+      return;
+    }
+
+    // We want receive buffers that are aligned to the allocation granularity and that are
+    // sized to be a multiple of the allocation granularity.  We also want them to be enough to hold all
+    // expected requests if each is the maximum size.
+    SYSTEM_INFO systemInfo;
+    ::GetSystemInfo(&systemInfo);
+    const uint64_t granularity = systemInfo.dwAllocationGranularity;
+    const uint64_t desiredSize = m_maxLen * m_numReceives;
+    uint64_t actualSize = ((desiredSize + granularity - 1) / granularity) * granularity;
+    if (actualSize > std::numeric_limits<DWORD>::max()) {
+      actualSize = (std::numeric_limits<DWORD>::max() / granularity) * granularity;
+    }
+
+    // Allocate and register receive buffers and request receives.  The desired size may be larger than the maximum we can allocate,
+    // so keep going until we have enough buffers to cover the maximum number of pending receives.
+    DWORD totalBuffersAllocated = 0;
+    while (totalBuffersAllocated < m_numReceives) {
+      // Allocate a set of receive buffers.
+      DWORD bufferSize = static_cast<DWORD>(actualSize);
+      char* buffer = reinterpret_cast<char*>(VirtualAlloc(nullptr, bufferSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
+      if (buffer == nullptr) {
+        std::cerr << "Error allocating receive buffer: " << GetLastError() << std::endl;
+        return;
+      }
+      DWORD receiveBuffersAllocated = std::min<DWORD>(m_numReceives, static_cast<DWORD>(actualSize / m_maxLen));
+      totalBuffersAllocated += receiveBuffersAllocated;
+
+      // Register the buffer.
+      m_rioBufferIDs.push_back(m_rioFunctionTable.RIORegisterBuffer(buffer, bufferSize));
+      if (m_rioBufferIDs.back() == RIO_INVALID_BUFFERID) {
+        std::cerr << "Error registering receive buffer: " << WSAGetLastError() << std::endl;
+        return;
+      }
+
+      // Store the buffer pointer in the map so we can find it later.
+      m_bufferMap[m_rioBufferIDs.back()] = buffer;
+
+      // Queue the receive requests into the locations in the buffer.
+      RIO_BUF rioBuffer;
+      rioBuffer.BufferId = m_rioBufferIDs.back();
+      rioBuffer.Length = m_maxLen;
+      for (DWORD i = 0; i < receiveBuffersAllocated; ++i) {
+        // Store a uint64_t context = (uint64_t(bufferIndex) << 32) | slotIndex so we can find the buffer later.
+        uint32_t bufferIndex = static_cast<uint32_t>(m_rioBufferIDs.size() - 1);
+        uint32_t slotIndex = i;
+        uint64_t context = (static_cast<uint64_t>(bufferIndex) << 32) | slotIndex;
+        // Post the receive.
+        rioBuffer.Offset = i * m_maxLen;
+        if (!m_rioFunctionTable.RIOReceive(m_requestQueue, &rioBuffer, 1, 0, reinterpret_cast<PVOID>(context))) {
+          std::cerr << "Error posting RIO receive: " << WSAGetLastError() << std::endl;
+          return;
+        }
+      }
+    } // End of while loop over buffer allocations
+
+    // Notify RIO that we want to get completions for the posted receives.
+    const INT notifyResult = m_rioFunctionTable.RIONotify(m_queue);
+    if (notifyResult != ERROR_SUCCESS) {
+      std::cerr << "Error notifying RIO for receives: " << WSAGetLastError() << std::endl;
+      return;
+    }
+
+    // We got to the end, so we're okay.
+    m_okay = true;
+  }
+
+  virtual ~BaseRegisteredIO()
+  {
+    // Drain all of the completions.
+    if (m_queue != RIO_INVALID_CQ && m_rioFunctionTable.RIODequeueCompletion != nullptr) {
+      RIORESULT rioResults[100];
+      while (true) {
+        DWORD numResults = m_rioFunctionTable.RIODequeueCompletion(m_queue, rioResults, 100);
+        if (numResults == 0) {
+          break;
+        }
+      }
+    }
+
+    // Done with the completion queue.
+    if (m_queue != RIO_INVALID_CQ && m_rioFunctionTable.RIOCloseCompletionQueue != nullptr) {
+      m_rioFunctionTable.RIOCloseCompletionQueue(m_queue);
+      m_queue = RIO_INVALID_CQ;
+    }
+
+    // Done with the request queue. We just reset it, there is no destroy function.
+    m_requestQueue = RIO_INVALID_RQ;
+
+    // Deregister and free the receive buffers.
+    for (auto& id : m_rioBufferIDs) {
+      if (id != RIO_INVALID_BUFFERID) {
+        m_rioFunctionTable.RIODeregisterBuffer(id);
+        id = RIO_INVALID_BUFFERID;
+      }
+    }
+    m_rioBufferIDs.clear();
+    for (auto& pair : m_bufferMap) {
+      if (pair.second != nullptr) {
+        VirtualFree(pair.second, 0, MEM_RELEASE);
+        pair.second = nullptr;
+      }
+    }
+    m_bufferMap.clear();
+
+    // Done with our completion event.
+    if (m_completionEvent != WSA_INVALID_EVENT) {
+      WSACloseEvent(m_completionEvent);
+      m_completionEvent = WSA_INVALID_EVENT;
+    }
+  }
+
+  /// The socket used for sending or receiving UDP packets
+  SOCKET m_socket = INVALID_SOCKET;
+
+  /// The maximum length of a packet
+  uint32_t m_maxLen = 0;
+
+  /// The number of possible outstanding sends
+  DWORD m_numSends = 0;
+
+  /// The number of possible outstanding receives
+  DWORD m_numReceives = 0;
+
+  /// Boolean saying whether we're okay or not.
+  bool m_okay = false;
+
+  /// The Registered I/O function table for the socket
+  RIO_EXTENSION_FUNCTION_TABLE m_rioFunctionTable = { 0 };
+
+  /// Completion event handle for waiting on receives
+  HANDLE m_completionEvent = nullptr;
+
+  /// The Registered I/O completion queue
+  RIO_CQ m_queue = nullptr;
+
+  /// The Registered I/O request queue
+  RIO_RQ m_requestQueue = nullptr;
+
+  /// The RIO buffer IDs
+  std::vector<RIO_BUFFERID> m_rioBufferIDs;
+
+  /// Map from buffer IDs to buffer pointers
+  std::map<RIO_BUFFERID, char*> m_bufferMap;
+
+  BaseRegisteredIO() = delete;
+  BaseRegisteredIO(const BaseRegisteredIO&) = delete;
+  BaseRegisteredIO& operator=(const BaseRegisteredIO&) = delete;
+};
+#endif
+
+//----------------------------------------------------------------------------
 // Helper functions.
 
 /// @brief Get the server connection information from a URL.
@@ -5243,201 +5454,24 @@ Status SenderFile::SendStreamPacket(const StreamPacket& packet)
 }
 
 #ifdef ASDP_USE_WINSOCK_SOCKETS
-class ReceiverUDP::ReceiverUDPPrivate {
+class ReceiverUDP::ReceiverUDPPrivate : public BaseRegisteredIO {
 public:
-  explicit ReceiverUDPPrivate(ReceiverUDP* parent)
-    : m_parent(parent)
+  explicit ReceiverUDPPrivate(SOCKET sock, uint32_t maxLen)
+    : BaseRegisteredIO(sock, maxLen, 0, 5000)
   {
-    // Fill in the RIO function table.
-    GUID functionTableID = WSAID_MULTIPLE_RIO;
-    DWORD dwBytes;
-    int result = WSAIoctl(m_parent->m_socket->socket, SIO_GET_MULTIPLE_EXTENSION_FUNCTION_POINTER,
-      (void*)&functionTableID, sizeof(functionTableID),
-      (void*)&m_rioFunctionTable, sizeof(m_rioFunctionTable),
-      &dwBytes, nullptr, nullptr);
-    if (result != 0) {
-      std::cerr << "Error getting RIO function table: " << WSAGetLastError() << std::endl;
-      return;
-    }
+    // If our base class failed, we're done.
+    // Reset okay flag to false until we complete initialization.
+    if (!m_okay) { return; }
+    m_okay = false;
 
-    // Create an event handle for the completion queue to use to signal completions.
-    m_completionEvent = WSACreateEvent();
-    if (m_completionEvent == WSA_INVALID_EVENT) {
-      std::cerr << "Error creating RIO completion event: " << WSAGetLastError() << std::endl;
-      return;
-    }
-
-    // Create a completion queue for the socket.
-    RIO_NOTIFICATION_COMPLETION completionType;
-    completionType.Type = RIO_EVENT_COMPLETION;
-    completionType.Event.EventHandle = m_completionEvent;
-    completionType.Event.NotifyReset = TRUE;
-    static const DWORD RIO_PENDING_RECVS = 5000;
-    m_queue = m_rioFunctionTable.RIOCreateCompletionQueue(RIO_PENDING_RECVS, &completionType);
-    if (m_queue == RIO_INVALID_CQ) {
-      std::cerr << "Error creating RIO completion queue: " << WSAGetLastError() << std::endl;
-      return;
-    }
-
-    // Create a request queue for the socket.
-    ULONG maxOutstandingReceive = RIO_PENDING_RECVS;
-    ULONG maxReceiveDataBuffers = 1;
-    ULONG maxOutstandingSend = 0;
-    ULONG maxSendDataBuffers = 1;    void* pContext = nullptr;
-    m_requestQueue = m_rioFunctionTable.RIOCreateRequestQueue(
-      m_parent->m_socket->socket,
-      maxOutstandingReceive, maxReceiveDataBuffers,
-      maxOutstandingSend, maxSendDataBuffers,
-      m_queue,
-      m_queue,
-      pContext);
-    if (m_requestQueue == RIO_INVALID_RQ) {
-      std::cerr << "Error creating RIO request queue: " << WSAGetLastError() << std::endl;
-      return;
-    }
-
-    // We want to allocate receive buffers that are aligned to the allocation granularity and that are
-    // sized to be a multiple of the allocation granularity.  We also want them to be enough to hold all
-    // expected requests if each is the maximum size.
-    SYSTEM_INFO systemInfo;
-    ::GetSystemInfo(&systemInfo);
-    const uint64_t granularity = systemInfo.dwAllocationGranularity;
-    const uint64_t desiredSize = m_parent->m_maxLen * RIO_PENDING_RECVS;
-    uint64_t actualSize = ((desiredSize + granularity - 1) / granularity) * granularity;
-    if (actualSize > std::numeric_limits<DWORD>::max()) {
-      actualSize = (std::numeric_limits<DWORD>::max() / granularity) * granularity;
-    }
-
-    // Allocate and register receive buffers and request receives.  The desired size may be larger than the maximum we can allocate,
-    // so keep going until we have enough buffers to cover the maximum number of pending receives.
-    DWORD totalBuffersAllocated = 0;
-    while (totalBuffersAllocated < RIO_PENDING_RECVS) {
-      // Allocate a set of receive buffers.
-      DWORD bufferSize = static_cast<DWORD>(actualSize);
-      char* buffer = reinterpret_cast<char*>(VirtualAlloc(nullptr, bufferSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
-      if (buffer == nullptr) {
-        std::cerr << "Error allocating receive buffer: " << GetLastError() << std::endl;
-        return;
-      }
-      DWORD receiveBuffersAllocated = std::min<DWORD>(RIO_PENDING_RECVS, static_cast<DWORD>(actualSize / m_parent->m_maxLen));
-      totalBuffersAllocated += receiveBuffersAllocated;
-
-      // Register the buffer.
-      m_rioBufferIDs.push_back(m_rioFunctionTable.RIORegisterBuffer(buffer, bufferSize));
-      if (m_rioBufferIDs.back() == RIO_INVALID_BUFFERID) {
-        std::cerr << "Error registering receive buffer: " << WSAGetLastError() << std::endl;
-        return;
-      }
-
-      // Store the buffer pointer in the map so we can find it later.
-      m_bufferMap[m_rioBufferIDs.back()] = buffer;
-
-      // Queue the receive requests into the locations in the buffer.
-      RIO_BUF rioBuffer;
-      rioBuffer.BufferId = m_rioBufferIDs.back();
-      rioBuffer.Length = m_parent->m_maxLen;
-      for (DWORD i = 0; i < receiveBuffersAllocated; ++i) {
-        // Store a uint64_t context = (uint64_t(bufferIndex) << 32) | slotIndex so we can find the buffer later.
-        uint32_t bufferIndex = static_cast<uint32_t>(m_rioBufferIDs.size() - 1);
-        uint32_t slotIndex = i;
-        uint64_t context = (static_cast<uint64_t>(bufferIndex) << 32) | slotIndex;
-        // Post the receive.
-        rioBuffer.Offset = i * m_parent->m_maxLen;
-        if (!m_rioFunctionTable.RIOReceive(m_requestQueue, &rioBuffer, 1, 0, reinterpret_cast<PVOID>(context))) {
-          std::cerr << "Error posting RIO receive: " << WSAGetLastError() << std::endl;
-          return;
-        }
-      }
-    } // End of while loop over buffer allocations
-
-    // Notify RIO that we want to get completions for the posted receives.
-    const INT notifyResult = m_rioFunctionTable.RIONotify(m_queue);
-    if (notifyResult != ERROR_SUCCESS) {
-      std::cerr << "Error notifying RIO for receives: " << WSAGetLastError() << std::endl;
-      return;
-    }
-
-    // We got to the end, so we're okay.
+    // We finished our specific initialization successfully.
     m_okay = true;
   }
-
-  ~ReceiverUDPPrivate()
-  {
-    // Drain all of the completions.
-    if (m_queue != RIO_INVALID_CQ && m_rioFunctionTable.RIODequeueCompletion != nullptr) {
-      RIORESULT rioResults[100];
-      while (true) {
-        DWORD numResults = m_rioFunctionTable.RIODequeueCompletion(m_queue, rioResults, 100);
-        if (numResults == 0) {
-          break;
-        }
-      }
-    }
-
-    // Done with the completion queue.
-    if (m_queue != RIO_INVALID_CQ && m_rioFunctionTable.RIOCloseCompletionQueue != nullptr) {
-      m_rioFunctionTable.RIOCloseCompletionQueue(m_queue);
-      m_queue = RIO_INVALID_CQ;
-    }
-
-    // Done with the request queue. We just reset it, there is no destroy function.
-    m_requestQueue = RIO_INVALID_RQ;
-
-    // Deregister and free the receive buffers.
-    for (auto &id : m_rioBufferIDs) {
-      if (id != RIO_INVALID_BUFFERID) {
-        m_rioFunctionTable.RIODeregisterBuffer(id);
-        id = RIO_INVALID_BUFFERID;
-      }
-    }
-    m_rioBufferIDs.clear();
-    for (auto &pair : m_bufferMap) {
-      if (pair.second != nullptr) {
-        VirtualFree(pair.second, 0, MEM_RELEASE);
-        pair.second = nullptr;
-      }
-    }
-    m_bufferMap.clear();
-
-    // Done with our completion event.
-    if (m_completionEvent != WSA_INVALID_EVENT) {
-      WSACloseEvent(m_completionEvent);
-      m_completionEvent = WSA_INVALID_EVENT;
-    }
-   }
-
-  /// The parent ReceiverUDP object that constructed us, used to access its members
-  ReceiverUDP *m_parent = nullptr;
-
-  /// The Registered I/O function table for the socket
-  RIO_EXTENSION_FUNCTION_TABLE m_rioFunctionTable = {0};
-
-  /// The Registered I/O completion queue
-  RIO_CQ m_queue = nullptr;
-
-  /// The Registered I/O request queue
-  RIO_RQ m_requestQueue = nullptr;
-
-  /// The RIO buffer IDs
-  std::vector<RIO_BUFFERID> m_rioBufferIDs;
-
-  /// Map from buffer IDs to buffer pointers
-  std::map<RIO_BUFFERID, char*> m_bufferMap;
-
-  /// Completion event handle for waiting on receives
-  HANDLE m_completionEvent = nullptr;
 
   /// Holds a result from the time we check for a packet available to when we receive it.
   /// This is needed because there are spurious completions that can occur on the socket
   /// and we must do an actual read to verify that data is available.
   RIORESULT *m_lastReceiveResult = nullptr;
-
-  /// Boolean saying whether we're okay or not.
-  bool m_okay = false;
-
-  ReceiverUDPPrivate() = delete;
-  ReceiverUDPPrivate(const ReceiverUDPPrivate&) = delete;
-  ReceiverUDPPrivate& operator=(const ReceiverUDPPrivate&) = delete;
 };
 #endif
 
@@ -5522,7 +5556,7 @@ ReceiverUDP::ReceiverUDP(const StreamEndpoint& endpoint, uint32_t maxLen, bool b
 
 #ifdef ASDP_USE_WINSOCK_SOCKETS
   // Create our private implementation object, which will configure registered I/O for the socket.
-  m_private = new ReceiverUDPPrivate(this);
+  m_private = new ReceiverUDPPrivate(m_socket->socket, maxLen);
   if (!m_private->m_okay) {
     m_constructorStatus = SOCKET_FAILURE;
     m_socket.reset();

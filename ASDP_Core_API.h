@@ -1757,6 +1757,12 @@ public:
 
 protected:
   std::shared_ptr<Socket> m_socket; ///< Pointer to the socket object to use to do our work.
+#ifdef _WIN32
+private:
+  /// @brief Private implementation class to hide Windows-specific details.
+  class SenderUDPPrivate;
+  SenderUDPPrivate* m_private = nullptr;
+#endif
 };
 
 //---------------------------------------------------------------------------
