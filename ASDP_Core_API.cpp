@@ -5651,10 +5651,32 @@ std::string ReceiverUDP::Test()
   return "";
 }
 
+#ifdef _WIN32
+class ReceiverFile::ReceiverFileImpl {
+public:
+  HANDLE hFile = INVALID_HANDLE_VALUE;    ///< The file handle to use, initially not open.
+};
+#endif
+
 ReceiverFile::ReceiverFile(std::string fileName, uint32_t maxLen)
   : Receiver(maxLen)
+#ifdef _WIN32
+  , m_impl(new ReceiverFileImpl())
+#endif
 {
   // Open the file.
+#ifdef _WIN32
+
+  // Set this for random access, which will inhibit the Windows read-ahead caching.
+  m_impl->hFile = CreateFileA(fileName.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+    OPEN_EXISTING, FILE_FLAG_RANDOM_ACCESS, nullptr);
+  if (m_impl->hFile == INVALID_HANDLE_VALUE) {
+    m_constructorStatus = BAD_PARAMETER;
+    return;
+  }
+
+#else
+
   m_file = std::make_shared<std::ifstream>(fileName.c_str(), std::ios::binary);
   if (m_file == nullptr) {
     m_constructorStatus = BAD_PARAMETER;
@@ -5665,19 +5687,58 @@ ReceiverFile::ReceiverFile(std::string fileName, uint32_t maxLen)
     m_file.reset();
     return;
   }
+#endif
 }
 
 ReceiverFile::~ReceiverFile()
 {
+#ifdef _WIN32
+  if (m_impl != nullptr) {
+    if (m_impl->hFile != INVALID_HANDLE_VALUE) {
+      CloseHandle(m_impl->hFile);
+      m_impl->hFile = INVALID_HANDLE_VALUE;
+    }
+    delete m_impl;
+    m_impl = nullptr;
+  }
+#else
   if (m_file != nullptr) {
     m_file->close();
   }
+#endif
 }
 
 Status ReceiverFile::IsPacketAvailable(double timeout_seconds, bool& available)
 {
   // Not available unless proven otherwise.
   available = false;
+
+#ifdef _WIN32
+
+  // Make sure we have a valid file.
+  if (m_impl == nullptr || m_impl->hFile == INVALID_HANDLE_VALUE) {
+    return m_constructorStatus;
+  }
+
+  // Use the 64-bit APIs to get the current file pointer and the file size.
+  LARGE_INTEGER zero;
+  zero.QuadPart = 0;
+  LARGE_INTEGER currentPos;
+  if (!SetFilePointerEx(m_impl->hFile, zero, &currentPos, FILE_CURRENT)) {
+    return FILE_FAILURE;
+  }
+
+  LARGE_INTEGER fileSize;
+  if (!GetFileSizeEx(m_impl->hFile, &fileSize)) {
+    return FILE_FAILURE;
+  }
+
+  if (currentPos.QuadPart < fileSize.QuadPart) {
+    // We are not at the end of the file.
+    available = true;
+  }
+
+#else
 
   // Make sure we have a valid file.
   if (m_file == nullptr) {
@@ -5693,11 +5754,41 @@ Status ReceiverFile::IsPacketAvailable(double timeout_seconds, bool& available)
 
   // We are not at the end of the file.
   available = true;
+
+#endif
+
   return OKAY;
 }
 
 Status ReceiverFile::ReceiveBuffer(uint8_t* buffer, size_t& size)
 {
+  // Ensure that our buffer pointer is valid.
+  if (buffer == nullptr) {
+    return BAD_PARAMETER;
+  }
+
+#ifdef _WIN32
+
+  // Make sure we have a valid file.
+  if (m_impl == nullptr || m_impl->hFile == INVALID_HANDLE_VALUE) {
+    return m_constructorStatus;
+  }
+
+  // Read the data.  If there is not enough data to fill the buffer,
+  // the buffer will be resized to the amount of data read.
+  DWORD bytesActuallyRead = 0;
+  if (!ReadFile(m_impl->hFile, buffer, (DWORD)size, &bytesActuallyRead, nullptr)) {
+    return FILE_FAILURE;
+  }
+  if (bytesActuallyRead < size) {
+    size = bytesActuallyRead;
+  }
+  if (bytesActuallyRead == 0) {
+    return FILE_FAILURE;
+  }
+
+#else
+
   // Make sure we have a valid file.
   if (m_file == nullptr) {
     return m_constructorStatus;
@@ -5707,11 +5798,6 @@ Status ReceiverFile::ReceiveBuffer(uint8_t* buffer, size_t& size)
   }
   if (m_file->bad() || m_file->fail()) {
     return FILE_FAILURE;
-  }
-
-  // Ensure that our buffer pointer is valid.
-  if (buffer == nullptr) {
-    return BAD_PARAMETER;
   }
 
   // Read the data.  If there is not enough data to fill the buffer,
@@ -5724,6 +5810,8 @@ Status ReceiverFile::ReceiveBuffer(uint8_t* buffer, size_t& size)
   if (bytesActuallyRead == 0) {
     return FILE_FAILURE;
   }
+
+#endif
 
   // Everything worked.
   return OKAY;
@@ -5745,7 +5833,18 @@ Status ReceiverFile::ReceiveCommandPacket(double timeout_seconds, std::shared_pt
   if (m_maxLen < PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t)) {
     return READ_PAST_END;
   }
+
   std::shared_ptr<std::vector<uint8_t>> buffer = std::make_shared<std::vector<uint8_t>>(m_maxLen);
+#ifdef _WIN32
+  DWORD bytesActuallyRead = 0;
+  if (!ReadFile(m_impl->hFile, buffer->data(), PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t),
+      &bytesActuallyRead, nullptr)) {
+    return FILE_FAILURE;
+  }
+  if (bytesActuallyRead < PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t)) {
+    return TIMEOUT;
+  }
+#else
   m_file->read(reinterpret_cast<char*>(buffer->data()), PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t));
   if (m_file->eof()) {
     return TIMEOUT;
@@ -5753,6 +5852,7 @@ Status ReceiverFile::ReceiveCommandPacket(double timeout_seconds, std::shared_pt
   if (m_file->bad() || m_file->fail()) {
     return FILE_FAILURE;
   }
+#endif
 
   // Find the length of the packet.
   uint32_t length;
@@ -5762,6 +5862,15 @@ Status ReceiverFile::ReceiveCommandPacket(double timeout_seconds, std::shared_pt
   }
 
   // Read the rest of the packet.
+#ifdef _WIN32
+  if (!ReadFile(m_impl->hFile, buffer->data() + PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t),
+      length - PACKET_HEADER_TOTAL_SIZE_OFFSET - sizeof(uint32_t), &bytesActuallyRead, nullptr)) {
+    return FILE_FAILURE;
+  }
+  if (bytesActuallyRead < length - PACKET_HEADER_TOTAL_SIZE_OFFSET - sizeof(uint32_t)) {
+    return TIMEOUT;
+  }
+#else
   m_file->read(reinterpret_cast<char*>(buffer->data()) + PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t),
     length - PACKET_HEADER_TOTAL_SIZE_OFFSET - sizeof(uint32_t));
   if (m_file->eof()) {
@@ -5770,6 +5879,7 @@ Status ReceiverFile::ReceiveCommandPacket(double timeout_seconds, std::shared_pt
   if (m_file->bad() || m_file->fail()) {
     return FILE_FAILURE;
   }
+#endif
 
   // Construct the packet using the buffer.
   packet.reset(new CommandPacket(buffer));
@@ -5812,6 +5922,16 @@ Status ReceiverFile::ReceiveStreamPacket(double timeout_seconds, std::shared_ptr
   if (m_maxLen < PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t)) {
     return READ_PAST_END;
   }
+#ifdef _WIN32
+  DWORD bytesActuallyRead = 0;
+  if (!ReadFile(m_impl->hFile, buffer->data() + offset, PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t),
+      &bytesActuallyRead, nullptr)) {
+    return FILE_FAILURE;
+  }
+  if (bytesActuallyRead < PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t)) {
+    return TIMEOUT;
+  }
+#else
   m_file->read(reinterpret_cast<char*>(buffer->data() + offset),
     PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t));
   if (m_file->eof()) {
@@ -5820,6 +5940,7 @@ Status ReceiverFile::ReceiveStreamPacket(double timeout_seconds, std::shared_ptr
   if (m_file->bad() || m_file->fail()) {
     return FILE_FAILURE;
   }
+#endif
 
   // Find the length of the packet.
   uint32_t length;
@@ -5842,6 +5963,15 @@ Status ReceiverFile::ReceiveStreamPacket(double timeout_seconds, std::shared_ptr
   }
 
   // Read the rest of the packet.
+#ifdef _WIN32
+  if (!ReadFile(m_impl->hFile, buffer->data() + offset + PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t),
+      length - PACKET_HEADER_TOTAL_SIZE_OFFSET - sizeof(uint32_t), &bytesActuallyRead, nullptr)) {
+    return FILE_FAILURE;
+  }
+  if (bytesActuallyRead < length - PACKET_HEADER_TOTAL_SIZE_OFFSET - sizeof(uint32_t)) {
+    return TIMEOUT;
+  }
+#else
   m_file->read(reinterpret_cast<char*>(buffer->data()) + offset + PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t),
     length - PACKET_HEADER_TOTAL_SIZE_OFFSET - sizeof(uint32_t));
   if (m_file->eof()) {
@@ -5850,6 +5980,7 @@ Status ReceiverFile::ReceiveStreamPacket(double timeout_seconds, std::shared_ptr
   if (m_file->bad() || m_file->fail()) {
     return FILE_FAILURE;
   }
+#endif
 
   // Construct the packet using the buffer.
   packet.reset(new StreamPacket(buffer));

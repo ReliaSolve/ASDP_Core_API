@@ -1992,6 +1992,10 @@ public:
   static std::string Test();
 
 protected:
+#ifdef _WIN32
+  class ReceiverFileImpl;
+  ReceiverFileImpl* m_impl;               ///< Pointer to private implementation details on Windows.
+#endif
   std::shared_ptr<std::ifstream> m_file;    ///< Pointer to the file object to read from.
 };
 
