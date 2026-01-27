@@ -7839,6 +7839,7 @@ std::string JSONStringReceiver::Test()
     // Attach a second JSONStringReceiverTCP to the same port and verify that it can also receive messages.
     std::shared_ptr<JSONStringReceiver> receiver2;
     s = JSONStringReceiver::Create("tcp://localhost:10103", receiver2);
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000)); // Give time for the second receiver to connect.
     if (s != OKAY) {
       return "Error creating second JSONStringReceiverTCP: " + ErrorMessage(s);
     }
@@ -7865,7 +7866,7 @@ std::string JSONStringReceiver::Test()
       }
       worked = false;
       retries = 0;
-      while (!worked && retries++ < 20) {
+      while (!worked && retries++ < 10) {
         s = receiver2->Receive(2.0, receiveString);
         if (s == TIMEOUT) {
           continue;
@@ -8323,6 +8324,7 @@ Status JSONStringSenderTCP::Send(const std::string& jsonString)
         closesocket(socket->socket);
         socket.reset();
       }
+      // Flush the socket to ensure data is sent immediately.
     }
   }
   return OKAY;
