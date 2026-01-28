@@ -5395,7 +5395,7 @@ Status SenderUDP::Send(const void* buffer, uint32_t length)
   if (buffer == nullptr) {
     return BAD_PARAMETER;
   }
-#ifdef ASDP_USE_WINDOWS_SOCKETS
+#ifdef ASDP_USE_WINSOCK_SOCKETS
   if (length > m_private->m_maxLen) {
     return BAD_PARAMETER;
   }
@@ -5438,16 +5438,6 @@ Status SenderUDP::Send(const void* buffer, uint32_t length)
   size_t offset = rioBuf.Offset;
   memcpy(basePtr + offset, buffer, length);
 
-  // Construct the destination address for the RIOSendEx call.
-  // For UDP RIOSendEx you provide a pointer to a SOCKADDR (sockaddr_in for IPv4).
-  // We reuse the Socket::addr already stored (it contains network-order fields).
-  sockaddr_in sendAddr;
-  memset(&sendAddr, 0, sizeof(sendAddr));
-  sendAddr.sin_family = AF_INET;
-  // If m_socket->addr was stored with network-order port/address, copy directly.
-  sendAddr.sin_port = m_socket->addr.sin_port;
-  sendAddr.sin_addr = m_socket->addr.sin_addr;
-
   // Start the send, packing the buffer and slot index into the context.
   ULONGLONG ctx = (static_cast<ULONGLONG>(sendSlice.bufferID) << 32) | sendSlice.slot;
   if (!m_private->m_rioFunctionTable.RIOSend(m_private->m_requestQueue, &rioBuf, 1, 0, reinterpret_cast<PVOID>(ctx))) {
@@ -5488,7 +5478,7 @@ Status SenderUDP::SendStreamPacket(const StreamPacket& packet)
     return status;
   }
 
-  // Send the data.  Don't let it create the SIGPIPE signal.
+  // Send the data.
   return Send((const char*)packet.MyData(), length);
 }
 
