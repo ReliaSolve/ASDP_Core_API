@@ -423,13 +423,6 @@ public:
       } // End of while loop over buffer allocations
     }
 
-    // Notify RIO that we want to get completions for the posted operations.
-    const INT notifyResult = m_rioFunctionTable.RIONotify(m_queue);
-    if (notifyResult != ERROR_SUCCESS) {
-      std::cerr << "Error notifying RIO: " << WSAGetLastError() << std::endl;
-      return;
-    }
-
     // We got to the end, so we're okay.
     m_okay = true;
   }
@@ -5738,6 +5731,32 @@ Status ReceiverUDP::IsPacketAvailable(double timeout_seconds, bool& available)
     return OKAY;
   }
 
+  // See if there is a completion already available.  If so, store it into the last receive result.
+  // We do this before waiting on a completion because we will not be draining all completions after we've
+  // signaled that we are ready.
+  RIORESULT tempResult;
+  ULONG numResults = m_private->m_rioFunctionTable.RIODequeueCompletion(m_private->m_queue, &tempResult, 1);
+  if (numResults > 0) {
+    // We have a real completion.
+    m_private->m_lastReceiveResult = new RIORESULT;
+    *m_private->m_lastReceiveResult = tempResult;
+    available = true;
+    return OKAY;
+  }
+
+  // We are out of completion results, so re-arm notifications for future completions.
+  m_private->m_rioFunctionTable.RIONotify(m_private->m_queue);
+
+  // Re-check for available completions before waiting to handle arrival while we notifying.
+  numResults = m_private->m_rioFunctionTable.RIODequeueCompletion(m_private->m_queue, &tempResult, 1);
+  if (numResults > 0) {
+    // We have a real completion.
+    m_private->m_lastReceiveResult = new RIORESULT;
+    *m_private->m_lastReceiveResult = tempResult;
+    available = true;
+    return OKAY;
+  }
+
   // Wait for an event handle that is signaled when a receive completes.
   available = false;
   DWORD w = WaitForSingleObject(m_private->m_completionEvent, (DWORD)(timeout_seconds * 1000));
@@ -5745,21 +5764,18 @@ Status ReceiverUDP::IsPacketAvailable(double timeout_seconds, bool& available)
     // Timed out waiting for data.
     available = false;
   } else if (w == WAIT_OBJECT_0) {
-    // Data may be available.  We can only be sure by reading it and seeing that it arrives.
+    // Data may be available, or it may be spurious.  We can only be sure by reading it and seeing that it arrives.
     // Only leave the result stored if we actually got data, otherwise clear it back to nullptr.
-    m_private->m_lastReceiveResult = new RIORESULT;
-    ULONG numResults = m_private->m_rioFunctionTable.RIODequeueCompletion(m_private->m_queue, m_private->m_lastReceiveResult, 1);
+    numResults = m_private->m_rioFunctionTable.RIODequeueCompletion(m_private->m_queue, &tempResult, 1);
     if (numResults == 0) {
       // Nothing available.
-      delete m_private->m_lastReceiveResult;
-      m_private->m_lastReceiveResult = nullptr;
       available = false;
     } else {
       // We have a real completion.
+      m_private->m_lastReceiveResult = new RIORESULT;
+      *m_private->m_lastReceiveResult = tempResult;
       available = true;
     }
-    // Re-arm notifications for future completions whether this one was real or spurious.
-    m_private->m_rioFunctionTable.RIONotify(m_private->m_queue);
   } else {
     return SOCKET_FAILURE;
   }
