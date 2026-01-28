@@ -5402,9 +5402,11 @@ Status SenderUDP::Send(const void* buffer, uint32_t length)
   if (buffer == nullptr) {
     return BAD_PARAMETER;
   }
+#ifdef ASDP_USE_WINDOWS_SOCKETS
   if (length > m_private->m_maxLen) {
     return BAD_PARAMETER;
   }
+#endif
 
   // Make sure we have a valid socket.
   if ((m_socket == nullptr) || (m_socket->socket == BAD_SOCKET)) {
