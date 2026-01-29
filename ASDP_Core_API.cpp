@@ -5292,7 +5292,6 @@ SenderUDP::SenderUDP(const StreamEndpoint& endpoint, bool broadcast, std::string
     return;
   }
 
-#ifndef ASDP_USE_WINSOCK_SOCKETS
   // Set the socket output buffer to be large enough to hold many outgoing packets.
   int size = 65536 * 128;
   if (0 != setsockopt(m_socket->socket, SOL_SOCKET, SO_SNDBUF, (char*)&size, sizeof(size))) {
@@ -5300,7 +5299,6 @@ SenderUDP::SenderUDP(const StreamEndpoint& endpoint, bool broadcast, std::string
     m_socket.reset();
     return;
   }
-#endif
 
   // If we have specified a NIC name, bind to the address of that NIC using any available port.
   if (!NICName.empty()) {
