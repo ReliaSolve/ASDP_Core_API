@@ -362,6 +362,7 @@ public:
         m_bufferMap[m_rioBufferIDs.back()] = buffer;
 
         // Queue the receive requests into the locations in the buffer.
+        // We cannot post the receives in a group because they need different context values.
         RIO_BUF rioBuffer;
         rioBuffer.BufferId = m_rioBufferIDs.back();
         rioBuffer.Length = m_maxLen;
@@ -5245,7 +5246,7 @@ public:
 class SenderUDP::SenderUDPPrivate : public BaseRegisteredIO {
 public:
   explicit SenderUDPPrivate(SOCKET sock, uint32_t maxLen)
-    : BaseRegisteredIO(sock, maxLen, 5000, 0)
+    : BaseRegisteredIO(sock, maxLen, 1000, 0)
   {
     // If our base class failed, we're done.
     // Reset okay flag to false until we complete initialization.
