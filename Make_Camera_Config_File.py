@@ -62,7 +62,7 @@ def nested_rotations(X1, Y1, Z1, X2, Y2, Z2):
     return euler_angles
 
 def main():
-    print("Make_Camera_Config_File.py version 2.1.0");
+    print("Make_Camera_Config_File.py version 2.2.0");
 
     parser = argparse.ArgumentParser(description="Generate a camera configuration file for a specified number of cameras.")
     parser.add_argument('--output', type=str, default='camConfig.json', help='Output JSON file name (default: camConfig.json)')
@@ -165,6 +165,9 @@ def main():
             if args.tweak_pos != 0.0:
                 pMag = args.tweak_pos * 1e-3
                 pos += np.array([random.uniform(-pMag, pMag), random.uniform(-pMag, pMag), random.uniform(-pMag, pMag)])
+            if args.upside_down:
+                # Rotate by 180 degrees around the Y axis to flip the position
+                pos = np.array([-pos[0], pos[1], -pos[2]])
             cam["positionMeters"] = [pos[0], pos[1], pos[2]]
 
             # Generate the distortion data, which is unity when we're not simulating and will be filled in by
