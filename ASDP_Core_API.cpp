@@ -299,11 +299,7 @@ uint32_t asdp::GetLocalIPForRemote(uint32_t remote_ip)
   // Connect to remote address (no packets sent)
   if (connect(sock, (sockaddr*)&remote_addr, sizeof(remote_addr)) < 0) {
     std::cerr << "Connect failed\n";
-#ifdef _WIN32
     closesocket(sock);
-#else
-    close(sock);
-#endif
     return 0;
   }
 
@@ -312,22 +308,14 @@ uint32_t asdp::GetLocalIPForRemote(uint32_t remote_ip)
   socklen_t addr_len = sizeof(local_addr);
   if (getsockname(sock, (sockaddr*)&local_addr, &addr_len) < 0) {
     std::cerr << "getsockname failed\n";
-#ifdef _WIN32
     closesocket(sock);
-#else
-    close(sock);
-#endif
     return 0;
   }
 
   char ip_str[INET_ADDRSTRLEN];
   inet_ntop(AF_INET, &local_addr.sin_addr, ip_str, sizeof(ip_str));
 
-#ifdef _WIN32
   closesocket(sock);
-#else
-  close(sock);
-#endif
 
 #ifdef _WIN32
   return htonl(local_addr.sin_addr.S_un.S_addr);
