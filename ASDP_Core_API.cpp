@@ -5079,7 +5079,7 @@ Status SenderUDP::Send(const void* buffer, uint32_t length)
     return m_constructorStatus;
   }
 
-  // Send the data.
+  // Send the data.  Don't let SIGPIPE be generated if the other side is not receiving.
   int result = sendto(m_socket->socket, (const char*)buffer, length, MSG_NOSIGNAL,
     (const sockaddr *)&(m_socket->addr), sizeof(m_socket->addr));
   if (result == SOCKET_ERROR) {
@@ -5092,11 +5092,6 @@ Status SenderUDP::Send(const void* buffer, uint32_t length)
 
 Status SenderUDP::SendCommandPacket(const CommandPacket& packet)
 {
-  // Make sure we have a valid socket.
-  if ((m_socket == nullptr) || (m_socket->socket == BAD_SOCKET)) {
-    return m_constructorStatus;
-  }
-
   // Find out how large the data in the packet is.
   uint32_t length;
   Status status = packet.GetTotalLength(length);
@@ -5105,23 +5100,11 @@ Status SenderUDP::SendCommandPacket(const CommandPacket& packet)
   }
 
   // Send the data.
-  int result = sendto(m_socket->socket, (const char*)packet.MyData(), length, MSG_NOSIGNAL,
-    (const sockaddr*)&(m_socket->addr), sizeof(m_socket->addr));
-  if (result == SOCKET_ERROR) {
-    return SOCKET_FAILURE;
-  }
-
-  // Everything worked.
-  return OKAY;
+  return Send((const char*)packet.MyData(), length);
 }
 
 Status SenderUDP::SendStreamPacket(const StreamPacket& packet)
 {
-  // Make sure we have a valid socket.
-  if ((m_socket == nullptr) || (m_socket->socket == BAD_SOCKET)) {
-    return m_constructorStatus;
-  }
-
   // Find out how large the data in the packet is.
   uint32_t length;
   Status status = packet.GetTotalLength(length);
@@ -5129,15 +5112,8 @@ Status SenderUDP::SendStreamPacket(const StreamPacket& packet)
     return status;
   }
 
-  // Send the data.  Don't let it create the SIGPIPE signal.
-  int result = sendto(m_socket->socket, (const char*)packet.MyData(), length, MSG_NOSIGNAL,
-    (const sockaddr*)&(m_socket->addr), sizeof(m_socket->addr));
-  if (result == SOCKET_ERROR) {
-    return SOCKET_FAILURE;
-  }
-
-  // Everything worked.
-  return OKAY;
+  // Send the data.
+  return Send((const char*)packet.MyData(), length);
 }
 
 SenderFile::SenderFile(std::string fileName, bool doDirect)
