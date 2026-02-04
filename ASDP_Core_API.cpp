@@ -7490,6 +7490,7 @@ std::string JSONStringReceiver::Test()
     if (s != OKAY) {
       return "Error creating second JSONStringReceiverTCP: " + ErrorMessage(s);
     }
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000)); // Give time for the second receiver to connect.
     for (size_t i = 0; i < 10; i++) {
       s = sender->Send(sendString);
       if (s != OKAY) {
