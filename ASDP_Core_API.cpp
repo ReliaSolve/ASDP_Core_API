@@ -7934,7 +7934,7 @@ JSONStringSenderTCP::~JSONStringSenderTCP()
     if (socket != nullptr) {
       // Send the closing bracket to indicate end of stream.
       std::string endLine = "]\n";
-      send(socket->socket, endLine.c_str(), static_cast<int>(endLine.length()), 0);
+      send(socket->socket, endLine.c_str(), static_cast<int>(endLine.length()), MSG_NOSIGNAL);
       // Close the socket.
       closesocket(socket->socket);
       socket.reset();
@@ -7965,7 +7965,7 @@ Status JSONStringSenderTCP::Send(const std::string& jsonString)
   std::lock_guard<std::mutex> lock(m_mutex);
   for (auto& socket : m_client_sockets) {
     if (socket != nullptr) {
-      int length = send(socket->socket, lineToSend.c_str(), static_cast<int>(lineToSend.length()), 0);
+      int length = send(socket->socket, lineToSend.c_str(), static_cast<int>(lineToSend.length()), MSG_NOSIGNAL);
       if (length != static_cast<int>(lineToSend.length())) {
         // Problem sending to this socket, close it.
         closesocket(socket->socket);
@@ -8015,7 +8015,7 @@ void JSONStringSenderTCP::ListenThread()
 
       // Write the header to the socket with a carriage return at its end.
       std::string msg = ANALYSIS_STREAM_HEADER + "\n";
-      int length = send(socket->socket, msg.c_str(), static_cast<int>(msg.length()), 0);
+      int length = send(socket->socket, msg.c_str(), static_cast<int>(msg.length()), MSG_NOSIGNAL);
       if (length != static_cast<int>(msg.length())) {
         continue;
       }
