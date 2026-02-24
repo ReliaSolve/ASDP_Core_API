@@ -124,7 +124,7 @@ static const unsigned char MAGIC_COOKIE[4] = { 'A', 'S', 'D', 'P' };
 // NOTE: The version number is in the form major.minor.patch, where the first and third are bytes and
 // the second is a 16-bit integer.  This is done to allow for a large number of minor versions.  The
 // 16-bit minor version value is stored in little-endian format.
-static const unsigned char VERSION[4] = { 8, 6,0, 0 };
+static const unsigned char VERSION[4] = { 8, 7,0, 0 };
 
 static std::string ANALYSIS_STREAM_HEADER = "[{\"Version\":\"01.000.000\"}";
 
@@ -449,6 +449,46 @@ static uint32_t MakeBroadcastAddress(uint32_t IP)
 
   // Or the inverted mask with the IP to find the return value.
   return IP | invertedMask;
+}
+
+/// @brief Read exactly `len` bytes from a blocking TCP socket into `buf`.
+/// @param [in] sock The socket to read from.
+/// @param [out] buf The buffer to read into. Must be at least `len` bytes long.
+/// @param [in] len The number of bytes to read.
+/// @return true if exactly len bytes were read, false on error or connection closed.
+static bool RecvAll(SOCKET sock, void* buf, size_t len)
+{
+  uint8_t* ptr = static_cast<uint8_t*>(buf);
+  size_t remaining = len;
+  while (remaining > 0) {
+    int r = recv(sock, reinterpret_cast<char*>(ptr), static_cast<int>(remaining), 0);
+    if (r > 0) {
+      ptr += r;
+      remaining -= static_cast<size_t>(r);
+      continue;
+    }
+    if (r == 0) {
+      // Connection closed by peer.
+      return false;
+    }
+    // r < 0, an error occurred.  On POSIX handle EINTR and retry.
+#ifndef ASDP_USE_WINSOCK_SOCKETS
+    if ((errno == EINTR) || (errno == EAGAIN) || (errno == EWOULDBLOCK)) {
+      // EINTR => retry; EAGAIN/EWOULDBLOCK should not normally happen on blocking sockets,
+      // but handle conservatively by yielding and retrying once.
+      std::this_thread::yield();
+      continue;
+    }
+#else
+    int wsaerr = WSAGetLastError();
+    if (wsaerr == WSAEINTR || wsaerr == WSAEWOULDBLOCK) {
+      std::this_thread::yield();
+      continue;
+    }
+#endif
+    return false;
+  }
+  return true;
 }
 
 //----------------------------------------------------------------------------
@@ -6175,12 +6215,7 @@ Status SenderReceiverTCP::ReceiveBuffer(uint8_t* buffer, size_t& size)
   }
 
   // Receive the data.
-  int length = recv(m_socket->socket, reinterpret_cast<char*>(buffer), size, 0);
-  if (length == SOCKET_ERROR) {
-    return SOCKET_READ_FAILURE;
-  }
-  if (length != size) {
-    size = length;
+  if (!RecvAll(m_socket->socket, buffer, size)) {
     return SOCKET_READ_FAILURE;
   }
 
@@ -6205,9 +6240,7 @@ Status SenderReceiverTCP::ReceiveCommandPacket(double timeout_seconds, std::shar
     return READ_PAST_END;
   }
   std::shared_ptr<std::vector<uint8_t>> buffer = std::make_shared<std::vector<uint8_t>>(m_maxLen);
-  int len = recv(m_socket->socket, reinterpret_cast<char*>(buffer->data()),
-    PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t), 0);
-  if (len != PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t)) {
+  if (!RecvAll(m_socket->socket, buffer->data(), PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t))) {
     return SOCKET_READ_FAILURE;
   }
 
@@ -6219,10 +6252,8 @@ Status SenderReceiverTCP::ReceiveCommandPacket(double timeout_seconds, std::shar
   }
 
   // Read the rest of the packet.
-  len = recv(m_socket->socket,
-    reinterpret_cast<char*>(buffer->data()) + PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t),
-    length - PACKET_HEADER_TOTAL_SIZE_OFFSET - sizeof(uint32_t), 0);
-  if (len != length - PACKET_HEADER_TOTAL_SIZE_OFFSET - sizeof(uint32_t)) {
+  if (!RecvAll(m_socket->socket, buffer->data() + PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t),
+      length - PACKET_HEADER_TOTAL_SIZE_OFFSET - sizeof(uint32_t))) {
     return SOCKET_READ_FAILURE;
   }
 
@@ -6267,9 +6298,7 @@ Status SenderReceiverTCP::ReceiveStreamPacket(double timeout_seconds, std::share
   if (m_maxLen < PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t)) {
     return WRITE_PAST_END;
   }
-  int len = recv(m_socket->socket, reinterpret_cast<char*>(buffer->data()),
-       PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t), 0);
-  if (len != PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t)) {
+  if (!RecvAll(m_socket->socket, buffer->data(), PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t))) {
     return SOCKET_READ_FAILURE;
   }
 
@@ -6281,10 +6310,8 @@ Status SenderReceiverTCP::ReceiveStreamPacket(double timeout_seconds, std::share
   }
 
   // Read the rest of the packet.
-  len = recv(m_socket->socket,
-       reinterpret_cast<char*>(buffer->data()) + PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t),
-       length - PACKET_HEADER_TOTAL_SIZE_OFFSET - sizeof(uint32_t), 0);
-  if (len != length - PACKET_HEADER_TOTAL_SIZE_OFFSET - sizeof(uint32_t)) {
+  if (!RecvAll(m_socket->socket, buffer->data() + PACKET_HEADER_TOTAL_SIZE_OFFSET + sizeof(uint32_t),
+    length - PACKET_HEADER_TOTAL_SIZE_OFFSET - sizeof(uint32_t))) {
     return SOCKET_READ_FAILURE;
   }
 
