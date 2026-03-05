@@ -270,10 +270,10 @@ def main():
 
         # Add four wide-field cameras, two on each side, each covering the half field of regard
         # on that side.  They have the same fields of view but are offset in space.  They point
-        # towards the center of the half field of regard.  They are mounted on the top of the
+        # towards the center of the half field of regard.  They are mounted on the bottom of the
         # camera ball and are not rotated -- they have a wider field of regard than tall.
         for angle in [ -rotationDegrees, rotationDegrees ]:
-            # The position is radial distance up and radial distance forward at rotationDegrees,
+            # The position is radial distance down and radial distance forward at rotationDegrees,
             # and then slid to the left or right (in its rotated frame) by half the radial distance.
             Z = args.radial
             forwardX = args.radial * math.sin(math.radians(-angle))
@@ -281,7 +281,7 @@ def main():
             leftX = forwardY / 2
             leftY = -forwardX / 2
 
-            for sign in [-1, 1]:
+            for sign in [1, -1]:
                 cam = {}
                 cam["id"] = camID
                 cam["fieldOfViewDegrees"] = [hFOR, vFOR]
