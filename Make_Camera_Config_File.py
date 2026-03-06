@@ -62,7 +62,7 @@ def nested_rotations(X1, Y1, Z1, X2, Y2, Z2):
     return euler_angles
 
 def main():
-    print("Make_Camera_Config_File.py version 2.2.0");
+    print("Make_Camera_Config_File.py version 3.0.0");
 
     parser = argparse.ArgumentParser(description="Generate a camera configuration file for a specified number of cameras.")
     parser.add_argument('--output', type=str, default='camConfig.json', help='Output JSON file name (default: camConfig.json)')
@@ -275,13 +275,13 @@ def main():
         for angle in [ -rotationDegrees, rotationDegrees ]:
             # The position is radial distance down and radial distance forward at rotationDegrees,
             # and then slid to the left or right (in its rotated frame) by half the radial distance.
-            Z = args.radial
-            forwardX = args.radial * math.sin(math.radians(-angle))
-            forwardY = args.radial * math.cos(math.radians(-angle))
+            Z = -args.radial
+            forwardX = args.radial * math.sin(math.radians(angle))
+            forwardY = args.radial * math.cos(math.radians(angle))
             leftX = forwardY / 2
             leftY = -forwardX / 2
 
-            for sign in [1, -1]:
+            for sign in [-1, 1]:
                 cam = {}
                 cam["id"] = camID
                 cam["fieldOfViewDegrees"] = [hFOR, vFOR]
@@ -291,6 +291,13 @@ def main():
                 cam["color"] = { "offset": args.color_offset, "gain": args.color_gain }
                 cam["orientationDegrees"] = [0, 0, angle]
                 cam["positionMeters"] = [forwardX + sign * leftX, forwardY + sign * leftY, Z]
+                if args.upside_down:
+                    # Rotate by 180 degrees around the Y axis.
+                    cam["orientationDegrees"] = [0, 180, -angle]
+                    pos = np.array([forwardX + sign * leftX, forwardY + sign * leftY, Z])
+                    pos = np.array([-pos[0], pos[1], -pos[2]])
+                    cam["positionMeters"] = [pos[0], pos[1], pos[2]]
+
 
                 # Generate the distortion data.  Make a very wide map to cover the field of view.
                 dMap = [ [0, 0], [10, 10] ]
