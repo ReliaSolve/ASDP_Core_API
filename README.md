@@ -15,7 +15,7 @@ systems could be used).  On Ubuntu Linux, this can be done as follows
     sudo apt install cmake
     cd; mkdir src; cd src; git clone https://github.com/arizonaCameraLab/ASDP_Core_API
     cd; mkdir -p build/ASDP_Core_API; cd build/ASDP_Core_API
-    cmake ../../src/ASDP_Core_API
+    cmake -DCMAKE_BUILD_TYPE=Release ../../src/ASDP_Core_API
     make
     sudo make install
 
