@@ -33,7 +33,7 @@ static void fixEndian(std::vector<uint16_t>& data) {
 
 void usage(const std::string& programName)
 {
-  std::cerr << "Usage: " << programName << "[--sequential] <filename> <imageBaseFileName>" << std::endl;
+  std::cerr << "Usage: " << programName << " [--sequential] <filename> <imageBaseFileName>" << std::endl;
   std::cerr << "  <filename> - The name of the file to parse." << std::endl;
   std::cerr << "  <imageBaseFileName> - The base name for the images to be saved." << std::endl;
 }
