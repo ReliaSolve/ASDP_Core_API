@@ -186,7 +186,13 @@ int main(int argc, char** argv)
               if (sequential) {
                 imageFileName = imageBaseFileName + "_" + std::to_string(frameNum++) + ".pgm";
               } else {
-                imageFileName = imageBaseFileName + "_" + std::to_string(time.seconds) + "_" + std::to_string(time.microseconds) + ".pgm";
+                // Construct strings for the seconds and microseconds, padding with zeros to make them fixed-width.
+                // This makes the file names sort in time order.
+                std::string secondsStr = std::to_string(time.seconds);
+                secondsStr = std::string(10 - secondsStr.length(), '0') + secondsStr;
+                std::string microsecondsStr = std::to_string(time.microseconds);
+                microsecondsStr = std::string(6 - microsecondsStr.length(), '0') + microsecondsStr;
+                imageFileName = imageBaseFileName + "_" + secondsStr + "_" + microsecondsStr + ".pgm";
               }
               imageBuffer.resize(int(imageWidth)* imageHeight);
               std::memset(imageBuffer.data(), 0, imageBuffer.size() * sizeof(uint16_t));
