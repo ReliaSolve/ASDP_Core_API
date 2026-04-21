@@ -272,6 +272,7 @@ def main():
         # use the computed FOR instead.
         hFOR = 110.0
         vFOR = 88.0
+        print(f"Used wFOV horizontal field of view: {hFOR}, vertical field of view: {vFOR}")
 
         # Add four wide-field cameras, two on each side, each covering the half field of regard
         # on that side.  They have the same fields of view but are offset in space.  They point
