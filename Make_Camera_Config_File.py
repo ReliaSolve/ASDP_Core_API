@@ -62,7 +62,7 @@ def nested_rotations(X1, Y1, Z1, X2, Y2, Z2):
     return euler_angles
 
 def main():
-    print("Make_Camera_Config_File.py version 3.0.0");
+    print("Make_Camera_Config_File.py version 3.1.0");
 
     parser = argparse.ArgumentParser(description="Generate a camera configuration file for a specified number of cameras.")
     parser.add_argument('--output', type=str, default='camConfig.json', help='Output JSON file name (default: camConfig.json)')
@@ -267,6 +267,11 @@ def main():
             vFOR = neededVFOR
             hFOR = 2*math.degrees(math.atan(math.tan(math.radians(vFOR/2) * args.pixels_x/args.pixels_y)))
             print(f"Adjusted horizontal field of regard: {hFOR}, vertical field of regard: {vFOR}")
+
+        # @todo We hard-coded the field of view to be the same as the wide-field cameras, but we could
+        # use the computed FOR instead.
+        hFOR = 110.0
+        vFOR = 88.0
 
         # Add four wide-field cameras, two on each side, each covering the half field of regard
         # on that side.  They have the same fields of view but are offset in space.  They point
