@@ -297,16 +297,21 @@ void StreamReceiverThread(std::string ip_address, uint16_t port, bool fast, std:
   size_t sequenceNumber = 0;
   if (fast) {
 #ifdef _WIN32
-    RIORESULT results[SEGMENTS];
+    const int BATCH = SEGMENTS;
+    RIORESULT results[BATCH];
     size_t consecutive_empty = 0;
     while (!done) {
       // Dequeue as many completions as available
-      ULONG n = rio.RIODequeueCompletion(cq, results, SEGMENTS);
+      ULONG n = rio.RIODequeueCompletion(cq, results, BATCH);
 
       if (n == RIO_CORRUPT_CQ) {
         std::cerr << "Corrupt completion queue detected" << std::endl;
         done = true;
         return;
+      }
+
+      if (n == BATCH) {
+        std::cout << "Warning: Dequeued maximum number of completions, may be missing packets." << std::endl;
       }
 
       if (n > 0) {
