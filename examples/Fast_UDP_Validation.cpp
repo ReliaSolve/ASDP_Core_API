@@ -174,6 +174,9 @@ void StreamReceiverThread(std::string ip_address, uint16_t port, bool fast, std:
   // Our buffers.
   char* buffer = nullptr;
 
+  // Event handle for notification-based completion
+  HANDLE completionEvent = nullptr;
+
   if (fast) {
     // Set thread priority ONLY for fast mode to reduce preemption
     // Don't set affinity - let OS scheduler handle core assignment for optimal performance
@@ -231,15 +234,29 @@ void StreamReceiverThread(std::string ip_address, uint16_t port, bool fast, std:
       return;
     }
 
-    // Construct our queues.
-    cq = rio.RIOCreateCompletionQueue(SEGMENTS, nullptr);
-    if (cq == RIO_INVALID_CQ) {
-      std::cerr << "Error creating RIO completion queue: " << WSAGetLastError() << std::endl;
+    // Create an event for completion notifications
+    completionEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+    if (completionEvent == nullptr) {
+      std::cerr << "Error creating completion event: " << GetLastError() << std::endl;
       done = true;
       return;
     }
-    /// @todo Consider connecting the socket to a specific remote sender so we can avoid overhead.
-    /// @todo The socket must be connected to a specific remote endpoint to use RIO.
+
+    // Create completion method with event notification
+    RIO_NOTIFICATION_COMPLETION completionType;
+    completionType.Type = RIO_EVENT_COMPLETION;
+    completionType.Event.EventHandle = completionEvent;
+    completionType.Event.NotifyReset = TRUE;
+
+    // Construct our queues with notification support
+    cq = rio.RIOCreateCompletionQueue(SEGMENTS, &completionType);
+    if (cq == RIO_INVALID_CQ) {
+      std::cerr << "Error creating RIO completion queue: " << WSAGetLastError() << std::endl;
+      CloseHandle(completionEvent);
+      done = true;
+      return;
+    }
+
     rq = rio.RIOCreateRequestQueue(
       sock,
       SEGMENTS, 1,        // max outstanding receives
@@ -298,6 +315,12 @@ void StreamReceiverThread(std::string ip_address, uint16_t port, bool fast, std:
       }
     }
 
+    // Request initial notification
+    if (rio.RIONotify(cq) != ERROR_SUCCESS) {
+      std::cerr << "Error requesting initial RIO notification: " << WSAGetLastError() << std::endl;
+      done = true;
+      return;
+    }
   }
 #endif
 
@@ -306,41 +329,52 @@ void StreamReceiverThread(std::string ip_address, uint16_t port, bool fast, std:
 #ifdef _WIN32
     const int BATCH = SEGMENTS;
     RIORESULT results[BATCH];
-    size_t consecutive_empty = 0;
-    while (!done) {
-      // Dequeue as many completions as available
-      ULONG n = rio.RIODequeueCompletion(cq, results, BATCH);
 
-      if (n == RIO_CORRUPT_CQ) {
-        std::cerr << "Corrupt completion queue detected" << std::endl;
+    while (!done) {
+      // Wait for the event to be signaled (with timeout for checking done flag)
+      DWORD waitResult = WaitForSingleObject(completionEvent, 100);  // 100ms timeout
+
+      if (waitResult == WAIT_FAILED) {
+        std::cerr << "WaitForSingleObject failed: " << GetLastError() << std::endl;
         done = true;
         return;
       }
 
-      if (n == BATCH) {
-        std::cout << "Warning: Dequeued maximum number of completions, may be missing packets." << std::endl;
+      if (waitResult == WAIT_TIMEOUT) {
+        // No completions ready, check done flag and loop
+        continue;
       }
 
-      if (n > 0) {
-        packets_received += n;
-        consecutive_empty = 0;
+      // Event was signaled, dequeue all available completions
+      ULONG n;
+      do {
+        n = rio.RIODequeueCompletion(cq, results, BATCH);
 
-        // Repost all receives immediately in a tight loop
-        for (ULONG i = 0; i < n; i++) {
-          int idx = (int)(uintptr_t)results[i].RequestContext;
-
-          // Process the packet here.
-
-          rio.RIOReceive(rq, &segments[idx].dataSeg, 1, 0, (PVOID)(uintptr_t)idx);
+        if (n == RIO_CORRUPT_CQ) {
+          std::cerr << "Corrupt completion queue detected" << std::endl;
+          done = true;
+          return;
         }
-      } else {
-        // Only yield after multiple consecutive empty dequeues to be more aggressive
-        // about not missing packets while still allowing CPUs to be free for the OS to receive
-        // packets when we're idle.
-        if (++consecutive_empty > 10) {
-          std::this_thread::yield();
-          consecutive_empty = 0;
+
+        if (n > 0) {
+          packets_received += n;
+
+          // Repost all receives immediately in a tight loop
+          for (ULONG i = 0; i < n; i++) {
+            int idx = (int)(uintptr_t)results[i].RequestContext;
+
+            // Process the packet here if needed.
+
+            rio.RIOReceive(rq, &segments[idx].dataSeg, 1, 0, (PVOID)(uintptr_t)idx);
+          }
         }
+      } while (n > 0);  // Keep dequeuing until the queue is empty
+
+      // Request notification for next batch of completions
+      if (rio.RIONotify(cq) != ERROR_SUCCESS) {
+        std::cerr << "Error requesting RIO notification: " << WSAGetLastError() << std::endl;
+        done = true;
+        return;
       }
     }
 #else
@@ -409,6 +443,11 @@ void StreamReceiverThread(std::string ip_address, uint16_t port, bool fast, std:
     // Note: The socket must be closed after the queues are closed and buffers are deregistered, or we will get an error.
     if (rq != RIO_INVALID_RQ) {
       closesocket(sock);
+    }
+
+    // Close the completion event
+    if (completionEvent != nullptr) {
+      CloseHandle(completionEvent);
     }
   }
 #endif
