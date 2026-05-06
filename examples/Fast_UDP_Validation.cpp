@@ -145,6 +145,7 @@ void StreamReceiverThread(std::string ip_address, uint16_t port, bool fast, std:
   size_t packets_received = 0;
 
 #ifdef _WIN32
+
   // Allocate these here outside of a fast block because we need them inside multiple fast blocks below.
   SOCKET sock;
   const int SEGMENT_SIZE = 9000;
@@ -174,6 +175,12 @@ void StreamReceiverThread(std::string ip_address, uint16_t port, bool fast, std:
   char* buffer = nullptr;
 
   if (fast) {
+    // Set thread priority ONLY for fast mode to reduce preemption
+    // Don't set affinity - let OS scheduler handle core assignment for optimal performance
+    if (!SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL)) {
+      std::cerr << "Warning: Failed to set thread priority: " << GetLastError() << std::endl;
+    }
+
     // Create NEW RIO socket
     sock = WSASocket(AF_INET, SOCK_DGRAM, IPPROTO_UDP, nullptr, 0, WSA_FLAG_REGISTERED_IO);
     if (sock == INVALID_SOCKET) {
