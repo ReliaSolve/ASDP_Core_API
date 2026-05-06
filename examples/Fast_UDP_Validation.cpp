@@ -150,41 +150,30 @@ void StreamReceiverThread(std::string ip_address, uint16_t port, bool fast, std:
   SOCKET sock;
   const int SEGMENT_SIZE = 9000;
   const int SEGMENTS = 512;
-  char* RIOBuffers = nullptr;   ///< Pointer to the memory for RIO buffers, if we're using RIO.
 
-  // Vector of RIO buffers for receiving data.  We pre-allocate them here to avoid the overhead of creating
-  // and destroying them at run time.  We pre-allocate a bunch.
+  // RIO variables
   RIO_BUFFERID rioBufferId = nullptr;
-
-  // The RIO function table, which we will use to call RIO functions if we're using
+  RIO_BUFFERID rioAddrId = nullptr;
   RIO_EXTENSION_FUNCTION_TABLE rio;
 
-  // The segments that we'll use to receive data.
   struct Segment {
     RIO_BUF dataSeg;
-    RIO_BUF addrSeg;
-    RIO_BUF ctrlSeg;
+    RIO_BUF addrSeg;  // Need this to get sender address from first packet
   };
   Segment segments[SEGMENTS];
 
-  // The Request and completion queues.
   RIO_CQ cq = RIO_INVALID_CQ;
   RIO_RQ rq = RIO_INVALID_RQ;
 
-  // Our buffers.
   char* buffer = nullptr;
-
-  // Event handle for notification-based completion
+  char* addrBuf = nullptr;
   HANDLE completionEvent = nullptr;
 
-  if (fast) {
-    // Set thread priority ONLY for fast mode to reduce preemption
-    // Don't set affinity - let OS scheduler handle core assignment for optimal performance
-    if (!SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL)) {
-      std::cerr << "Warning: Failed to set thread priority: " << GetLastError() << std::endl;
-    }
+  bool socket_connected = false;
 
-    // Create NEW RIO socket
+  if (fast) {
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+
     sock = WSASocket(AF_INET, SOCK_DGRAM, IPPROTO_UDP, nullptr, 0, WSA_FLAG_REGISTERED_IO);
     if (sock == INVALID_SOCKET) {
       std::cerr << "Error creating RIO socket: " << WSAGetLastError() << std::endl;
@@ -192,13 +181,9 @@ void StreamReceiverThread(std::string ip_address, uint16_t port, bool fast, std:
       return;
     }
 
-    // Increase the socket receive buffer size to handle high packet rates
-    int recvBufferSize = 16 * 1024 * 1024;  // 16 MB
-    if (setsockopt(sock, SOL_SOCKET, SO_RCVBUF, (char*)&recvBufferSize, sizeof(recvBufferSize)) != 0) {
-      std::cerr << "Warning: Failed to set socket receive buffer size: " << WSAGetLastError() << std::endl;
-    }
+    int recvBufferSize = 32 * 1024 * 1024;
+    setsockopt(sock, SOL_SOCKET, SO_RCVBUF, (char*)&recvBufferSize, sizeof(recvBufferSize));
 
-    // Bind the RIO socket to the specified port
     StreamEndpoint localEndpoint(ip_address, port);
     sockaddr_in addr;
     addr.sin_family = AF_INET;
@@ -206,125 +191,55 @@ void StreamReceiverThread(std::string ip_address, uint16_t port, bool fast, std:
     addr.sin_port = htons(port);
 
     if (bind(sock, (sockaddr*)&addr, sizeof(addr)) != 0) {
-      std::cerr << "Error binding RIO socket " << ip_address << ":" << port 
-                << ": " << WSAGetLastError() << std::endl;
+      std::cerr << "Error binding RIO socket: " << WSAGetLastError() << std::endl;
       closesocket(sock);
       done = true;
       return;
     }
 
-    // Continue with RIO setup...
     GUID rioGuid = WSAID_MULTIPLE_RIO;
-
     DWORD bytes = 0;
-    int r = WSAIoctl(
-      sock,
-      SIO_GET_MULTIPLE_EXTENSION_FUNCTION_POINTER,
-      &rioGuid,
-      sizeof(rioGuid),
-      &rio,
-      sizeof(rio),
-      &bytes,
-      nullptr,
-      nullptr
-    );
-    if (r != 0) {
-      std::cerr << "Error getting RIO function table: " << WSAGetLastError() << std::endl;
-      done = true;
-      return;
-    }
+    WSAIoctl(sock, SIO_GET_MULTIPLE_EXTENSION_FUNCTION_POINTER,
+             &rioGuid, sizeof(rioGuid), &rio, sizeof(rio), &bytes, nullptr, nullptr);
 
-    // Create an event for completion notifications
     completionEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
-    if (completionEvent == nullptr) {
-      std::cerr << "Error creating completion event: " << GetLastError() << std::endl;
-      done = true;
-      return;
-    }
-
-    // Create completion method with event notification
     RIO_NOTIFICATION_COMPLETION completionType;
     completionType.Type = RIO_EVENT_COMPLETION;
     completionType.Event.EventHandle = completionEvent;
     completionType.Event.NotifyReset = TRUE;
 
-    // Construct our queues with notification support
     cq = rio.RIOCreateCompletionQueue(SEGMENTS, &completionType);
-    if (cq == RIO_INVALID_CQ) {
-      std::cerr << "Error creating RIO completion queue: " << WSAGetLastError() << std::endl;
-      CloseHandle(completionEvent);
-      done = true;
-      return;
-    }
+    rq = rio.RIOCreateRequestQueue(sock, SEGMENTS, 1, 0, 1, cq, cq, nullptr);
 
-    rq = rio.RIOCreateRequestQueue(
-      sock,
-      SEGMENTS, 1,        // max outstanding receives
-      0, 1,               // max outstanding sends
-      cq,
-      cq,
-      nullptr
-    );
-    if (rq == RIO_INVALID_RQ) {
-      std::cerr << "Error creating RIO request queue: " << WSAGetLastError() << std::endl;
-      done = true;
-      return;
-    }
+    buffer = (char*)VirtualAlloc(nullptr, SEGMENT_SIZE * SEGMENTS, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    rioBufferId = rio.RIORegisterBuffer(buffer, SEGMENT_SIZE * SEGMENTS);
 
-    // Create a big RIO buffer for receiving data and register it with RIO.
-    buffer = (char*)VirtualAlloc(
-      nullptr,
-      SEGMENT_SIZE * SEGMENTS,
-      MEM_COMMIT | MEM_RESERVE,
-      PAGE_READWRITE
-    );
-    if (buffer == nullptr) {
-      std::cerr << "Error allocating data buffer: " << GetLastError() << std::endl;
-      done = true;
-      return;
-    }
-    rioBufferId = rio.RIORegisterBuffer(
-      buffer,
-      SEGMENT_SIZE * SEGMENTS
-    );
-    if (rioBufferId == RIO_INVALID_BUFFERID) {
-      std::cerr << "Error registering RIO buffer: " << WSAGetLastError() << std::endl;
-      done = true;
-      return;
-    }
+    // Allocate address buffer for getting sender info
+    const int ADDR_SIZE = 128;
+    addrBuf = (char*)VirtualAlloc(nullptr, SEGMENTS * ADDR_SIZE, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    rioAddrId = rio.RIORegisterBuffer(addrBuf, SEGMENTS * ADDR_SIZE);
 
-    // Allocate our segments.
     for (int i = 0; i < SEGMENTS; i++) {
       segments[i].dataSeg.BufferId = rioBufferId;
       segments[i].dataSeg.Offset = i * SEGMENT_SIZE;
       segments[i].dataSeg.Length = SEGMENT_SIZE;
+
+      segments[i].addrSeg.BufferId = rioAddrId;
+      segments[i].addrSeg.Offset = i * ADDR_SIZE;
+      segments[i].addrSeg.Length = ADDR_SIZE;
     }
 
-    // Post all of our receives to the queue.
+    // Post initial receives with address buffers so that we can get the sender
+    // address from them below.
     for (int i = 0; i < SEGMENTS; i++) {
-      if (!rio.RIOReceive(
-        rq,
-        &segments[i].dataSeg,   // pData
-        1,                       // DataBufferCount
-        0,                       // Flags
-        (PVOID)(uintptr_t)i     // RequestContext
-      )) {
-        std::cerr << "Error posting receive " << i << ": " << WSAGetLastError() << std::endl;
-        done = true;
-        return;
-      }
+      rio.RIOReceiveEx(rq, &segments[i].dataSeg, 1, nullptr, &segments[i].addrSeg,
+                       nullptr, nullptr, 0, (PVOID)(uintptr_t)i);
     }
 
-    // Request initial notification
-    if (rio.RIONotify(cq) != ERROR_SUCCESS) {
-      std::cerr << "Error requesting initial RIO notification: " << WSAGetLastError() << std::endl;
-      done = true;
-      return;
-    }
+    rio.RIONotify(cq);
   }
 #endif
 
-  size_t sequenceNumber = 0;
   if (fast) {
 #ifdef _WIN32
     const int BATCH = SEGMENTS;
@@ -359,96 +274,56 @@ void StreamReceiverThread(std::string ip_address, uint16_t port, bool fast, std:
         if (n > 0) {
           packets_received += n;
 
-          // Repost all receives immediately in a tight loop
-          for (ULONG i = 0; i < n; i++) {
-            int idx = (int)(uintptr_t)results[i].RequestContext;
+          // Connect socket after first packet
+          if (!socket_connected) {
+            int idx = (int)(uintptr_t)results[0].RequestContext;
+            sockaddr_in* senderAddr = (sockaddr_in*)(addrBuf + segments[idx].addrSeg.Offset);
 
-            // Process the packet here if needed.
+            if (connect(sock, (sockaddr*)senderAddr, sizeof(sockaddr_in)) == 0) {
+              socket_connected = true;
+              std::cout << "Socket connected to sender for optimized processing to "
+                << inet_ntoa(senderAddr->sin_addr) << ":" << ntohs(senderAddr->sin_port)
+                << std::endl;
 
-            rio.RIOReceive(rq, &segments[idx].dataSeg, 1, 0, (PVOID)(uintptr_t)idx);
+              // Now repost using RIOReceive (faster) instead of RIOReceiveEx
+              for (ULONG i = 0; i < n; i++) {
+                int idx = (int)(uintptr_t)results[i].RequestContext;
+                rio.RIOReceive(rq, &segments[idx].dataSeg, 1, 0, (PVOID)(uintptr_t)idx);
+              }
+            } else {
+              std::cerr << "Failed to connect socket: " << WSAGetLastError() << std::endl;
+              // Continue with RIOReceiveEx
+              for (ULONG i = 0; i < n; i++) {
+                int idx = (int)(uintptr_t)results[i].RequestContext;
+                rio.RIOReceiveEx(rq, &segments[idx].dataSeg, 1, nullptr, &segments[idx].addrSeg,
+                                 nullptr, nullptr, 0, (PVOID)(uintptr_t)idx);
+              }
+            }
+          } else {
+            // Socket already connected, use faster RIOReceive
+            for (ULONG i = 0; i < n; i++) {
+              int idx = (int)(uintptr_t)results[i].RequestContext;
+              rio.RIOReceive(rq, &segments[idx].dataSeg, 1, 0, (PVOID)(uintptr_t)idx);
+            }
           }
         }
-      } while (n > 0);  // Keep dequeuing until the queue is empty
+      } while (n > 0);
 
-      // Request notification for next batch of completions
-      if (rio.RIONotify(cq) != ERROR_SUCCESS) {
-        std::cerr << "Error requesting RIO notification: " << WSAGetLastError() << std::endl;
-        done = true;
-        return;
-      }
+      rio.RIONotify(cq);
     }
-#else
-    std::cerr << "Fast mode is only supported on Windows with RIO." << std::endl;
-    done = true;
-    return;
 #endif
-  } else {
-    std::shared_ptr<ReceiverUDP> receiverUDP = std::make_shared<ReceiverUDP>(ip_address, port);
-    if (receiverUDP->GetConstructorStatus() != OKAY) {
-      std::cerr << "Error constructing ReceiverUDP: " << ErrorMessage(receiverUDP->GetConstructorStatus()) << std::endl;
-      done = true;
-      return;
-    }
-
-    // Pool of buffers for receiving data and writing it to disk.  We pre-allocate them here to
-    // avoid the overhead of creating and destroying them at run time.  We pre-allocate a bunch,
-    // but more will be created as needed.  In fact, we should only really need 1-2 buffers
-    // because we recycle the buffer each time.
-    asdp::BufferPool bufferPool(9000, 10);
-
-    // Use a sorting queue to ensure that we process the messages in order even if the UDP packets
-    // arrive out of order.
-    StreamPacketSortedQueue sortedQueue(50);
-
-    size_t sequenceNumber = 0;
-    std::shared_ptr<asdp::StreamPacket> packet;
-    while (!done) {
-      // Get the next packet from the UDP receiver.
-      size_t offset = 0;
-      Status status = receiverUDP->ReceiveStreamPacket(10.0, packet, offset, bufferPool.GetBuffer());
-      if (status != asdp::OKAY) {
-        std::cerr << "Error receiving StreamPacket: " << ErrorMessage(status) << std::endl;
-        done = true;
-        return;
-      }
-
-      // Report out-of-order packets.
-      std::list< std::shared_ptr<StreamPacket> > readyPackets = sortedQueue.AddPacket(packet);
-      if (readyPackets.size() > 1) {
-        std::cerr << "Warning: More than one packet ready to process (re-ordered or missing packet)." << std::endl;
-      }
-      packets_received += readyPackets.size();
-    }
   }
 
-  // Free any RIO resources.
+  // Cleanup code...
 #ifdef _WIN32
   if (fast) {
-    // Close the completion queue
-    if (cq != RIO_INVALID_CQ) {
-      rio.RIOCloseCompletionQueue(cq);
-    }
-    
-    // Deregister buffers (after queues closed)
-    if (rioBufferId != RIO_INVALID_BUFFERID) {
-      rio.RIODeregisterBuffer(rioBufferId);
-    }
-    
-    // Free the virtual memory buffers (after deregistering)
-    if (buffer != nullptr) {
-      VirtualFree(buffer, 0, MEM_RELEASE);
-    }
-
-    // Close the socket.
-    // Note: The socket must be closed after the queues are closed and buffers are deregistered, or we will get an error.
-    if (rq != RIO_INVALID_RQ) {
-      closesocket(sock);
-    }
-
-    // Close the completion event
-    if (completionEvent != nullptr) {
-      CloseHandle(completionEvent);
-    }
+    if (cq != RIO_INVALID_CQ) rio.RIOCloseCompletionQueue(cq);
+    if (rioBufferId != RIO_INVALID_BUFFERID) rio.RIODeregisterBuffer(rioBufferId);
+    if (rioAddrId != RIO_INVALID_BUFFERID) rio.RIODeregisterBuffer(rioAddrId);
+    if (buffer) VirtualFree(buffer, 0, MEM_RELEASE);
+    if (addrBuf) VirtualFree(addrBuf, 0, MEM_RELEASE);
+    if (rq != RIO_INVALID_RQ) closesocket(sock);
+    if (completionEvent) CloseHandle(completionEvent);
   }
 #endif
 
