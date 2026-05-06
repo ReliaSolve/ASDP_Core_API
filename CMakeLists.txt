@@ -158,6 +158,7 @@ if(BUILD_EXAMPLES)
     Raw_Packet_Receiver
     Store_Raw_Camera_Stream
     JSONString_Client
+    Fast_UDP_Validation
   )
   foreach (BASE ${EXAMPLES})
     # C++ example
