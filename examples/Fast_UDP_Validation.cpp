@@ -148,7 +148,7 @@ void StreamReceiverThread(std::string ip_address, uint16_t port, bool fast, std:
   // Allocate these here outside of a fast block because we need them inside multiple fast blocks below.
   SOCKET sock;
   const int SEGMENT_SIZE = 9000;
-  const int SEGMENTS = 64;
+  const int SEGMENTS = 512;
   char* RIOBuffers = nullptr;   ///< Pointer to the memory for RIO buffers, if we're using RIO.
 
   // Vector of RIO buffers for receiving data.  We pre-allocate them here to avoid the overhead of creating
@@ -180,6 +180,12 @@ void StreamReceiverThread(std::string ip_address, uint16_t port, bool fast, std:
       std::cerr << "Error creating RIO socket: " << WSAGetLastError() << std::endl;
       done = true;
       return;
+    }
+
+    // Increase the socket receive buffer size to handle high packet rates
+    int recvBufferSize = 16 * 1024 * 1024;  // 16 MB
+    if (setsockopt(sock, SOL_SOCKET, SO_RCVBUF, (char*)&recvBufferSize, sizeof(recvBufferSize)) != 0) {
+      std::cerr << "Warning: Failed to set socket receive buffer size: " << WSAGetLastError() << std::endl;
     }
 
     // Bind the RIO socket to the specified port
@@ -292,30 +298,36 @@ void StreamReceiverThread(std::string ip_address, uint16_t port, bool fast, std:
   if (fast) {
 #ifdef _WIN32
     RIORESULT results[SEGMENTS];
+    size_t consecutive_empty = 0;
     while (!done) {
-      // Get any new packets from the queue and then re-post the receives.
+      // Dequeue as many completions as available
       ULONG n = rio.RIODequeueCompletion(cq, results, SEGMENTS);
-      packets_received += n;
 
-      for (ULONG i = 0; i < n; i++) {
-        int idx = (int)(uintptr_t)results[i].RequestContext;
+      if (n == RIO_CORRUPT_CQ) {
+        std::cerr << "Corrupt completion queue detected" << std::endl;
+        done = true;
+        return;
+      }
 
-        char* pkt = buffer + segments[idx].dataSeg.Offset;
-        int   len = results[i].BytesTransferred;
+      if (n > 0) {
+        packets_received += n;
+        consecutive_empty = 0;
 
-        // process packet here...
+        // Repost all receives immediately in a tight loop
+        for (ULONG i = 0; i < n; i++) {
+          int idx = (int)(uintptr_t)results[i].RequestContext;
 
-        // repost
-        if (!rio.RIOReceive(
-          rq,
-          &segments[idx].dataSeg,
-          1,
-          0,
-          (PVOID)(uintptr_t)idx
-        )) {
-          std::cerr << "Error reposting receive " << idx << ": " << WSAGetLastError() << std::endl;
-          done = true;
-          return;
+          // Process the packet here.
+
+          rio.RIOReceive(rq, &segments[idx].dataSeg, 1, 0, (PVOID)(uintptr_t)idx);
+        }
+      } else {
+        // Only yield after multiple consecutive empty dequeues to be more aggressive
+        // about not missing packets while still allowing CPUs to be free for the OS to receive
+        // packets when we're idle.
+        if (++consecutive_empty > 10) {
+          std::this_thread::yield();
+          consecutive_empty = 0;
         }
       }
     }
