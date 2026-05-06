@@ -145,6 +145,7 @@ void StreamReceiverThread(std::string ip_address, uint16_t port, bool fast, std:
   size_t packets_received = 0;
 
 #ifdef _WIN32
+  // Allocate these here outside of a fast block because we need them inside multiple fast blocks below.
   SOCKET sock;
   const int SEGMENT_SIZE = 9000;
   const int SEGMENTS = 64;
@@ -152,7 +153,7 @@ void StreamReceiverThread(std::string ip_address, uint16_t port, bool fast, std:
 
   // Vector of RIO buffers for receiving data.  We pre-allocate them here to avoid the overhead of creating
   // and destroying them at run time.  We pre-allocate a bunch.
-  RIO_BUFFERID rioBufferId = nullptr, rioAddrId = nullptr, rioCtrlId = nullptr;
+  RIO_BUFFERID rioBufferId = nullptr;
 
   // The RIO function table, which we will use to call RIO functions if we're using
   RIO_EXTENSION_FUNCTION_TABLE rio;
@@ -171,8 +172,6 @@ void StreamReceiverThread(std::string ip_address, uint16_t port, bool fast, std:
 
   // Our buffers.
   char* buffer = nullptr;
-  char* addrBuf = nullptr;
-  char* ctrlBuf = nullptr;
 
   if (fast) {
     // Create NEW RIO socket
@@ -184,11 +183,11 @@ void StreamReceiverThread(std::string ip_address, uint16_t port, bool fast, std:
     }
 
     // Bind the RIO socket to the specified port
+    StreamEndpoint localEndpoint(ip_address, port);
     sockaddr_in addr;
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-    StreamEndpoint localEndpoint(ip_address, port);
     addr.sin_addr.s_addr = htonl(localEndpoint.IP);
+    addr.sin_port = htons(port);
 
     if (bind(sock, (sockaddr*)&addr, sizeof(addr)) != 0) {
       std::cerr << "Error binding RIO socket " << ip_address << ":" << port 
@@ -249,6 +248,11 @@ void StreamReceiverThread(std::string ip_address, uint16_t port, bool fast, std:
       MEM_COMMIT | MEM_RESERVE,
       PAGE_READWRITE
     );
+    if (buffer == nullptr) {
+      std::cerr << "Error allocating data buffer: " << GetLastError() << std::endl;
+      done = true;
+      return;
+    }
     rioBufferId = rio.RIORegisterBuffer(
       buffer,
       SEGMENT_SIZE * SEGMENTS
@@ -259,71 +263,26 @@ void StreamReceiverThread(std::string ip_address, uint16_t port, bool fast, std:
       return;
     }
 
-    // Create buffers for our address and control data.
-    const int ADDR_SIZE = sizeof(sockaddr_in);
-    addrBuf = (char*)VirtualAlloc(nullptr, SEGMENTS * ADDR_SIZE,
-      MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-    if (addrBuf == nullptr) {
-      std::cerr << "Error allocating address buffer: " << GetLastError() << std::endl;
-      done = true;
-      return;
-    }
-    rioAddrId = rio.RIORegisterBuffer(
-      addrBuf,
-      SEGMENTS * ADDR_SIZE
-    );
-    if (rioAddrId == RIO_INVALID_BUFFERID) {
-      std::cerr << "Error registering RIO address buffer: " << WSAGetLastError() << std::endl;
-      done = true;
-      return;
-    }
-
-    const int CTRL_SIZE = 256;
-    ctrlBuf = (char*)VirtualAlloc(nullptr, SEGMENTS * CTRL_SIZE,
-      MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-    if (ctrlBuf == nullptr) {
-      std::cerr << "Error allocating control buffer: " << GetLastError() << std::endl;
-      done = true;
-      return;
-    }
-    rioCtrlId = rio.RIORegisterBuffer(
-      ctrlBuf,
-      SEGMENTS * CTRL_SIZE
-    );
-    if (rioCtrlId == RIO_INVALID_BUFFERID) {
-      std::cerr << "Error registering RIO control buffer: " << WSAGetLastError() << std::endl;
-      done = true;
-      return;
-    }
-
     // Allocate our segments.
     for (int i = 0; i < SEGMENTS; i++) {
       segments[i].dataSeg.BufferId = rioBufferId;
       segments[i].dataSeg.Offset = i * SEGMENT_SIZE;
       segments[i].dataSeg.Length = SEGMENT_SIZE;
-
-      segments[i].addrSeg.BufferId = rioAddrId;
-      segments[i].addrSeg.Offset = i * sizeof(sockaddr_in);
-      segments[i].addrSeg.Length = sizeof(sockaddr_in);
-
-      segments[i].ctrlSeg.BufferId = rioCtrlId;
-      segments[i].ctrlSeg.Offset = i * CTRL_SIZE;
-      segments[i].ctrlSeg.Length = CTRL_SIZE;
     }
 
     // Post all of our receives to the queue.
     for (int i = 0; i < SEGMENTS; i++) {
-      rio.RIOReceiveEx(
+      if (!rio.RIOReceive(
         rq,
-        &segments[i].dataSeg,   // data
-        1,
-        &segments[i].addrSeg,   // address
-        &segments[i].ctrlSeg,   // control
-        nullptr,
-        nullptr,
-        0,
-        (PVOID)(uintptr_t)i
-      );
+        &segments[i].dataSeg,   // pData
+        1,                       // DataBufferCount
+        0,                       // Flags
+        (PVOID)(uintptr_t)i     // RequestContext
+      )) {
+        std::cerr << "Error posting receive " << i << ": " << WSAGetLastError() << std::endl;
+        done = true;
+        return;
+      }
     }
 
   }
@@ -334,35 +293,30 @@ void StreamReceiverThread(std::string ip_address, uint16_t port, bool fast, std:
 #ifdef _WIN32
     RIORESULT results[SEGMENTS];
     while (!done) {
-      // Get the next packet from the queue and then re-post the receive.
+      // Get any new packets from the queue and then re-post the receives.
       ULONG n = rio.RIODequeueCompletion(cq, results, SEGMENTS);
-      if (n == 0) {
-        // No completions ready, sleep briefly
-        std::this_thread::sleep_for(std::chrono::microseconds(100));
-        continue;
-      }
+      packets_received += n;
+
       for (ULONG i = 0; i < n; i++) {
         int idx = (int)(uintptr_t)results[i].RequestContext;
 
         char* pkt = buffer + segments[idx].dataSeg.Offset;
         int   len = results[i].BytesTransferred;
 
-        sockaddr_in* src = (sockaddr_in*)(addrBuf + segments[idx].addrSeg.Offset);
         // process packet here...
-        packets_received++;
 
         // repost
-        rio.RIOReceiveEx(
+        if (!rio.RIOReceive(
           rq,
           &segments[idx].dataSeg,
           1,
-          &segments[idx].addrSeg,
-          &segments[idx].ctrlSeg,
-          nullptr,
-          nullptr,
           0,
           (PVOID)(uintptr_t)idx
-        );
+        )) {
+          std::cerr << "Error reposting receive " << idx << ": " << WSAGetLastError() << std::endl;
+          done = true;
+          return;
+        }
       }
     }
 #else
@@ -421,22 +375,10 @@ void StreamReceiverThread(std::string ip_address, uint16_t port, bool fast, std:
     if (rioBufferId != RIO_INVALID_BUFFERID) {
       rio.RIODeregisterBuffer(rioBufferId);
     }
-    if (rioAddrId != RIO_INVALID_BUFFERID) {
-      rio.RIODeregisterBuffer(rioAddrId);
-    }
-    if (rioCtrlId != RIO_INVALID_BUFFERID) {
-      rio.RIODeregisterBuffer(rioCtrlId);
-    }
     
     // Free the virtual memory buffers (after deregistering)
     if (buffer != nullptr) {
       VirtualFree(buffer, 0, MEM_RELEASE);
-    }
-    if (addrBuf != nullptr) {
-      VirtualFree(addrBuf, 0, MEM_RELEASE);
-    }
-    if (ctrlBuf != nullptr) {
-      VirtualFree(ctrlBuf, 0, MEM_RELEASE);
     }
 
     // Close the socket.
