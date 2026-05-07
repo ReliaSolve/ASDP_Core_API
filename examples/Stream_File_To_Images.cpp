@@ -33,15 +33,21 @@ static void fixEndian(std::vector<uint16_t>& data) {
 
 void usage(const std::string& programName)
 {
-  std::cerr << "Usage: " << programName << " [--sequential] <filename> <imageBaseFileName>" << std::endl;
+  std::cerr << "Usage: " << programName << " [--sequential] [--autoScale] [--scaleStd <low> <high>] <filename> <imageBaseFileName>" << std::endl;
   std::cerr << "  <filename> - The name of the file to parse." << std::endl;
   std::cerr << "  <imageBaseFileName> - The base name for the images to be saved." << std::endl;
+  std::cerr << "  --sequential - Use sequential numbering for the image file names instead of time-based names." << std::endl;
+  std::cerr << "  --autoScale - Automatically scale the pixel values in the image so that the specified number of standard deviations below the mean is 0 and the specified number of standard deviations above the mean is 65535." << std::endl;
+  std::cerr << "  --scaleStd <low> <high> - When auto-scaling, the number of standard deviations below the mean to map to 0 and above the mean to map to 65535.  The default is 1.5 and 1.5." << std::endl;
 }
 
 int main(int argc, char** argv)
 {
   std::string fileName, imageBaseFileName;
   bool sequential = false;
+  bool autoScale = false;
+  double scaleStdLow = 1.5;
+  double scaleStdHigh = 1.5;
   int frameNum = 0;
   size_t realParams = 0;
 
@@ -50,6 +56,15 @@ int main(int argc, char** argv)
   for (int i = 1; i < argc; ++i) {
     if (strcmp(argv[i], "--sequential") == 0) {
       sequential = true;
+    } else if (strcmp(argv[i], "--autoScale") == 0) {
+      autoScale = true;
+    } else if (strcmp(argv[i], "--scaleStd") == 0) {
+      if (i + 2 >= argc) {
+        usage(argv[0]);
+        return 1;
+      }
+      scaleStdLow = std::stod(argv[++i]);
+      scaleStdHigh = std::stod(argv[++i]);
     } else if (argv[i][0] == '-' ) {
       std::cerr << "Unknown flag: " << argv[i] << std::endl;
       return 1;
@@ -184,7 +199,11 @@ int main(int argc, char** argv)
             // Generate the image file name and construct the storage for the image.
             if (isBeginFrame) {
               if (sequential) {
-                imageFileName = imageBaseFileName + "_" + std::to_string(frameNum++) + ".pgm";
+                // Pad with zeroes to make the frame number fixed-width.  This makes the file names sort in time order.
+                std::string numberStr = std::to_string(frameNum);
+                numberStr = std::string(6 - numberStr.length(), '0') + numberStr;
+                imageFileName = imageBaseFileName + "_" + numberStr + ".pgm";
+                frameNum++;
               } else {
                 // Construct strings for the seconds and microseconds, padding with zeros to make them fixed-width.
                 // This makes the file names sort in time order.
@@ -244,6 +263,31 @@ int main(int argc, char** argv)
 
             // If we have an image name and this is the end of the frame, write the image to the file.
             if (isEndFrame && !imageFileName.empty()) {
+              // If we've been asked to auto-gain the image, find the mean and standard deviation of the
+              // pixels values and scale so that the specified number of standard deviations below the mean is 0 and
+              // the specified number of standard deviations above the mean is 65535.
+              if (autoScale) {
+                double sum = 0;
+                double sumSquares = 0;
+                size_t count = 0;
+                for (uint16_t value : imageBuffer) {
+                  sum += value;
+                  sumSquares += value * value;
+                  count++;
+                }
+                double mean = sum / count;
+                double stddev = sqrt(sumSquares / count - mean * mean);
+                double scale = 65535 / ((scaleStdHigh + scaleStdLow) * stddev);
+#pragma omp parallel for
+                for (uint16_t& value : imageBuffer) {
+                  int scaledValue = int((value - mean + scaleStdLow * stddev) * scale);
+                  if (scaledValue < 0) scaledValue = 0;
+                  if (scaledValue > 65535) scaledValue = 65535;
+                  value = uint16_t(scaledValue);
+                }
+              }
+
+              // Write the image.
               std::cout << "  Writing image to " << imageFileName << std::endl;
               fixEndian(imageBuffer);
               FILE *f = fopen(imageFileName.c_str(), "wb");
