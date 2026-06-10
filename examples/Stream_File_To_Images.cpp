@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <chrono>
 #include <cstring>
+#include <cmath>
 #include <ASDP_Core_API.h>
 
 using namespace asdp;

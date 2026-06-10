@@ -5,13 +5,13 @@
 # laptop Thunderbolt connection.
 
 # Enable jumbo packets on each interface
-sudo ifconfig enp62s0f0np0 mtu 9000
-sudo ifconfig enp62s0f1np1 mtu 9000
+sudo ifconfig enp8s0f0np0: mtu 9000
+sudo ifconfig enp8s0f1np1: mtu 9000
 
 # Set the link speed to 50Gbits full duplex
 echo "One of the following commands will fail, only one is connected"
-sudo ethtool -s enp62s0f0np0 speed 50000 duplex full autoneg off
-sudo ethtool -s enp62s0f1np1 speed 50000 duplex full autoneg off
+#sudo ethtool -s enp62s0f0np0 speed 50000 duplex full autoneg off
+#sudo ethtool -s enp62s0f1np1 speed 50000 duplex full autoneg off
 
 # Set the global receive buffer size larger
 sudo sysctl -w net.core.rmem_max=26214400

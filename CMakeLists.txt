@@ -168,9 +168,9 @@ if(BUILD_EXAMPLES)
     )
     set_target_properties(${APP} PROPERTIES FOLDER examples/C++)
     target_link_libraries(${APP} ASDP_Core_API)
-    install(TARGETS ${APP} EXPORT ${PROJECT_NAME}
-      RUNTIME DESTINATION bin
-    )
+    #install(TARGETS ${APP} EXPORT ${PROJECT_NAME}
+    #  RUNTIME DESTINATION bin
+    #)
   endforeach (BASE)
 
 endif(BUILD_EXAMPLES)
