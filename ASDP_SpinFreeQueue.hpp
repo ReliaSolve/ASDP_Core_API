@@ -40,7 +40,7 @@ public:
   /// @brief Enqueues a data item in a thread-safe way.
   void enqueue(T data) {
     Node* new_node = new Node;
-    new_node->data = data;
+    new_node->data = std::move(data);
     new_node->next = nullptr;
     { // Hold the lock for as short a time as possible
       std::lock_guard<std::mutex> lk(mut);
