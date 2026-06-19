@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025: Arizona Board of Regents on Behalf of the University of Arizona
+ * Copyright (C) 2025-2026: Arizona Board of Regents on Behalf of the University of Arizona
  */
 
 // This is a client that connects to the first server it encounters and stores the raw UDP
@@ -108,12 +108,14 @@ void usage(std::string progName)
   std::cerr << "  Options:" << std::endl;
   std::cerr << "    --help: Print this message." << std::endl;
   std::cerr << "    --specifyPortWithoutListening <port>: Specify the UDP port to listen on without opening it (used to drive tcpdump)." << std::endl;
+  std::cerr << "    --skipFrames <num> : Skip <num> frames between each received frame (default 0 means get all frames)." << std::endl;
 }
 
 int main(int argc, char** argv)
 {
   std::string ip_address, dump_file;
   int tcpdumpPort = 0;
+  int skipFrames = 0;
   size_t realParams = 0;
 
   // Parse the command line arguments, with the first non-flag argument being the
@@ -132,6 +134,18 @@ int main(int argc, char** argv)
       tcpdumpPort = std::stoi(argv[++i]);
       if ((tcpdumpPort < 1) || (tcpdumpPort > 65535)) {
         std::cerr << "Invalid port number: " << tcpdumpPort << std::endl;
+        usage(argv[0]);
+        return 1;
+      }
+    } else if (argv[i] == std::string("--skipFrames")) {
+      if (i + 1 >= argc) {
+        std::cerr << "--skipFrames requires a number argument" << std::endl;
+        usage(argv[0]);
+        return 1;
+      }
+      skipFrames = std::stoi(argv[++i]);
+      if (skipFrames < 0) {
+        std::cerr << "Invalid number of frames to skip: " << skipFrames << std::endl;
         usage(argv[0]);
         return 1;
       }
@@ -306,7 +320,7 @@ int main(int argc, char** argv)
     StreamEndpoint endpoint(ip_address, port);
     SubregionDescription region;
     region.cameraID = camID;
-    region.skipFrames = 0;
+    region.skipFrames = skipFrames;
     region.startTimeSeconds = 0;
     region.startTimeMicroseconds = 0;
     region.left = 0;
