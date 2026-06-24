@@ -1,12 +1,8 @@
-# Copyright (C) 2024: Arizona Board of Regents on Behalf of the University of Arizona
+# Copyright (C) 2026: Arizona Board of Regents on Behalf of the University of Arizona
 #
-# Script to generate a camera configuration file for a specified number of cameras.
-# This generates a JSON file with the camera configuration information.  It defaults to a
-# 21-camera standard configuration with expected camera poses and resolutions for an IR
-# camera array.
-#
-# Options allow the generation of fields to drive simulation, including distortion correction.
-# They also allow the generation of an additional 4 wide-field cameras for a total of 25 cameras.
+# Script to flip a camera configuration file, rotating the entire system by 180 degrees
+# around the camera's origin. This is useful when a camera must be calibrated mounted
+# upside-down on a platform but then mounted right-side-up in use.
 
 import builtins
 import json
