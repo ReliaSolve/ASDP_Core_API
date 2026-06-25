@@ -295,6 +295,13 @@ int main(int argc, char** argv)
     }
   }
 
+  std::cout << "Requesting pose data." << std::endl; 
+  status = client.SendCommandPacket(CommandPacketStreamPoses()); 
+  if (status != OKAY) { 
+    std::cerr << "Failed to request pose data: " << ErrorMessage(status) << std::endl; 
+    return 36; 
+  } 
+
   // Stop if it has been durationSeconds since we started.
   start = std::chrono::steady_clock::now();
   std::shared_ptr<StreamPacket> response;
@@ -317,7 +324,7 @@ int main(int argc, char** argv)
         return 11;
       }
       std::cout << " (rotation: [" << rotation[0] << ", " << rotation[1] << ", " << rotation[2]
-        << "], rotVel: [" << rotVel[0] << ", " << rotVel[1] << ", " << rotVel[2] << "])";
+        << "], rotVel: [" << rotVel[0] << ", " << rotVel[1] << ", " << rotVel[2] << "])" << std::endl;
     }
   }
 
