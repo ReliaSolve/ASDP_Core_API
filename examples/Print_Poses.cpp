@@ -139,7 +139,7 @@ void usage(const char* name)
 
 int main(int argc, char** argv)
 {
-  float durationSeconds = 30;   ///< Run for this many seconds
+  float durationSeconds = 3e10;   ///< Run for this many seconds
   std::string ip_address;
   int serial = -1;
   size_t realParams = 0;
@@ -325,6 +325,10 @@ int main(int argc, char** argv)
       }
       std::cout << " (rotation: [" << rotation[0] << ", " << rotation[1] << ", " << rotation[2]
         << "], rotVel: [" << rotVel[0] << ", " << rotVel[1] << ", " << rotVel[2] << "])" << std::endl;
+    }
+
+    if (std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count() >= durationSeconds) {
+      done = true;
     }
   }
 
