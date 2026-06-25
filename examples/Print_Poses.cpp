@@ -231,7 +231,7 @@ int main(int argc, char** argv)
 
   // Connect to the server found.
   uint16_t major, minor, patch;
-  status = client.ConnectToServer(servers[0], major, minor, patch);
+  status = client.ConnectToServer(servers.begin()->second, major, minor, patch);
   if (status != OKAY) {
     std::cerr << "Failed to connect to server: " << ErrorMessage(status) << std::endl;
     return 8;
