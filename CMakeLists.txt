@@ -158,6 +158,7 @@ if(BUILD_EXAMPLES)
     Raw_Packet_Receiver
     Store_Raw_Camera_Stream
     JSONString_Client
+    Print_Poses
   )
   foreach (BASE ${EXAMPLES})
     # C++ example
