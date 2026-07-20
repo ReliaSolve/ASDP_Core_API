@@ -4,7 +4,11 @@ OUTPUT_DIRECTORY       = "@CMAKE_CURRENT_BINARY_DIR@/doc_doxygen/"
 INPUT                  = "@CMAKE_CURRENT_SOURCE_DIR@/" "@CMAKE_CURRENT_SOURCE_DIR@/docs"
 EXAMPLE_PATH           = "@CMAKE_CURRENT_SOURCE_DIR@/examples" "@CMAKE_CURRENT_SOURCE_DIR@/tests_cpp"
 IMAGE_PATH             = "@CMAKE_CURRENT_SOURCE_DIR@/docs"
-HTML_EXTRA_FILES       = "@CMAKE_CURRENT_SOURCE_DIR@/docs/TR-006_Software_Architecture.pdf" "@CMAKE_CURRENT_SOURCE_DIR@/docs/TR-009_Core_API_Implementations.pdf" "@CMAKE_CURRENT_SOURCE_DIR@/docs/TR-003_Camera_Distortion.pdf" "@CMAKE_CURRENT_SOURCE_DIR@/docs/TR-004_System_Architecture.pdf""
+HTML_EXTRA_FILES       = "@CMAKE_CURRENT_SOURCE_DIR@/docs/TR-006_Software_Architecture.pdf"\
+                         "@CMAKE_CURRENT_SOURCE_DIR@/docs/TR-009_Core_API_Implementations.pdf"\
+                         "@CMAKE_CURRENT_SOURCE_DIR@/docs/TR-003_Camera_Distortion.pdf"\
+                         "@CMAKE_CURRENT_SOURCE_DIR@/docs/TR-004_System_Architecture.pdf"\
+                         "@CMAKE_CURRENT_SOURCE_DIR@/docs/TR-017_System_Tuning.pdf"
 GENERATE_HTML          = YES
 GENERATE_LATEX         = NO
 RECURSIVE = YES

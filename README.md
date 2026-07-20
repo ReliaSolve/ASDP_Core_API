@@ -13,6 +13,7 @@ The docs/ directory contains additional documentation, including the following:
 - [ASDP System Architecture](./TR-004_System_Architecture.pdf)
 - [ASDP Software Architecture](./TR-006_Software_Architecture.pdf)
 - [ASDP API Implementation](./TR-009_Core_API_Implementations.pdf)
+- [System tuning](./TR-017_System_Tuning.pdf)
 
 ## Getting Started
 
