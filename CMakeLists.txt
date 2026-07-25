@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.18.0)
+cmake_minimum_required(VERSION 3.17.0)
 project(ASDP_Core_API LANGUAGES CXX)
 
 #-----------------------------------------------------------------------------
@@ -147,8 +147,8 @@ if(BUILD_EXAMPLES)
     Base_Validating_Client
     Storage_Validating_Client
     Base_Server
-    Speed_Test_Sender
-    Speed_Test_Receiver
+#    Speed_Test_Sender
+#    Speed_Test_Receiver
     Image_Saving_Client
     Stream_File_Parser
     Core_Module_Stream_Test
