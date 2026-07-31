@@ -7289,10 +7289,10 @@ Status CoreClient::GetMyIP(uint32_t& IP) const
     return m_constructorStatus;
   }
 
+  std::lock_guard<std::mutex> lock(m_mutex);
   if (m_stream == nullptr) {
     return NOT_CONNECTED;
   }
-
   IP = m_IP;
   return OKAY;
 }
@@ -7301,6 +7301,7 @@ Status CoreClient::GetMainStreamReceiver(std::shared_ptr<Receiver>& receiver) co
 {
   // Reset in case of failure.
   receiver.reset();
+  std::lock_guard<std::mutex> lock(m_mutex);
   if (m_stream == nullptr) {
     return NOT_CONNECTED;
   }
@@ -7408,14 +7409,14 @@ Status CoreClient::DisconnectFromServer()
 
 Status CoreClient::SendCommandPacket(const CommandPacket& packet)
 {
+  std::lock_guard<std::mutex> lock(m_mutex);
   if (m_constructorStatus != OKAY) {
     return m_constructorStatus;
   }
+
   if (m_stream == nullptr) {
     return NOT_CONNECTED;
   }
-
-  std::lock_guard<std::mutex> lock(m_mutex);
   return m_stream->SendCommandPacket(packet);
 }
 
