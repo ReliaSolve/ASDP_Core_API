@@ -53,7 +53,7 @@ public:
       }
       nodes++;
     }
-    dcv.notify_one();
+    dcv.notify_all();
   }
 
   /// @brief Waits for the queue to be reduced to a specified size with a timeout.
