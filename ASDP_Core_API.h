@@ -2484,8 +2484,8 @@ protected:
     /// @param [in] writer StreamWriter to use to talk with the client.
     ClientState(std::shared_ptr<ClientInfo> client, std::shared_ptr<StreamWriter> writer)
       : m_client(client), m_writer(writer)
-      , m_clockPeriod(0.1), m_lastClockSent({ 0, 0 })
-      , m_statePeriod(0.5), m_lastStateSent({ 0, 0 }), m_eventVerbosity(0)
+      , m_clockPeriod(0.1f), m_lastClockSent({ 0, 0 })
+      , m_statePeriod(0.5f), m_lastStateSent({ 0, 0 }), m_eventVerbosity(0)
       , m_streamingTemperatures(false), m_streamingPoses(false) {};
 
     /// @brief Equality operator just judges by the client pointer
